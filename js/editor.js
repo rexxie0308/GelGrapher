@@ -82,7 +82,7 @@
       ctx.strokeStyle = '#0e8f8f'; ctx.lineWidth = hov ? 2.4 : 1.4; ctx.setLineDash([6, 3]);
       ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y); ctx.setLineDash([]);
       // name just above the strip's top right corner, outside the crop (band-box names sit beside their box)
-      const t1 = G.L('分条', 'Strip') + ' ' + (k + 1) + (t.label ? ': ' + t.label : '');
+      const t1 = 'Strip' + ' ' + (k + 1) + (t.label ? ': ' + t.label : '');
       ctx.textAlign = 'right'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
       ctx.strokeText(t1, p1.x - 4, p0.y - 5); ctx.fillStyle = '#0b6e6e'; ctx.fillText(t1, p1.x - 4, p0.y - 5);
     });
@@ -97,7 +97,7 @@
         const x0 = toScr(S.lanes[i].x - qhw, 0).x, x1 = toScr(S.lanes[i].x + qhw, 0).x;
         ctx.fillRect(x0, ya, x1 - x0, yb - ya); ctx.strokeRect(x0, ya, x1 - x0, yb - ya);
       });
-      const t2 = r.name || G.L(`条带 ${k + 1}`, `Band ${k + 1}`);
+      const t2 = r.name || `Band ${k + 1}`;
       ctx.textAlign = 'left'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
       ctx.strokeText(t2, b.x + 8, (ya + yb) / 2 + 4); ctx.fillStyle = ctl ? '#5c6900' : '#14713a'; ctx.fillText(t2, b.x + 8, (ya + yb) / 2 + 4);
     });
@@ -191,7 +191,7 @@
       ctx.fillStyle = '#c026d3';
       ctx.beginPath(); ctx.moveTo(b.x + 2, y); ctx.lineTo(b.x + 13, y - 5.5); ctx.lineTo(b.x + 13, y + 5.5); ctx.fill();
       const est = App.estimateBp(ar.y);
-      const t = (ar.text || G.L('箭头', 'Arrow')) + (est ? `  ≈${App.fmtSize(est)}` : '');
+      const t = (ar.text || 'Arrow') + (est ? `  ≈${App.fmtSize(est)}` : '');
       const tw = ctx.measureText(t).width;
       ctx.fillStyle = 'rgba(192,38,211,.12)';
       roundRect(ctx, b.x + 17, y - 9, tw + 12, 18, 6); ctx.fill();

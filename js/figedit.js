@@ -3,7 +3,7 @@
  * and the "place arrow" mode (click a band in either view). */
 (function (G) {
   'use strict';
-  const App = G.App, L = G.L, $ = id => document.getElementById(id);
+  const App = G.App, $ = id => document.getElementById(id);
   const S = () => App.S;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -14,10 +14,10 @@
   function setMode(m) {
     App.mode = m;
     $('modeBanner').classList.toggle('hidden', !m);
-    $('modeText').textContent = m === 'arrow' ? L('点击目标条带（原图或成图上都行），自动吸附并估算大小', 'Click the target band (on either image); it snaps to the band and estimates the size')
-      : m === 'group' ? L('在成图上从第一个泳道名拖到最后一个，松开即生成分组横线', 'Drag from the first to the last lane name on the figure; release to create the group line')
-      : m === 'strip' ? L('在原图上从上到下拖过要显示的区域（含 Marker 刻度），松开生成一个分条', 'On the raw image, drag down across the region to show (include the marker ticks); release to add the strip')
-      : m === 'quant' ? L('在原图上点一下条带（自动框住），或上下拖出框的范围', 'Click a band on the raw image (the box fits itself), or drag across it') : '';
+    $('modeText').textContent = m === 'arrow' ? 'Click the target band (on either image); it snaps to the band and estimates the size'
+      : m === 'group' ? 'Drag from the first to the last lane name on the figure; release to create the group line'
+      : m === 'strip' ? 'On the raw image, drag down across the region to show (include the marker ticks); release to add the strip'
+      : m === 'quant' ? 'Click a band on the raw image (the box fits itself), or drag across it' : '';
     $('btnAddArrow').classList.toggle('on', m === 'arrow');
     $('btnAddGroup').classList.toggle('on', m === 'group');
     $('btnAddStrip').classList.toggle('on', m === 'strip');
@@ -58,7 +58,7 @@
     if (!S()) return;
     S().conditions.push({ name: '', values: S().lanes.map(() => '') });
     App.commit();
-    G.UI.toast(L('在成图上点每个格子，在 + / − / 空 之间切换；点"条件"输入名称', 'Click each cell on the figure to cycle + / − / empty; click "Condition" to name the row'), 3200);
+    G.UI.toast('Click each cell on the figure to cycle + / − / empty; click "Condition" to name the row', 3200);
   };
 
   App.placeArrow = function (x, y) {
@@ -83,7 +83,7 @@
     const r = el.getBoundingClientRect();
     edit = { kind, id, orig: getVal(kind, id) || '' };
     fed.value = edit.orig;
-    fed.placeholder = kind === 'lane' ? L(`孔 ${id + 1} 名称`, `Well ${id + 1} name`) : kind === 'group' ? L('分组文字', 'Group label') : kind === 'strip' ? L('蛋白 / 探针名，如 p53', 'Protein / probe, e.g. p53') : L('条件名', 'Condition name');
+    fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
     const w = Math.max(120, Math.min(240, r.width + 50));
     fed.style.width = w + 'px';
     fed.style.left = clamp(r.left + r.width / 2 - w / 2, 4, innerWidth - w - 4) + 'px';
@@ -111,7 +111,7 @@
       if (kind === 'lane') {
         const fl = G.UI.figLanes(), k = fl.indexOf(id) + (e.shiftKey ? -1 : 1);
         if (k >= 0 && k < fl.length) requestAnimationFrame(() => openEd('lane', fl[k]));
-        else G.UI.toast(e.shiftKey ? L('已是第一条', 'This is the first lane') : L('泳道名称填完了', 'All lane names are filled in'));
+        else G.UI.toast(e.shiftKey ? 'This is the first lane' : 'All lane names are filled in');
       }
     }
   });
@@ -127,23 +127,23 @@
     popK = k; App.selArrow = k;
     const info = App.estimateInfo(a.y), est = info && info.bp;
     // honest about where the number comes from: which marker(s), and whether it lies outside the ladder
-    let estHtml = L('没有可用的 Marker，无法估算大小', 'No usable marker; the size cannot be estimated');
+    let estHtml = 'No usable marker; the size cannot be estimated';
     if (info) {
       const v = `<b>${info.extrap || info.disagree ? '≈' : ''}${App.fmtSize(est)}</b>`;
-      estHtml = L(`按 Marker 估算 ${v}（${App.fmtExact(est)}）`, `Estimated from marker: ${v} (${App.fmtExact(est)})`);
-      if (info.extrap) estHtml += '<br><span class="warn-t">' + L('超出 Marker 范围，为外推值，成图会标 ≈', 'Outside the marker range: extrapolated, shown with ≈') + '</span>';
-      if (info.perMarker.length > 1) estHtml += '<br>' + info.perMarker.map(p => L(`孔 ${p.lane + 1}：`, `well ${p.lane + 1}: `) + App.fmtSize(p.bp) + (p.extrap ? L('（外推）', ' (extrapolated)') : '')).join(L('；', '; '))
-        + (info.disagree ? ' <span class="warn-t">' + L('两者相差 &gt;10%', 'differ by &gt;10%') + '</span>' : '');
+      estHtml = `Estimated from marker: ${v} (${App.fmtExact(est)})`;
+      if (info.extrap) estHtml += '<br><span class="warn-t">' + 'Outside the marker range: extrapolated, shown with ≈' + '</span>';
+      if (info.perMarker.length > 1) estHtml += '<br>' + info.perMarker.map(p => `well ${p.lane + 1}: ` + App.fmtSize(p.bp) + (p.extrap ? ' (extrapolated)' : '')).join('; ')
+        + (info.disagree ? ' <span class="warn-t">' + 'differ by &gt;10%' + '</span>' : '');
     }
-    pop.innerHTML = `<h4>${L('目标条带箭头', 'Target band arrow')}</h4>
-      <div class="field"><input type="text" id="pName" placeholder="${App.kind() === 'dna' || App.kind() === 'rna' ? L('名称（可空），如 PCR 产物', 'Name (optional), e.g. PCR product') : L('名称（可空），如 p53、GAPDH', 'Name (optional), e.g. p53, GAPDH')}" value="${esc(a.text)}"></div>
+    pop.innerHTML = `<h4>${'Target band arrow'}</h4>
+      <div class="field"><input type="text" id="pName" placeholder="${App.kind() === 'dna' || App.kind() === 'rna' ? 'Name (optional), e.g. PCR product' : 'Name (optional), e.g. p53, GAPDH'}" value="${esc(a.text)}"></div>
       <div class="est">${estHtml}</div>
-      <div class="field inline"><label class="switch"><input type="checkbox" id="pSize" ${a.size ? 'checked' : ''}><span>${L('标注大小', 'Show size')}</span></label>
-        <input type="text" id="pSizeText" placeholder="${est ? App.fmtSize(est) : (App.baseUnit() === 'kDa' ? L('如 53 kDa', 'e.g. 53 kDa') : L('如 452 bp', 'e.g. 452 bp'))}" value="${esc(a.sizeText || '')}" style="flex:1" title="${L('留空 = 用估算值；也可填理论大小', 'Empty = use the estimate; or type the expected size')}"></div>
-      <div class="field inline"><label class="inline-label">${L('位置', 'Side')}</label>
-        <select id="pSide" style="width:auto"><option value="">${L('自动', 'Auto')}</option><option value="right">${L('右侧', 'Right')}</option><option value="left">${L('左侧', 'Left')}</option></select>
-        <span class="hint" style="margin:0">${L('上下位置在原图上拖品红线', 'Drag the magenta line on the image to move it')}</span></div>
-      <div class="actions"><button class="btn sm danger" id="pDel">${L('删除', 'Delete')}</button><button class="btn sm primary" id="pOk">${L('完成', 'Done')}</button></div>`;
+      <div class="field inline"><label class="switch"><input type="checkbox" id="pSize" ${a.size ? 'checked' : ''}><span>${'Show size'}</span></label>
+        <input type="text" id="pSizeText" placeholder="${est ? App.fmtSize(est) : (App.baseUnit() === 'kDa' ? 'e.g. 53 kDa' : 'e.g. 452 bp')}" value="${esc(a.sizeText || '')}" style="flex:1" title="${'Empty = use the estimate; or type the expected size'}"></div>
+      <div class="field inline"><label class="inline-label">${'Side'}</label>
+        <select id="pSide" style="width:auto"><option value="">${'Auto'}</option><option value="right">${'Right'}</option><option value="left">${'Left'}</option></select>
+        <span class="hint" style="margin:0">${'Drag the magenta line on the image to move it'}</span></div>
+      <div class="actions"><button class="btn sm danger" id="pDel">${'Delete'}</button><button class="btn sm primary" id="pOk">${'Done'}</button></div>`;
     pop.querySelector('#pSide').value = a.side || '';
     const r = (anchor || prev).getBoundingClientRect();
     pop.classList.remove('hidden');
@@ -198,7 +198,7 @@
   prev.addEventListener('click', e => {
     if (!S()) return;
     const g = e.target.closest('[data-edit]');
-    if (!g) { if (App.mode === 'arrow') G.UI.toast(L('请点在凝胶图像上的条带', 'Click a band on the gel image')); return; }
+    if (!g) { if (App.mode === 'arrow') G.UI.toast('Click a band on the gel image'); return; }
     const kind = g.dataset.edit;
     if (kind === 'group') openEd('group', +g.dataset.k);
     else if (kind === 'strip') openEd('strip', +g.dataset.k);

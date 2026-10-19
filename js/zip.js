@@ -41,7 +41,7 @@
   }
   function isZip(buffer) { const u = new Uint8Array(buffer, 0, Math.min(4, buffer.byteLength)); return u[0] === 0x50 && u[1] === 0x4b && u[2] === 3 && u[3] === 4; }
   async function inflateRaw(u8) {
-    if (typeof DecompressionStream === 'undefined') throw new Error(G.L('此浏览器无法解压该 ZIP', 'This browser cannot unpack this ZIP'));
+    if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot unpack this ZIP');
     return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
   }
   // -> [{name, data: ArrayBuffer}]
@@ -49,7 +49,7 @@
     const dv = new DataView(buffer), u8 = new Uint8Array(buffer);
     let e = -1;
     for (let p = buffer.byteLength - 22; p >= Math.max(0, buffer.byteLength - 65557); p--) if (dv.getUint32(p, true) === 0x06054b50) { e = p; break; }
-    if (e < 0) throw new Error(G.L('不是有效的 ZIP 文件', 'Not a valid ZIP file'));
+    if (e < 0) throw new Error('Not a valid ZIP file');
     const n = dv.getUint16(e + 10, true);
     let p = dv.getUint32(e + 16, true);
     const out = [];

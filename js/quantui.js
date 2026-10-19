@@ -1,7 +1,7 @@
 /* Step 7 of the panel: densitometry (band boxes, table, chart, lane profile) and band sizes. */
 (function (G) {
   'use strict';
-  const App = G.App, L = G.L, $ = id => document.getElementById(id);
+  const App = G.App, $ = id => document.getElementById(id);
   const S = () => App.S;
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   const done = fn => e => { if (!S()) return; if (fn) fn(e); App.commit(); };
@@ -14,9 +14,9 @@
 
   /* ---------- copy with a fallback for hosts that refuse the clipboard ---------- */
   async function copyText(text) {
-    try { await navigator.clipboard.writeText(text); G.UI.toast(L('已复制，可直接粘贴到 Excel / Prism', 'Copied; paste into Excel or Prism')); }
+    try { await navigator.clipboard.writeText(text); G.UI.toast('Copied; paste into Excel or Prism'); }
     catch (e) {
-      G.UI.alert(L('无法直接写入剪贴板。请在下面选中后按 Ctrl+C 复制：', 'The clipboard is not available here. Select the text below and press Ctrl+C:'));
+      G.UI.alert('The clipboard is not available here. Select the text below and press Ctrl+C:');
       requestAnimationFrame(() => {
         const box = $('askText'), ta = document.createElement('textarea');
         ta.value = text; ta.rows = 8; ta.style.width = '100%'; ta.style.marginTop = '8px'; ta.readOnly = true;
@@ -42,28 +42,28 @@
   $('btnQCSV').onclick = async () => {
     if (!S() || !lastR) return;
     const st = await G.Export.download(new Blob([G.Quant.quantCSV(App, lastR)], { type: 'text/csv' }), baseName() + '_densitometry.csv');
-    if (st === 'saved') G.UI.toast(L('已导出定量 CSV', 'Exported the densitometry CSV'));
+    if (st === 'saved') G.UI.toast('Exported the densitometry CSV');
   };
   $('btnQChart').onclick = async () => {
     if (!S() || !lastR) return;
     const ch = G.Quant.chartSVG(App, lastR);
-    if (!ch) { G.UI.toast(L('至少需要一个非内参的条带框', 'Add at least one band box that is not the loading control')); return; }
-    App.busy(true, L('正在导出…', 'Exporting…'));
+    if (!ch) { G.UI.toast('Add at least one band box that is not the loading control'); return; }
+    App.busy(true, 'Exporting…');
     try {
       const fmt = $('qChartFmt').value, st = await G.Export.exportChart(ch, fmt, baseName() + '_densitometry_chart', S().style.dpi, S());
-      if (st === 'saved') G.UI.toast(L('已导出柱状图', 'Exported the chart'));
+      if (st === 'saved') G.UI.toast('Exported the chart');
     } catch (e) { G.UI.alert(e.message); } finally { App.busy(false); }
   };
   $('btnSCopy').onclick = () => { if (lastSizes) copyText(sizesTsv(lastSizes)); };
   $('btnSCSV').onclick = async () => {
     if (!S() || !lastSizes) return;
     const st = await G.Export.download(new Blob([G.Quant.sizesCSV(App, lastSizes)], { type: 'text/csv' }), baseName() + '_band_sizes.csv');
-    if (st === 'saved') G.UI.toast(L('已导出条带大小 CSV', 'Exported the band sizes CSV'));
+    if (st === 'saved') G.UI.toast('Exported the band sizes CSV');
   };
 
   function widthLabel() {
     const st = S(), px = G.Quant.boxHalfWidth(st) * 2;
-    $('qWV').textContent = L(`泳道间距的 ${Math.round(st.quant.wFrac * 100)}%（${Math.round(px)} px）`, `${Math.round(st.quant.wFrac * 100)}% of lane spacing (${Math.round(px)} px)`);
+    $('qWV').textContent = `${Math.round(st.quant.wFrac * 100)}% of lane spacing (${Math.round(px)} px)`;
   }
 
   /* ---------- band boxes ---------- */
@@ -71,10 +71,10 @@
     const st = S(), q = st.quant;
     $('boxList').innerHTML = q.rows.map((r, k) => `<div class="item">
       <span class="swatch${k === q.control ? ' ctl' : ''}"></span>
-      <input type="text" data-q="${k}" value="${esc(r.name)}" placeholder="${L(`条带 ${k + 1}，如 p53`, `Band ${k + 1}, e.g. p53`)}">
-      <label class="switch" title="${L('内参（归一化用）', 'Loading control (used for normalization)')}"><input type="checkbox" data-qc="${k}" ${k === q.control ? 'checked' : ''}>${L('内参', 'Control')}</label>
-      <button class="x" data-qdel="${k}" title="${L('删除', 'Delete')}">×</button></div>`).join('')
-      || `<p class="hint">${L('还没有条带框。', 'No band boxes yet.')}</p>`;
+      <input type="text" data-q="${k}" value="${esc(r.name)}" placeholder="${`Band ${k + 1}, e.g. p53`}">
+      <label class="switch" title="${'Loading control (used for normalization)'}"><input type="checkbox" data-qc="${k}" ${k === q.control ? 'checked' : ''}>${'Control'}</label>
+      <button class="x" data-qdel="${k}" title="${'Delete'}">×</button></div>`).join('')
+      || `<p class="hint">${'No band boxes yet.'}</p>`;
     $('boxList').querySelectorAll('[data-q]').forEach(inp => {
       const r = q.rows[+inp.dataset.q];
       inp.addEventListener('input', live(e => { r.name = e.target.value; }));
@@ -90,24 +90,24 @@
 
   /* ---------- results ---------- */
   function tsv(R) {
-    const head = [L('孔', 'Well'), L('泳道', 'Lane')].concat(R.rows.map(r => r.name)).concat(R.rows.filter((r, k) => k !== R.control).map(r => r.name + ' rel.'));
+    const head = ['Well', 'Lane'].concat(R.rows.map(r => r.name)).concat(R.rows.filter((r, k) => k !== R.control).map(r => r.name + ' rel.'));
     const lines = [head.join('\t')];
     R.lanes.forEach((i, j) => lines.push([i + 1, R.names[j]].concat(R.vol.map(v => sig(v[j]))).concat(R.rel.filter((r, k) => k !== R.control).map(v => rel(v[j]))).join('\t')));
     return lines.join('\n');
   }
   function sizesTsv(T) {
-    return [[L('孔', 'Well'), L('泳道', 'Lane'), L(`条带（${App.baseUnit()}）`, `Bands (${App.baseUnit()})`)].join('\t')]
+    return [['Well', 'Lane', `Bands (${App.baseUnit()})`].join('\t')]
       .concat(T.filter(l => !l.marker).map(l => [l.lane + 1, l.name, l.bands.map(b => (b.extrap ? '≈' : '') + (b.size ? App.fmtSize(b.size) : '?')).join(', ')].join('\t'))).join('\n');
   }
   function renderTable(R) {
     const tg = R.rows.map((r, k) => k).filter(k => k !== R.control);
     const ctlName = R.control >= 0 ? R.rows[R.control].name : null;
-    const head = `<tr><th>${L('泳道', 'Lane')}</th>${R.rows.map((r, k) => `<th title="${L('积分灰度（任意单位）', 'Integrated density (a.u.)')}">${esc(r.name)}${k === R.control ? ' <span class="tag">LC</span>' : ''}</th>`).join('')}` +
-      tg.map(k => `<th title="${esc(ctlName ? L(`${R.rows[k].name} / ${ctlName}，相对参照泳道`, `${R.rows[k].name} / ${ctlName}, relative to the reference lane`) : L('相对参照泳道', 'relative to the reference lane'))}">${esc(R.rows[k].name)} ${L('相对', 'rel.')}</th>`).join('') + '</tr>';
+    const head = `<tr><th>${'Lane'}</th>${R.rows.map((r, k) => `<th title="${'Integrated density (a.u.)'}">${esc(r.name)}${k === R.control ? ' <span class="tag">LC</span>' : ''}</th>`).join('')}` +
+      tg.map(k => `<th title="${esc(ctlName ? `${R.rows[k].name} / ${ctlName}, relative to the reference lane` : 'relative to the reference lane')}">${esc(R.rows[k].name)} ${'rel.'}</th>`).join('') + '</tr>';
     const body = R.lanes.map((i, j) => `<tr class="${i === R.ref ? 'ref' : ''}"><td>${esc(R.names[j].replace(/\*/g, ''))}</td>` +
-      R.rows.map((r, k) => { const c = R.cells[k][j]; return `<td class="${c.sat ? 'sat' : ''}" title="${c.sat ? L(`${c.sat} 个饱和像素`, `${c.sat} saturated pixels`) : ''}">${sig(c.vol)}${c.sat ? ' ⚠' : ''}</td>`; }).join('') +
+      R.rows.map((r, k) => { const c = R.cells[k][j]; return `<td class="${c.sat ? 'sat' : ''}" title="${c.sat ? `${c.sat} saturated pixels` : ''}">${sig(c.vol)}${c.sat ? ' ⚠' : ''}</td>`; }).join('') +
       tg.map(k => `<td class="relv">${rel(R.rel[k][j])}</td>`).join('') + '</tr>').join('');
-    const note = R.saturatedLanes.length ? `<p class="hint warn-t">${L(`孔 ${R.saturatedLanes.map(i => i + 1).join('、')} 的框内有饱和像素，灰度值被低估；建议用较短曝光重拍。`, `Boxes in well${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')} contain saturated pixels, so their values are underestimated; re-image with a shorter exposure.`)}</p>` : '';
+    const note = R.saturatedLanes.length ? `<p class="hint warn-t">${`Boxes in well${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')} contain saturated pixels, so their values are underestimated; re-image with a shorter exposure.`}</p>` : '';
     $('quantTable').innerHTML = `<div class="tscroll"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` + note;
     const ch = G.Quant.chartSVG(App, R);
     $('quantChart').innerHTML = ch ? ch.svg : '';
@@ -117,11 +117,11 @@
   function renderSizes() {
     const T = G.Quant.bandSizes(App);
     lastSizes = T;
-    const rows = T.map(l => `<tr><td>${esc(l.name.replace(/\*/g, ''))}</td><td>${l.marker ? `<span class="muted">${L('Marker', 'marker')}</span>`
-      : l.bands.length ? l.bands.map(b => `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? L('超出 Marker 范围（外推）', 'outside the marker range (extrapolated)') : ''}">${b.extrap ? '≈' : ''}${b.size ? App.fmtSize(b.size) : '?'}</span>`).join(', ')
-      : `<span class="muted">${L('无条带', 'no bands')}</span>`}</td></tr>`).join('');
-    $('sizeTable').innerHTML = S().markers.length ? `<div class="tscroll"><table><thead><tr><th>${L('泳道', 'Lane')}</th><th>${G.Gels.sizeNoun(App.kind())}</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : `<p class="hint">${L('需要先有 Marker 才能估算大小。', 'A marker lane is needed to estimate sizes.')}</p>`;
+    const rows = T.map(l => `<tr><td>${esc(l.name.replace(/\*/g, ''))}</td><td>${l.marker ? `<span class="muted">${'marker'}</span>`
+      : l.bands.length ? l.bands.map(b => `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'outside the marker range (extrapolated)' : ''}">${b.extrap ? '≈' : ''}${b.size ? App.fmtSize(b.size) : '?'}</span>`).join(', ')
+      : `<span class="muted">${'no bands'}</span>`}</td></tr>`).join('');
+    $('sizeTable').innerHTML = S().markers.length ? `<div class="tscroll"><table><thead><tr><th>${'Lane'}</th><th>${G.Gels.sizeNoun(App.kind())}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<p class="hint">${'A marker lane is needed to estimate sizes.'}</p>`;
   }
 
   /* ---------- lane profile ---------- */
@@ -174,8 +174,8 @@
     const refNow = lanes.includes(q.ref) ? q.ref : lanes[0];
     $('qRef').innerHTML = lanes.map(i => `<option value="${i}"${i === refNow ? ' selected' : ''}>${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
-    $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${L('孔', 'Well')} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
-    $('stQuant').textContent = q.rows.length ? L(`${q.rows.length} 个条带框`, `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}`) : L('灰度、条带大小', 'densitometry, band sizes');
+    $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${'Well'} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
+    $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'densitometry, band sizes';
     renderBoxes();
     if (!$('quantDetails').open) return;
     if (tab === 'size') { renderSizes(); return; }

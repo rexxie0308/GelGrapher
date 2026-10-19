@@ -1,6 +1,6 @@
 # Contributing to GelGrapher
 
-Issues and pull requests in English or Chinese are welcome. 中文或英文提交均可。
+Issues and pull requests are welcome.
 
 ## Reporting a problem
 
@@ -33,7 +33,7 @@ In the pull request, link the manufacturer's datasheet the sizes come from. A wr
 There is no build step for the app. Edit the files and reload `index.html`.
 
 - **Keep it dependency-free** and loadable from `file://`: plain `<script>` tags, no ES modules, no CDN, no network requests (the Content Security Policy in `index.html` blocks them anyway).
-- **Every interface string is bilingual.** In JavaScript, write `L('中文', 'English')`; in HTML, put the English text in `data-en` (or `data-en-html`, `data-en-title`, `data-en-placeholder`). Text that goes into figures, legends, logs and exported files stays in English.
+- **English only**, in the interface as well as in figures, legends, logs and exported files.
 - **No `alert`, `confirm`, `prompt` or `window.print`**: they do nothing inside a Claude artifact. Use `G.UI.alert` / `G.UI.confirm` (in-page dialogs) and `G.Export.download` (goes through the host's save prompt when there is one).
 - **Image-processing changes must stay honest:** only linear whole-image adjustments by default, densitometry on raw pixel values, nothing removed silently, and anything that changes how the data looks is recorded in the processing log and the legend notes.
 - Match the existing style: small functions, comments that explain *why*.

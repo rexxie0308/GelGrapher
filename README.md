@@ -59,7 +59,6 @@ From GelFigure:
 - **Lane removal with splice marks**, empty-lane suggestions, rotation that carries every annotation.
 - **Pre-flight check before export**: camera saturation, contrast clipping, effective resolution below 300 dpi, small fonts, extrapolated sizes.
 - **Reproducible**: project files with the original image and every setting, style templates, an autosaved draft.
-- **Bilingual interface** (English / 中文). Figures are always in English.
 
 Added in GelGrapher:
 
@@ -182,9 +181,8 @@ Both bright-on-dark and dark-on-light images are handled; polarity is detected a
 No build step and no dependencies for the app: plain HTML, CSS and JavaScript loaded with ordinary `<script>` tags, so it also runs from `file://`.
 
 ```
-index.html          the page (bilingual markup)
+index.html          the page
 css/style.css       styles (colour tokens, dark theme, phone layout)
-js/i18n.js          interface language: L('中文', 'English')
 js/tiff.js          TIFF decoder                 js/engine.js     image analysis (deskew, crop, lanes, ladder fit)
 js/ladders.js       ladder library               js/gels.js       experiment types
 js/render.js        figure layout (SVG, strips)  js/quant.js      densitometry, band sizes, bar chart

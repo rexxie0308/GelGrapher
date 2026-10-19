@@ -12,10 +12,10 @@
   function readIFDs(dv) {
     const bo = dv.getUint16(0);
     const le = bo === 0x4949;
-    if (!le && bo !== 0x4d4d) throw new Error(G.L('不是有效的 TIFF 文件', 'Not a valid TIFF file'));
+    if (!le && bo !== 0x4d4d) throw new Error('Not a valid TIFF file');
     const magic = dv.getUint16(2, le);
-    if (magic === 43) throw new Error(G.L('暂不支持 BigTIFF', 'BigTIFF is not supported yet'));
-    if (magic !== 42) throw new Error(G.L('不是有效的 TIFF 文件', 'Not a valid TIFF file'));
+    if (magic === 43) throw new Error('BigTIFF is not supported yet');
+    if (magic !== 42) throw new Error('Not a valid TIFF file');
     const ifds = [];
     let off = dv.getUint32(4, le);
     const seen = new Set();
@@ -114,7 +114,7 @@
   }
 
   async function inflate(src) {
-    if (typeof DecompressionStream === 'undefined') throw new Error(G.L('浏览器不支持 Deflate 解压，请更新浏览器', 'This browser cannot decompress Deflate; please update it'));
+    if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot decompress Deflate; please update it');
     const stream = new Blob([src]).stream().pipeThrough(new DecompressionStream('deflate'));
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
@@ -125,7 +125,7 @@
       case 5: return lzwDecode(bytes, expected);
       case 8: case 32946: return inflate(bytes);
       case 32773: return packBitsDecode(bytes, expected);
-      default: throw new Error(G.L('不支持的 TIFF 压缩方式: ' + comp + '（请从成像软件导出为未压缩或 LZW TIFF）', 'Unsupported TIFF compression: ' + comp + ' (export an uncompressed or LZW TIFF from the imaging software)'));
+      default: throw new Error('Unsupported TIFF compression: ' + comp + ' (export an uncompressed or LZW TIFF from the imaging software)');
     }
   }
 
@@ -151,7 +151,7 @@
   async function decode(buffer) {
     const dv = new DataView(buffer);
     const { ifds, le } = readIFDs(dv);
-    if (!ifds.length) throw new Error(G.L('TIFF 中没有图像', 'The TIFF contains no image'));
+    if (!ifds.length) throw new Error('The TIFF contains no image');
     // choose the largest page (skip thumbnails)
     let t = ifds[0], best = 0;
     for (const d of ifds) {
@@ -167,8 +167,8 @@
     const planar = (t[284] || [1])[0];
     const predictor = (t[317] || [1])[0];
     const fmt = (t[339] || [1])[0]; // 1 uint, 2 int, 3 float
-    if (![8, 16, 32].includes(bits)) throw new Error(G.L('不支持的位深: ', 'Unsupported bit depth: ') + bits + ' bit');
-    if (photo === 3) throw new Error(G.L('暂不支持调色板 TIFF', 'Palette TIFFs are not supported yet'));
+    if (![8, 16, 32].includes(bits)) throw new Error('Unsupported bit depth: ' + bits + ' bit');
+    if (photo === 3) throw new Error('Palette TIFFs are not supported yet');
     const bps = bits / 8;
     const tiled = !!t[322];
     const total = new Uint8Array(w * h * spp * bps);
@@ -280,7 +280,7 @@
         URL.revokeObjectURL(url);
         resolve({ width: c.width, height: c.height, data: gray, bits: 8, spp: 3, compression: 0, actualMax: mx, dpi: 0 });
       };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(G.L('无法读取该图片', 'Cannot read this image'))); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Cannot read this image')); };
       img.src = url;
     });
   }
@@ -301,8 +301,8 @@
     const r = await decodeBrowserImage(new File([buffer], name || 'image'));
     r.warnings = [];
     const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
-    if (isPng && b[24] === 16) r.warnings.push(G.L('这是 16 位 PNG，浏览器只能按 8 位读取，动态范围已降低。建议改用 16 位 TIFF。', 'This is a 16-bit PNG; browsers read it as 8-bit, so dynamic range is reduced. A 16-bit TIFF is better.'));
-    else if (!isPng || b[24] < 16) r.warnings.push(G.L('非 TIFF 图像按 8 位处理；如有原始 16 位 TIFF，建议用 TIFF。', 'Non-TIFF images are handled as 8-bit; use the raw 16-bit TIFF if you have it.'));
+    if (isPng && b[24] === 16) r.warnings.push('This is a 16-bit PNG; browsers read it as 8-bit, so dynamic range is reduced. A 16-bit TIFF is better.');
+    else if (!isPng || b[24] < 16) r.warnings.push('Non-TIFF images are handled as 8-bit; use the raw 16-bit TIFF if you have it.');
     return r;
   }
 

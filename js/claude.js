@@ -3,7 +3,7 @@
  * Only a text summary of the figure is sent; the image never leaves the browser. */
 (function (G) {
   'use strict';
-  const App = G.App, L = G.L, $ = id => document.getElementById(id);
+  const App = G.App, $ = id => document.getElementById(id);
   let sample = null, ctl = null, lastText = '';
 
   G.Host.sample().then(fn => { sample = fn; sync(); });
@@ -61,21 +61,21 @@
     if (ctl) ctl.abort();
     ctl = new AbortController();
     const out = $('claudeOut');
-    out.textContent = L('Claude 正在思考…', 'Thinking…'); note('');
+    out.textContent = 'Thinking…'; note('');
     $('claudeStop').disabled = false; $('claudeAgain').disabled = true; $('claudeCopy').disabled = true;
     try {
       const r = await sample(buildPrompt(), { signal: ctl.signal, cache: fresh ? false : true, onText: ({ text }) => { out.textContent = text; } });
       lastText = r.text; out.textContent = r.text;
-      if (r.truncated) note(L('回答被截断了', 'The answer was cut short'));
+      if (r.truncated) note('The answer was cut short');
     } catch (e) {
       const code = e && e.code;
       if (e && e.text) { out.textContent = e.text; lastText = e.text; } else if (code !== 'cancelled') out.textContent = '';
       if (code === 'not_granted' || code === 'sampling_disabled' || code === 'not_declared' || code === 'capability_disabled' || code === 'capability_removed') {
-        note(L('此页面无法使用 Claude', 'Claude is not available to this page')); sample = null; sync();
-      } else if (code === 'rate_limited') note(L('请求太频繁或已到用量上限，请稍后再试', 'Too many requests or usage limit reached; try again later'));
-      else if (code === 'session_expired') note(L('请重新登录 Claude', 'Sign in to Claude again'));
-      else if (code === 'refused') note(L('Claude 没有回答这个请求', 'Claude declined this request'));
-      else if (code !== 'cancelled') note(L('Claude 暂时无法回答，可以再试一次', 'Claude could not answer; you can try again'));
+        note('Claude is not available to this page'); sample = null; sync();
+      } else if (code === 'rate_limited') note('Too many requests or usage limit reached; try again later');
+      else if (code === 'session_expired') note('Sign in to Claude again');
+      else if (code === 'refused') note('Claude declined this request');
+      else if (code !== 'cancelled') note('Claude could not answer; you can try again');
     } finally {
       ctl = null;
       $('claudeStop').disabled = true; $('claudeAgain').disabled = false; $('claudeCopy').disabled = !lastText;
@@ -85,8 +85,8 @@
   $('claudeAgain').onclick = () => run(true);
   $('claudeStop').onclick = () => { if (ctl) ctl.abort(); };
   $('claudeCopy').onclick = async () => {
-    try { await navigator.clipboard.writeText(lastText); G.UI.toast(L('已复制', 'Copied')); }
-    catch (e) { const rg = document.createRange(); rg.selectNodeContents($('claudeOut')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); note(L('按 Ctrl+C 复制所选文字', 'Press Ctrl+C to copy the selected text')); }
+    try { await navigator.clipboard.writeText(lastText); G.UI.toast('Copied'); }
+    catch (e) { const rg = document.createRange(); rg.selectNodeContents($('claudeOut')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg); note('Press Ctrl+C to copy the selected text'); }
   };
   $('btnClaudeClose').onclick = () => { if (ctl) ctl.abort(); $('claudeDlg').classList.add('hidden'); };
 })(window);

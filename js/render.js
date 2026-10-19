@@ -168,7 +168,7 @@
         if (v) els.push(ed(`data-edit="cond" data-r="${c.r}" data-src="${src}"`, hit + textEl(v, X(o.i), yTop, pt, 'middle')));
         else if (P) els.push(ed(`data-edit="cond" data-r="${c.r}" data-src="${src}"`, hit + textEl('·', X(o.i), yTop, pt, 'middle', phStyle)));
       });
-      const nm = c.name || (P ? G.L('条件', 'Condition') : '');
+      const nm = c.name || (P ? 'Condition' : '');
       if (nm) {
         els.push(ed(`data-edit="condname" data-r="${c.r}"`, textEl(nm, rowNameX, yTop, pt, 'end', c.name ? '' : phStyle)));
         grow(rowNameX - measure(nm, pt), yTop - pt, 0, yTop);
@@ -202,8 +202,8 @@
           grow(ox - pt * sn, oy - tw * sn - pt * cs, ox + tw * cs + pt * sn * 0.2, oy);
         }
       });
-      if (angle !== 0 && pitch < pt * 1.15) overlap(G.L('泳道过窄：即使 90° 标签也会重叠，请减小字号或增大图宽', 'Lanes are too narrow: even 90° labels overlap; use a smaller font or a wider figure'));
-      if (angle === 0 && st.labelAngle !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap(G.L('水平泳道标签发生重叠，建议改用"自动"或倾斜角度', 'Horizontal lane labels overlap; use "Auto" or a tilted angle'));
+      if (angle !== 0 && pitch < pt * 1.15) overlap('Lanes are too narrow: even 90° labels overlap; use a smaller font or a wider figure');
+      if (angle === 0 && st.labelAngle !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
       yTop -= (angle === 0 ? pt * 1.3 : hMax + pt * 0.35);
     }
     // groups: line spanning lanes + shared text above
@@ -231,7 +231,7 @@
             els.push(`<line x1="${f(r1)}" y1="${f(y)}" x2="${f(r1)}" y2="${f(y + pt * 0.35)}" stroke="#000" stroke-width="${f(lw)}"/>`);
           }
         });
-        const gt = g.text || (P ? G.L('点击输入', 'Click to type') : '');
+        const gt = g.text || (P ? 'Click to type' : '');
         if (gt) {
           const tw = measure(gt, pt);
           els.push(ed(`data-edit="group" data-k="${g.k != null ? g.k : k}"`, textEl(gt, (x0 + x1) / 2, y - pt * 0.3, pt, 'middle', g.text ? '' : phStyle)));
@@ -271,7 +271,7 @@
         }
       });
       for (let k = 1; k < shown.length; k++) if (Math.abs(mapY(shown[k].y) - mapY(shown[k - 1].y)) * sc < pt * 0.95) {
-        overlap(G.L('部分 Marker 标签间距过小会重叠，可点"精简标签"或手动取消勾选', 'Some marker labels are too close and overlap; click "Thin labels" or untick some')); break;
+        overlap('Some marker labels are too close and overlap; click "Thin labels" or untick some'); break;
       }
       const head = G.Ladders.unitHeader(mk.unit);
       if (st.unitHeader && shown.length && head) {
@@ -284,7 +284,7 @@
     });
 
     // ---- strip labels (protein / probe names) to the right of each strip ----
-    const stripLab = (S.strips || []).length ? vsegs.map(v => ({ v, t: v.label || (P ? G.L('点击命名', 'Click to name') : '') })) : [];
+    const stripLab = (S.strips || []).length ? vsegs.map(v => ({ v, t: v.label || (P ? 'Click to name' : '') })) : [];
     if (stripLab.some(o => o.t)) {
       const off = extent.right ? extent.right + 3 : 0, x = W + 3 + off;
       let maxW = 0;

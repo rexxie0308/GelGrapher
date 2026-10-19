@@ -4,7 +4,7 @@
  */
 (function (G) {
   'use strict';
-  const E = G.Engine, L = G.L;
+  const E = G.Engine;
   const SAT = 0.998;
   const PREF_KEY = 'gelfig.prefs';
 
@@ -46,7 +46,7 @@
 
   function busy(on, text) {
     document.getElementById('busy').classList.toggle('hidden', !on);
-    const t = document.getElementById('busyText'); if (t && on) t.textContent = text || L('处理中…', 'Working…');
+    const t = document.getElementById('busyText'); if (t && on) t.textContent = text || 'Working…';
   }
   App.busy = busy;
   App.defaultStyle = defaultStyle;
@@ -169,7 +169,7 @@
   App.load = async function (file, gelType) {
     if (Array.isArray(file) && file.length > 1) return App.loadMany(file, gelType);
     if (Array.isArray(file)) file = file[0];
-    busy(true, L('正在读取并自动识别…', 'Reading and detecting…'));
+    busy(true, 'Reading and detecting…');
     await new Promise(r => setTimeout(r, 30));
     try {
       const input = await App.readInput(file);
@@ -184,21 +184,21 @@
   };
   // why a file could not be opened, with what would work
   function readError(file, e) {
-    const name = file && file.name ? `"${file.name}"` : L('这个文件', 'this file');
-    const formats = L('支持 TIFF（8 / 16 位）、PNG、JPG、BMP、.gelfig 项目文件和包含它们的 .zip。', 'Supported: TIFF (8 / 16-bit), PNG, JPG, BMP, .gelfig project files and a .zip containing them.');
-    return L(`无法读取 ${name}：${e.message}。`, `Could not read ${name}: ${e.message}. `) + formats;
+    const name = file && file.name ? `"${file.name}"` : 'this file';
+    const formats = 'Supported: TIFF (8 / 16-bit), PNG, JPG, BMP, .gelfig project files and a .zip containing them.';
+    return `Could not read ${name}: ${e.message}. ` + formats;
   }
 
   /* Several exposures of one gel: score each on a downsampled copy, open the best. Only the chosen
    * image is kept decoded; the others keep their file bytes and are decoded again when picked. */
   App.loadMany = async function (files, gelType) {
-    busy(true, L(`正在评估 ${files.length} 张曝光…`, `Scoring ${files.length} exposures…`));
+    busy(true, `Scoring ${files.length} exposures…`);
     await new Promise(r => setTimeout(r, 30));
     try {
       const list = [];
       let bestInput = null;
       for (let k = 0; k < files.length; k++) {
-        busy(true, L(`正在评估第 ${k + 1} / ${files.length} 张…`, `Scoring exposure ${k + 1} / ${files.length}…`));
+        busy(true, `Scoring exposure ${k + 1} / ${files.length}…`);
         await new Promise(r => setTimeout(r, 0));
         const input = await App.readInput(files[k]);
         const img = { w: input.img.width, h: input.img.height, data: input.img.data };
@@ -234,7 +234,7 @@
   App.switchExposure = async function (k) {
     const ex = App.exposures && App.exposures[k];
     if (!ex || k === App.expIdx) return { ok: true };
-    busy(true, L('正在切换曝光…', 'Switching exposure…'));
+    busy(true, 'Switching exposure…');
     await new Promise(r => setTimeout(r, 20));
     try {
       const img = await G.TIFF.decodeBuffer(ex.buffer, ex.name);
@@ -333,8 +333,7 @@
   App.setMarkerImage = function (input) {
     const img = input.img;
     if (img.width !== App.src.w || img.height !== App.src.h) {
-      throw new Error(L(`Marker 图尺寸 ${img.width}×${img.height} 与胶图 ${App.src.w}×${App.src.h} 不一致；需要同一次拍摄、同一位置的白光图`,
-        `The marker image is ${img.width}×${img.height} px but the blot is ${App.src.w}×${App.src.h} px; use the white-light image taken in the same position`));
+      throw new Error(`The marker image is ${img.width}×${img.height} px but the blot is ${App.src.w}×${App.src.h} px; use the white-light image taken in the same position`);
     }
     App.markerSrc0 = { w: img.width, h: img.height, data: img.data };
     App.markerSrc = flipImg(App.markerSrc0, App.S.flip.h, App.S.flip.v);
@@ -747,7 +746,7 @@
           // lower half of a 1 kb ladder) still scores fairly, so compare with the whole library
           const full = E.jointLadders(pk, all, h, favs);
           if (full && (!picks || picks.score < 0.55 || full.score > picks.score + 0.08)) {
-            picks = full; App.ladderNotice = L(`常用型号都不吻合，已改用：${full.map(p => G.Ladders.get(p.id).name).join('、')}`, `None of your favourite ladders fits; using ${full.map(p => G.Ladders.get(p.id).name).join(', ')}`);
+            picks = full; App.ladderNotice = `None of your favourite ladders fits; using ${full.map(p => G.Ladders.get(p.id).name).join(', ')}`;
           }
         } else picks = E.jointLadders(pk, all, h, prefer);
       }
@@ -758,7 +757,7 @@
         if (bestPref && bestPref.score >= picks[0].score - 0.12) picks = [bestPref];
       }
       if (picks && favs.length && picks.some(p => !favs.includes(p.id)) && !App.ladderNotice)
-        App.ladderNotice = L(`识别到的型号不在"常用"里：${picks.filter(p => !favs.includes(p.id)).map(p => G.Ladders.get(p.id).name).join('、')}，请核对`, `Detected ladder is not among your favourites: ${picks.filter(p => !favs.includes(p.id)).map(p => G.Ladders.get(p.id).name).join(', ')} — please check`);
+        App.ladderNotice = `Detected ladder is not among your favourites: ${picks.filter(p => !favs.includes(p.id)).map(p => G.Ladders.get(p.id).name).join(', ')} — please check`;
       S.markers = lanes.map((ln, k) => App.newMarker(ln, picks ? picks[k].id : prefer[0]));
       S.markers.forEach(m => { if (!S.lanes[m.lane].name) S.lanes[m.lane].name = 'M'; });
       App.matchMarkers(true);
@@ -976,19 +975,14 @@
     if (S.saturatedInCrop > 0) out.warnings.push(App.saturationText());
     const bc = App.bandClipFrac();
     const pctBc = (bc * 100).toFixed(2), toWhite = S.bright !== !!S.levels.invert;
-    if (bc > 0.001) out.warnings.push(L(
-      `对比度设置把裁切区 ${pctBc}% 的像素压到了纯${toWhite ? '白' : '黑'}（色阶削顶），条带核心可能被压平；把${S.bright ? '亮部' : '暗部'}滑块往回拉，或点"重置对比度"`,
-      `The contrast setting clips ${pctBc}% of the pixels in the crop to pure ${toWhite ? 'white' : 'black'}, which can flatten band cores; pull the ${S.bright ? 'white' : 'black'} point back or click "Reset contrast"`));
+    if (bc > 0.001) out.warnings.push(`The contrast setting clips ${pctBc}% of the pixels in the crop to pure ${toWhite ? 'white' : 'black'}, which can flatten band cores; pull the ${S.bright ? 'white' : 'black'} point back or click "Reset contrast"`);
     const eff = App.effectiveDpi();
-    if (eff < 300) out.warnings.push(L(
-      `胶图有效分辨率只有 ${Math.round(eff)} dpi（低于 300），导出时会被放大；不放大的最大凝胶宽度为 ${App.maxSafeWidthMm(300)} mm`,
-      `The gel is only ${Math.round(eff)} dpi at this size (below 300) and will be upscaled; the largest gel width without upscaling is ${App.maxSafeWidthMm(300)} mm`));
-    if (S.markers.some(m => S.lanes[m.lane] && S.lanes[m.lane].hidden)) out.warnings.push(L('有 Marker 泳道已被剪除，其标注不会显示', 'A marker lane has been removed; its size labels are not shown'));
+    if (eff < 300) out.warnings.push(`The gel is only ${Math.round(eff)} dpi at this size (below 300) and will be upscaled; the largest gel width without upscaling is ${App.maxSafeWidthMm(300)} mm`);
+    if (S.markers.some(m => S.lanes[m.lane] && S.lanes[m.lane].hidden)) out.warnings.push('A marker lane has been removed; its size labels are not shown');
     S.arrows.forEach(a => {
       if (!a.size || a.sizeText) return;
       const info = App.estimateInfo(a.y);
-      if (info && info.extrap) out.warnings.push(L(`箭头${a.text ? '“' + a.text + '”' : ''}在 Marker 范围之外，大小是外推估算值（已标 ≈）`,
-        `Arrow${a.text ? ' “' + a.text + '”' : ''} lies outside the marker range; its size is extrapolated (marked ≈)`));
+      if (info && info.extrap) out.warnings.push(`Arrow${a.text ? ' “' + a.text + '”' : ''} lies outside the marker range; its size is extrapolated (marked ≈)`);
     });
     return out;
   };
@@ -1000,30 +994,30 @@
     const add = (level, text, fix) => out.push({ level, text, fix });
     const eff = App.effectiveDpi();
     const safe = App.maxSafeWidthMm(300);
-    if (eff < 300) add('block', L(`胶图有效分辨率 ${Math.round(eff)} dpi（< 300）。选的 ${st.dpi} dpi 只会放大像素。`, `The gel is ${Math.round(eff)} dpi at this size (< 300). Exporting at ${st.dpi} dpi only enlarges the pixels.`),
-      { label: L(`把凝胶宽度改为 ${safe} mm`, `Set gel width to ${safe} mm`), run: () => { st.autoWidth = false; st.gelWidthMm = safe; } });
+    if (eff < 300) add('block', `The gel is ${Math.round(eff)} dpi at this size (< 300). Exporting at ${st.dpi} dpi only enlarges the pixels.`,
+      { label: `Set gel width to ${safe} mm`, run: () => { st.autoWidth = false; st.gelWidthMm = safe; } });
     const k = App.clipStats(), bc = App.bandClipFrac();
     const sp = (k.sensorFrac * 100).toFixed(2), bp = (bc * 100).toFixed(2);
-    if (k.sensorFrac > 0.0005) add('warn', L(`相机过曝：裁切区 ${sp}% 像素饱和。建议换一张较短曝光。`, `Camera saturation: ${sp}% of the pixels in the crop are saturated. Consider a shorter exposure.`));
-    if (bc > 0.001) add('block', L(`色阶削顶：${bp}% 像素被对比度压平。`, `Contrast clipping: ${bp}% of the pixels are flattened by the contrast setting.`), { label: L('重置对比度', 'Reset contrast'), run: () => App.resetLevels() });
-    if (st.fontPt < 5) add('warn', L(`字号 ${st.fontPt} pt 偏小（多数期刊要求 ≥ 5–6 pt）。`, `Font size ${st.fontPt} pt is small (most journals ask for ≥ 5–6 pt).`), { label: L('改为 6 pt', 'Use 6 pt'), run: () => { st.fontPt = 6; } });
-    if (st.lineWidthPt < 0.25) add('warn', L(`线宽 ${st.lineWidthPt} pt 太细。`, `Line width ${st.lineWidthPt} pt is too thin.`), { label: L('改为 0.5 pt', 'Use 0.5 pt'), run: () => { st.lineWidthPt = 0.5; } });
+    if (k.sensorFrac > 0.0005) add('warn', `Camera saturation: ${sp}% of the pixels in the crop are saturated. Consider a shorter exposure.`);
+    if (bc > 0.001) add('block', `Contrast clipping: ${bp}% of the pixels are flattened by the contrast setting.`, { label: 'Reset contrast', run: () => App.resetLevels() });
+    if (st.fontPt < 5) add('warn', `Font size ${st.fontPt} pt is small (most journals ask for ≥ 5–6 pt).`, { label: 'Use 6 pt', run: () => { st.fontPt = 6; } });
+    if (st.lineWidthPt < 0.25) add('warn', `Line width ${st.lineWidthPt} pt is too thin.`, { label: 'Use 0.5 pt', run: () => { st.lineWidthPt = 0.5; } });
     const fig = App.buildFigure(false), wmm = fig.w / G.Render.MM;
-    if (wmm > 183) add('warn', L(`成图宽 ${wmm.toFixed(0)} mm，超过双栏宽度（约 180 mm）。`, `The figure is ${wmm.toFixed(0)} mm wide, wider than a double column (about 180 mm).`));
+    if (wmm > 183) add('warn', `The figure is ${wmm.toFixed(0)} mm wide, wider than a double column (about 180 mm).`);
     (fig.overlaps || []).forEach(w => add('warn', w));
-    if (S.levels.gamma !== 1) add('warn', L(`Gamma = ${S.levels.gamma}：非线性调整，图注中必须说明。`, `Gamma = ${S.levels.gamma}: a non-linear adjustment that must be stated in the legend.`));
-    if (S.lanes.some(l => l.hidden)) add('info', L('有剪除的泳道：成图已加拼接间隙，图注中需说明（见"图注可参考"）。', 'Lanes were removed: splice gaps are added; state this in the legend (see "Legend notes").'));
-    if (S.arrows.some(a => a.size && !a.sizeText && (App.estimateInfo(a.y) || {}).extrap)) add('info', L('有箭头大小为外推估算值（已标 ≈）。', 'Some arrow sizes are extrapolated (marked ≈).'));
-    if (!S.markers.length) add('warn', L('成图中没有 Marker。', 'The figure has no marker lane.'));
+    if (S.levels.gamma !== 1) add('warn', `Gamma = ${S.levels.gamma}: a non-linear adjustment that must be stated in the legend.`);
+    if (S.lanes.some(l => l.hidden)) add('info', 'Lanes were removed: splice gaps are added; state this in the legend (see "Legend notes").');
+    if (S.arrows.some(a => a.size && !a.sizeText && (App.estimateInfo(a.y) || {}).extrap)) add('info', 'Some arrow sizes are extrapolated (marked ≈).');
+    if (!S.markers.length) add('warn', 'The figure has no marker lane.');
     return out;
   };
 
   App.saturationText = function () {
     const S = App.S, n = S.saturatedInCrop;
-    const where = L(`裁切区内有 ${n} 个饱和像素（过曝），条带亮度失真，审稿时可能被质疑。`, `${n} saturated pixels in the crop: band intensities are distorted and reviewers may question them. `);
+    const where = `${n} saturated pixels in the crop: band intensities are distorted and reviewers may question them. `;
     return S.file.bits <= 8
-      ? where + L('这是 8 位图像：建议从成像仪以 16 位原始 TIFF 导出（动态范围更大），或缩短曝光重拍', 'This is an 8-bit image: export the 16-bit raw TIFF from the imager (more dynamic range) or re-image with a shorter exposure')
-      : where + L('建议缩短曝光重拍', 'Consider re-imaging with a shorter exposure');
+      ? where + 'This is an 8-bit image: export the 16-bit raw TIFF from the imager (more dynamic range) or re-image with a shorter exposure'
+      : where + 'Consider re-imaging with a shorter exposure';
   };
 
   // ---------- change notifications / undo ----------
@@ -1086,7 +1080,7 @@
   };
   // facts the UI needs before applying (lane-count mismatch, ladders that cannot be resolved)
   App.checkTemplate = function (t) {
-    if (!t || !t.gelfigTemplate) throw new Error(L('不是 GelFigure 样式文件', 'Not a GelFigure style file'));
+    if (!t || !t.gelfigTemplate) throw new Error('Not a GelFigure style file');
     const tl = t.lanes || t.laneNames || [];
     const fig = App.figureLanes().length + App.S.lanes.filter((l, i) => { const r = App.laneRange(); return r && i >= r[0] && i <= r[1] && l.hidden; }).length;
     const defs = new Map((t.ladders || []).map(d => [d.id, d]));
@@ -1095,11 +1089,11 @@
   };
   App.applyTemplate = function (t) {
     const S = App.S;
-    if (!t || !t.gelfigTemplate) throw new Error(L('不是 GelFigure 样式文件', 'Not a GelFigure style file'));
+    if (!t || !t.gelfigTemplate) throw new Error('Not a GelFigure style file');
     const imported = (t.ladders || []).filter(d => G.Ladders.importDef(d)).map(d => d.name);
     if (t.gelType && t.gelType !== S.gelType) App.setGelType(t.gelType);
     const chk = App.checkTemplate(t);
-    if (chk.missingLadders.length) throw new Error(L(`样式里的 Ladder 在本机不存在，且文件中没有它的定义：${chk.missingLadders.join(', ')}。请先在"自定义 Ladder"里添加同名型号。`, `The style uses ladders that are not on this computer and carries no definition for them: ${chk.missingLadders.join(', ')}. Add them under "Custom ladder" first.`));
+    if (chk.missingLadders.length) throw new Error(`The style uses ladders that are not on this computer and carries no definition for them: ${chk.missingLadders.join(', ')}. Add them under "Custom ladder" first.`);
     // v1 files stored absolute lanes: treat them as starting at the figure's first lane
     const tl = t.lanes || (t.laneNames || []).map((name, i) => ({ name, hidden: !!(t.hidden || [])[i], marker: null }));
     let r = App.laneRange() || [0, S.lanes.length - 1];
@@ -1154,11 +1148,11 @@
     const u = new Uint8Array(buffer, 0, 2);
     const text = u[0] === 0x1f && u[1] === 0x8b ? await gz(new Blob([buffer]), true) : new TextDecoder().decode(buffer);
     const P = JSON.parse(text);
-    if (!P.gelfigProject) throw new Error(L('不是 GelFigure 项目文件', 'Not a GelFigure project file'));
+    if (!P.gelfigProject) throw new Error('Not a GelFigure project file');
     (P.ladders || []).forEach(d => G.Ladders.importDef(d));
     const raw = unb64(P.source.bytes);
     const input = { name: P.source.name, buffer: raw, img: await G.TIFF.decodeBuffer(raw, P.source.name), sha256: await App.sha256(raw) };
-    if (P.source.sha256 && input.sha256 !== P.source.sha256) throw new Error(L('项目里的原始图像校验失败（SHA-256 不一致），文件可能已损坏', 'The original image inside the project fails its SHA-256 check; the file may be damaged'));
+    if (P.source.sha256 && input.sha256 !== P.source.sha256) throw new Error('The original image inside the project fails its SHA-256 check; the file may be damaged');
     let marker = null;
     if (P.markerSource && P.markerSource.bytes) {
       const mb = unb64(P.markerSource.bytes);
@@ -1244,7 +1238,7 @@
   App.dropDraft = async function () { clearTimeout(draftTimer); draftGen++; draftSha = draftMarkerSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); st.delete('msrc'); }); } catch (e) { /* ignore */ } };
   App.restoreDraft = async function () {
     const meta = await App.peekDraft(), buf = await idbDo('readonly', st => st.get('src'));
-    if (!meta || !buf) throw new Error(L('没有可恢复的草稿', 'No draft to restore'));
+    if (!meta || !buf) throw new Error('No draft to restore');
     (meta.ladders || []).forEach(d => G.Ladders.importDef(d));
     const input = { name: meta.name, buffer: buf, img: await G.TIFF.decodeBuffer(buf, meta.name), sha256: meta.sha256 };
     let marker = null;

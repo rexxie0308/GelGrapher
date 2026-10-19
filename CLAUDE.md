@@ -16,7 +16,7 @@ Run `npm run check` and the Chromium tests before every push. CI (`.github/workf
 ## Architecture
 
 Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in this order by `index.html`:
-`i18n → tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → editor → ui → figedit → quantui → claude`.
+`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → editor → ui → figedit → quantui → claude`.
 
 - `app.js` owns the state `App.S` (JSON-serialisable; undo history is snapshots of it). Coordinates of lanes, bands, arrows, strips and band boxes are in rotated-image pixels, so cropping never moves annotations. `App.src0` is the image as decoded and `App.src` is it flipped as `S.flip` says (`App.applyFlip`, called from `ensureRot`, so undo / redo / project loads re-derive it); `App.flip(axis)` mirrors every annotation in the rotated frame and negates the rotation. New state fields need a default in `startFrom` and in `normalize()` (old projects / GelFigure files lack them), must be carried in `setRotation` and mirrored in `App.flip`, and lane indices must be remapped in `replaceLanes` / `removeLane` / `reorderLanes` / `fixIndices`.
 - `gels.js` defines experiment types (`kind` = dna | rna | protein | native picks the ladder library and unit). `App.kind()`, `App.baseUnit()`, `App.fmtSize()` / `App.fmtExact()` format sizes; never hard-code "bp".
@@ -27,7 +27,7 @@ Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in t
 
 ## Conventions
 
-- Every interface string is bilingual: `L('中文', 'English')` in JS, `data-en` / `data-en-html` / `data-en-title` / `data-en-placeholder` in HTML. Figure text, legends, logs and exported files are English only.
+- The interface, figures, legends, logs and exported files are English only; there is no translation layer.
 - No `alert` / `confirm` / `prompt` / `window.print` (inert in the artifact; `tools/build-artifact.mjs` fails the build on them). Use `G.UI.alert`, `G.UI.confirm` (async, in-page) and `G.Export.download` (resolves 'saved' | 'declined' | 'failed').
 - Image integrity: linear whole-image adjustments only by default; anything that changes how data looks or what is shown (inversion, gamma, removed lanes, strips, marker image, densitometry method) is reported in `G.Export.legendHints` and the processing log.
 - Colours in CSS are tokens on `:root` with dark values under `prefers-color-scheme` and `[data-theme]`; the figure itself is always black on white.

@@ -93,10 +93,10 @@ async function runIn(name, base) {
       if (errs.length) fail('engine page errors', errs.join(' | '));
       await page.close();
     }
-    // interface self-test (English UI)
+    // interface self-test
     {
       const page = await ctx.newPage(), errs = watch(page);
-      await page.goto(`${base}/index.html?demo=1&uitest=1&draft=1&lang=en`);
+      await page.goto(`${base}/index.html?demo=1&uitest=1&draft=1`);
       await page.waitForFunction(() => document.title.startsWith('UITEST '), null, { timeout: 300000 });
       const r = JSON.parse((await page.title()).slice(7));
       // a third element names the result fields to print when the check fails
@@ -123,16 +123,6 @@ async function runIn(name, base) {
       }, outside.url);
       await page.waitForTimeout(2000);
       outside.hits.length ? fail('no request leaves the page', outside.hits.join(', ')) : pass('no request leaves the page');
-      await page.close();
-    }
-    // Chinese interface loads and detects the demo gel
-    {
-      const page = await ctx.newPage(), errs = watch(page);
-      await page.goto(`${base}/index.html?demo=1&lang=zh`);
-      await page.waitForFunction(() => document.title.startsWith('READY '), null, { timeout: 180000 });
-      const r = JSON.parse((await page.title()).slice(6));
-      r.lanes.length === 11 && r.markers.length === 1 ? pass('Chinese UI + demo detection') : fail('Chinese UI + demo detection', JSON.stringify(r).slice(0, 300));
-      if (errs.length) fail('Chinese UI page errors', errs.join(' | '));
       await page.close();
     }
   } catch (e) {

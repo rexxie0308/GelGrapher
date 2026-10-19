@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- English-only interface: the Chinese translation layer (`js/i18n.js`, `L()` calls, `data-en` attributes) and the language button are removed.
+
 ### Added
 - Flip vertical / horizontal (Image section): for gels imaged with the wells at the bottom or mirrored. Every annotation follows, the processing log and legend notes record the orientation change.
 - "Copy figure to clipboard" in the export menu: a PNG at the chosen dpi for slides and notebooks.

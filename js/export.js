@@ -2,7 +2,6 @@
  * figure-matched image, untouched original data, JSON processing log, densitometry CSV / chart. */
 (function (G) {
   'use strict';
-  const L = (...a) => G.L(...a);
 
   // file types a Claude artifact viewer saves directly; anything else is handed over inside a .zip
   const HOST_TYPES = new Set(['gif', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'json', 'md', 'csv', 'html', 'svg', 'pdf', 'xlsx', 'zip', 'docx', 'pptx']);
@@ -18,8 +17,8 @@
       try { await dl.save({ filename: fname, data }); return 'saved'; } catch (e) {
         const code = e && e.code;
         if (code === 'declined') return 'declined';
-        if (code === 'rate_limited') { if (G.UI) G.UI.toast(L('另一个保存确认还开着，请先处理它', 'Another save prompt is still open; answer it first')); return 'failed'; }
-        if (code === 'too_large') { if (G.App) G.App.notify(L('文件太大，无法在这里保存；请降低导出分辨率', 'The file is too large to save here; try a lower export resolution')); return 'failed'; }
+        if (code === 'rate_limited') { if (G.UI) G.UI.toast('Another save prompt is still open; answer it first'); return 'failed'; }
+        if (code === 'too_large') { if (G.App) G.App.notify('The file is too large to save here; try a lower export resolution'); return 'failed'; }
         // unavailable in this view: fall back to an ordinary download below
       }
     }
@@ -86,7 +85,7 @@
         URL.revokeObjectURL(url);
         resolve(c);
       };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(G.L('SVG 栅格化失败', 'Could not rasterise the SVG'))); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not rasterise the SVG')); };
       img.src = url;
     });
   }

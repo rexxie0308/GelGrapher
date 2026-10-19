@@ -13,7 +13,7 @@
  */
 (function (G) {
   'use strict';
-  const E = G.Engine, L = (...a) => G.L(...a);
+  const E = G.Engine;
   const SAT = 0.998;
 
   // pixel-sum profile of one lane window, rows ya..yb (absolute rotated px)
@@ -77,7 +77,7 @@
     const rel = norm.map(r => r.map(v => (v != null && ri >= 0 && r[ri] > 0 ? v / r[ri] : null)));
     const satLanes = new Set();
     cells.forEach(r => r.forEach((c, j) => { if (c.sat > 0) satLanes.add(lanes[j]); }));
-    return { lanes, names: lanes.map(i => S.lanes[i].name || String(i + 1)), rows: rows.map((r, k) => ({ name: r.name || L(`条带 ${k + 1}`, `Band ${k + 1}`), control: k === ctl })),
+    return { lanes, names: lanes.map(i => S.lanes[i].name || String(i + 1)), rows: rows.map((r, k) => ({ name: r.name || `Band ${k + 1}`, control: k === ctl })),
       cells, vol, norm, rel, control: ctl, ref, method: q.bg, halfWidthPx: boxHalfWidth(S), saturatedLanes: [...satLanes] };
   }
 
