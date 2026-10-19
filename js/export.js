@@ -240,6 +240,7 @@
       markerImage: A.hasMarkerImage() ? { file: S.markerImage.name, sha256: S.markerImage.sha256, use: 'marker band positions only; not shown in the figure' } : null,
       rotationDeg: S.rotation, autoRotationDeg: A.autoRotation, flip: Object.assign({ description: flipText(S) }, S.flip),
       crop: S.crop, figureWells: r ? [r[0] + 1, r[1] + 1] : null,
+      wellRows: S.gelRows ? { count: S.gelRows.length, shown: S.gelRow + 1, rows: S.gelRows.map(x => ({ yFrom: Math.round(x.y0), yTo: Math.round(x.y1) })) } : null,
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
       levels: Object.assign({ note: 'linear whole-image stretch; values are fractions of full scale' }, S.levels),
       clipping: {

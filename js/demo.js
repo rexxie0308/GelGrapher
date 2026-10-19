@@ -47,9 +47,12 @@
     const kind = (opts && opts.preset) || 'dna';
     const P = PRESETS[kind];
     opts = Object.assign({ w: 1400, h: 1000, lanes: 12, tilt: 1.2, seed: 7 }, P, opts || {});
+    // row2: a second comb further down the same slab ({dy, lanes})
+    const row2 = opts.row2 || null;
+    if (row2) opts.h = 1000 + row2.dy;
     const { w, h } = opts, rnd = rng(opts.seed);
     const d = new Float32Array(w * h);
-    const gx0 = 140, gx1 = 1260, gy0 = 90, gy1 = 900;
+    const gx0 = 140, gx1 = 1260, gy0 = 90, gy1 = 900 + (row2 ? row2.dy : 0);
     const pitch = 80, laneW = 52, x0 = 260, wellY = 150;
     // migration: y = A + B ln(size)
     const yTop = 200, yBot = 840, [hi, lo] = opts.range, B = (yBot - yTop) / (Math.log(lo) - Math.log(hi)), A = yTop - B * Math.log(hi);
@@ -71,6 +74,15 @@
       if (opts.wellAmp) bands.push({ cx, y: wellY, a: opts.wellAmp, s: 5, well: true });
     }
     (opts.extra || []).forEach(e => bands.push({ cx: x0 + e.lane * pitch, y: yOf(e.size), a: e.a, s: e.s }));
+    if (row2) {
+      for (let Ln = 0; Ln < row2.lanes; Ln++) {
+        const cx = x0 + Ln * pitch;
+        if (Ln === 0) lad.sizes.forEach(s => bands.push({ cx, y: yOf(s) + row2.dy, a: lad.ref.includes(s) ? 0.75 : 0.38, s: opts.ladderSigma }));
+        else (samples[Ln] || []).forEach(([s, a]) => bands.push({ cx, y: yOf(s) + row2.dy, a, s: opts.bandSigma }));
+        if (opts.wellAmp) bands.push({ cx, y: wellY + row2.dy, a: opts.wellAmp, s: 5, well: true });
+      }
+      truth.rows = [{ lanes: opts.lanes, yOf }, { lanes: row2.lanes, yOf: v => yOf(v) + row2.dy }];
+    }
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         let v = 0.035 + 0.012 * (x / w) + 0.008 * Math.sin(y / 170);
@@ -119,5 +131,11 @@
     return buf;
   }
 
-  G.Demo = { makeGel, encodeTiff16, PRESETS };
+  /* Two rows of wells on one slab (two combs): a 12-lane DNA row and, 850 px lower, an 8-lane row. */
+  function makeTwoRowGel(opts) {
+    const g = makeGel(Object.assign({ preset: 'dna', tilt: 0.8, row2: { dy: 850, lanes: 8 } }, opts || {}));
+    return g;
+  }
+
+  G.Demo = { makeGel, makeTwoRowGel, encodeTiff16, PRESETS };
 })(window);

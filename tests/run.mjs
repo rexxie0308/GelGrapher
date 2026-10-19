@@ -66,7 +66,8 @@ const UI_CHECKS = [
   ['Western example: ladder, strips and densitometry', r => r.western.ok],
   ['SDS-PAGE example: ladder lane found among lysates', r => r.sds.ok],
   ['flips carry annotations and undo each other', r => r.flip.relFollowsV && r.flip.namesStay && r.flip.relH && r.flip.identity, ['flip']],
-  ['arrow labels on one side are spread apart', r => r.arrowSpread.ok, ['arrowSpread']]
+  ['arrow labels on one side are spread apart', r => r.arrowSpread.ok, ['arrowSpread']],
+  ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']]
 ];
 
 async function runIn(name, base) {

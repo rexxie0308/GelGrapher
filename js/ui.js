@@ -93,6 +93,7 @@
     if (!S()) return;
     const r = range(), n = r ? r[1] - r[0] + 1 : 0, nw = S().lanes.length, nm = S().markers.length;
     let msg = `Detected ${nw} wells, ${n} lanes in the figure` + (nm ? `, ${nm} marker${nm > 1 ? 's' : ''}` : ', no marker found');
+    if (App.rowCount() > 1) msg = `${App.rowCount()} rows of wells on this gel; showing row 1 (switch under "Lanes in figure"). ` + msg;
     if (App.exposures) {
       const e = App.exposures[App.expIdx], c = (e.clipFrac * 100).toFixed(2);
       msg = `Picked ${e.name} of ${App.exposures.length} exposures (${c}% saturated). ` + msg;
@@ -390,6 +391,22 @@
     const r = App.loadedLaneRange();
     if (r) { App.setLaneRange(r[0], r[1]); App.afterRangeChange(); G.Editor.fitCrop(); }
   });
+  // rows of wells: one button per row; the stashed rows show how many lanes they have
+  function renderRows() {
+    const st = S(), n = App.rowCount();
+    $('rowBox').classList.toggle('hidden', n < 2);
+    if (n < 2) return;
+    $('rowSeg').innerHTML = st.gelRows.map((r, k) => {
+      const lanes = k === st.gelRow ? st.lanes.length : st.rowStash[k] ? st.rowStash[k].lanes.length : null;
+      return `<button data-row="${k}" class="${k === st.gelRow ? 'on' : ''}">Row ${k + 1}${lanes != null ? ` <small>(${lanes} wells)</small>` : ''}</button>`;
+    }).join('');
+    $('rowSeg').querySelectorAll('[data-row]').forEach(b => b.onclick = () => {
+      const k = +b.dataset.row;
+      if (k === S().gelRow) return;
+      App.busy(true, 'Analysing the row…');
+      setTimeout(() => { App.setGelRow(k); App.busy(false); App.commit(); G.Editor.fitCrop(); toast(`Row ${k + 1}: ${S().lanes.length} wells, ${S().markers.length} marker${S().markers.length === 1 ? '' : 's'}`); }, 20);
+    });
+  }
   $('btnAutoLanes').onclick = done(() => { App.autoLanes(); App.afterRangeChange(); toast(`Detected ${S().lanes.length} wells on the whole gel`); });
   // after lanes inside the crop are rebuilt, find the marker lanes again but keep the ladder the
   // user chose for a marker that is still at (about) the same position
@@ -681,7 +698,7 @@
     set('stImage', (st.rotation ? `rotated ${st.rotation}° · ` : '')
       + (st.levels.invert ? 'inverted' : 'raw')
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
-    set('stRange', r ? `wells ${r[0] + 1}–${r[1] + 1} · ${fl.length} lanes` : '');
+    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${fl.length} lanes` : ''));
     set('stNames', `${named}/${fl.length}`);
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
@@ -797,7 +814,7 @@
     if (G.FigEdit) G.FigEdit.afterRender(f);
   }
 
-  function renderPanel() { renderLanes(); renderMarkers(); renderAnno(); }
+  function renderPanel() { renderRows(); renderLanes(); renderMarkers(); renderAnno(); }
 
   App.on(what => {
     if (!S()) return;

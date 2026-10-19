@@ -120,6 +120,11 @@
     ctx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'center';
     const mkLanes = new Set(S.markers.map(m => m.lane));
+    // many lanes at a small zoom: number chips would pile up, so only every n-th is drawn (plus the
+    // selected lane and the first / last), and the chips shrink
+    const pitchScr = (S.lanePitch || S.laneHalfW / 0.3) * view.s, every = Math.max(1, Math.ceil(24 / Math.max(1, pitchScr)));
+    const crowded = every > 1;
+    if (crowded) ctx.font = '600 10px -apple-system, Segoe UI, Arial, sans-serif';
     S.lanes.forEach((l, i) => {
       const p = toScr(l.x, c.y), sel = i === App.selLane, hov = hover && hover.type === 'lane' && hover.i === i;
       const isM = mkLanes.has(i), out = l.x < c.x || l.x > c.x + c.w;
@@ -137,7 +142,8 @@
         const full = lab + ' · ' + trunc(l.name.replace(/\*/g, ''), 12);   // "2 · 0 h", never "2 0 h"
         if (sel || ctx.measureText(full).width + 12 < nb) lab = full;
       }
-      const tw = ctx.measureText(lab).width + 12;
+      if (crowded && !sel && !l.hidden && lab === String(i + 1) && i % every && i !== S.lanes.length - 1) { ctx.globalAlpha = 1; return; }
+      const tw = ctx.measureText(lab).width + (crowded ? 8 : 12);
       const cy = Math.max(12, a.y - 14);
       ctx.fillStyle = l.hidden ? 'rgba(190,30,45,.9)' : sel ? '#2f6feb' : 'rgba(24,32,44,.72)';
       roundRect(ctx, p.x - tw / 2, cy - 9, tw, 18, 6); ctx.fill();

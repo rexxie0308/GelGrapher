@@ -6,6 +6,8 @@
 - English-only interface: the Chinese translation layer (`js/i18n.js`, `L()` calls, `data-en` attributes) and the language button are removed.
 
 ### Added
+- Gels with several rows of wells (two combs): the rows are found, one row is shown at a time with its own crop, lanes and ladder, and a row switcher under "Lanes in figure" keeps the names and annotations of every row.
+- Lane chips on the raw image thin out when many lanes are shown at a small zoom instead of piling up.
 - Flip vertical / horizontal (Image section): for gels imaged with the wells at the bottom or mirrored. Every annotation follows, the processing log and legend notes record the orientation change.
 - "Copy figure to clipboard" in the export menu: a PNG at the chosen dpi for slides and notebooks.
 - Arrow labels on the same side of the gel no longer overlap: close ones are spread apart with a short leader line.

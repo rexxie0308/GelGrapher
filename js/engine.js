@@ -193,7 +193,9 @@
   }
 
   // ---------- auto crop: find region containing bands / wells ----------
-  function autoCrop(img, bright) {
+  // band: optional {y0, y1} (full-resolution rows) that the crop must stay inside: one row of wells on
+  // a gel that carries several
+  function autoCrop(img, bright, band) {
     const sm = signal(downsample(img, 700), bright);
     const { w, h, data, f } = Object.assign({ f: 1 }, sm, { f: Math.max(1, Math.ceil(Math.max(img.w, img.h) / 700)) });
     // morphological top-hat (rows then columns) to remove gel/background gradient
@@ -305,7 +307,30 @@
     // rows: soft max across those columns
     const rowP = new Float32Array(h), rowBuf = new Float32Array(xr1.e - xr1.s + 1);
     for (let y = 0; y < h; y++) { for (let x = xr1.s; x <= xr1.e; x++) rowBuf[x - xr1.s] = tmp[y * w + x]; rowP[y] = topMean(rowBuf, 0.03); }
-    const rp = gaussSmooth(rowP, 1), rmx = Math.max(...rp);
+    const rp0 = gaussSmooth(rowP, 1), rmx = Math.max(...rp0);
+    /* Rows of wells: clusters of band signal down the gel. A light cluster right above a heavy one is
+     * that row's well line and belongs to it. Reported in full-resolution rows for the caller. */
+    {
+      const all = runs(rp0, rmx * 0.08, 2), gap = Math.max(4, h * 0.05), cl = [];
+      all.forEach(r => { const c = cl[cl.length - 1]; if (c && r.s - c.e <= gap) { c.e = r.e; c.mass += r.mass; } else cl.push({ s: r.s, e: r.e, mass: r.mass }); });
+      // a light cluster (a well line, a lone small band) joins the nearer of its neighbours
+      for (let changed = true; changed;) {
+        changed = false;
+        for (let i = 0; i < cl.length; i++) {
+          const c = cl[i], p = cl[i - 1], n = cl[i + 1];
+          const heavyNb = Math.max(p ? p.mass : 0, n ? n.mass : 0);
+          if (c.mass >= 0.3 * heavyNb) continue;
+          const gp = p ? c.s - p.e : Infinity, gn = n ? n.s - c.e : Infinity;
+          const into = gp <= gn ? p : n, gap = Math.min(gp, gn);
+          if (!into || gap > h * 0.12) continue;
+          into.s = Math.min(into.s, c.s); into.e = Math.max(into.e, c.e); into.mass += c.mass; cl.splice(i, 1); changed = true; break;
+        }
+      }
+      const heavy = Math.max(1e-9, ...cl.map(c => c.mass));
+      autoCrop.rows = cl.filter(c => c.mass >= heavy * 0.15 && c.e - c.s >= h * 0.02).map(c => ({ y0: c.s * f, y1: (c.e + 1) * f }));
+    }
+    let rp = rp0;
+    if (band) { rp = Float32Array.from(rp0); const b0 = Math.max(0, Math.floor(band.y0 / f)), b1 = Math.min(h - 1, Math.ceil(band.y1 / f)); for (let y = 0; y < h; y++) if (y < b0 || y > b1) rp[y] = 0; }
     const yr = grow(runs(rp, rmx * 0.08, 2), h, 0.05, 0.25, 0.004);
     if (!yr) return FULL;
     let y0 = yr.s;
@@ -324,7 +349,7 @@
     const X0 = clamp(xr.s - padX, 0, w - 1), X1 = clamp(xr.e + padX, 0, w - 1);
     // include the well row: nearest clear row-peak above the bands (never the gel edge beyond it)
     let padTop = Math.round(span * 0.04) + 2, well = null;
-    const a = Math.max(0, Math.round(y0 - span * 0.6));
+    const a = Math.max(band ? Math.floor(band.y0 / f) : 0, 0, Math.round(y0 - span * 0.6));
     if (y0 - a > 4) {
       const win = rp.slice(a, y0);
       const pk = findPeaks(win, 3, rmx * 0.015);

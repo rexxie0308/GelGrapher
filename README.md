@@ -69,6 +69,7 @@ Added in GelGrapher:
 - **Western marker image**: load the white-light picture of the membrane to find a ladder that is invisible on the chemiluminescence image.
 - **Vector PDF** export besides PNG, TIFF and SVG, and **Copy figure** for pasting into slides or a notebook.
 - **Flip** a gel imaged with the wells at the bottom or mirrored; annotations follow and the change is recorded.
+- **Several rows of wells** on one gel (two combs): each row gets its own crop, lanes and ladder; switch rows under *Lanes in figure*, with every row's names and annotations kept.
 - **Claude artifact**: install it in Claude, export through Claude's save prompt, and draft the figure legend and methods text with Claude.
 - **Worked examples** (synthetic DNA gel, Coomassie SDS-PAGE, Western blot), dark theme, phone layout, touch and pen input with pinch zoom.
 

@@ -350,6 +350,21 @@
       R.arrowSpread = { ys, ok: ys.length === 3 && ys.every((y, i) => !i || y - ys[i - 1] >= st.style.fontPt * 1.1), leaders: (svg.match(/<line [^>]*stroke-width/g) || []).length };
       st.arrows = []; App.commit();
     }
+    // 29. a gel with two rows of wells: both rows found, each analysed on its own, annotations kept per row
+    {
+      const g = G.Demo.makeTwoRowGel();
+      await App.load({ name: 'two_rows.tif', buffer: G.Demo.encodeTiff16(g) }, 'dna-agarose');
+      const st = App.S, r0 = { rows: App.rowCount(), lanes: st.lanes.length, markers: st.markers.length, cropIn: st.crop.y + st.crop.h <= st.gelRows[1].y0 };
+      G.UI.figLanes().forEach((i, k) => { st.lanes[i].name = 'top' + k; }); App.commit();
+      App.setGelRow(1); App.commit();
+      const r1 = { lanes: st.lanes.length, markers: st.markers.length, cropIn: st.crop.y >= st.gelRows[0].y1, names: G.UI.figLanes().map(i => st.lanes[i].name).join('') };
+      st.lanes[G.UI.figLanes()[1]].name = 'bottom'; App.commit();
+      App.setGelRow(0); App.commit();
+      const back = G.UI.figLanes().map(i => st.lanes[i].name);
+      App.setGelRow(1); App.commit();
+      R.rows = { r0, r1, backNames: back.join(','), bottomKept: st.lanes[G.UI.figLanes()[1]].name === 'bottom',
+        ok: r0.rows === 2 && r0.lanes >= 10 && r0.lanes <= 12 && r0.markers === 1 && r0.cropIn && r1.lanes === 8 && r1.markers === 1 && r1.cropIn && r1.names === 'M' && back[0] === 'top0' && back[back.length - 1] === 'top' + (back.length - 1) };
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

@@ -153,6 +153,7 @@
       markers: [],
       groups: [], conditions: [], arrows: [], strips: [],
       quant: defaultQuant(), markerImage: null, flip: { h: false, v: false },
+      gelRows: null, gelRow: 0, rowStash: {},
       style: Object.assign(defaultStyle(), p.style || {}),
       saturatedInCrop: 0
     };
@@ -294,16 +295,22 @@
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
   };
   App.flip = function (axis) {
-    const S = App.S, W = App.src.w, H = App.src.h, c = S.crop;
-    if (axis === 'h') {
-      S.lanes.forEach(l => { l.x = W - 1 - l.x; });
-      S.crop = { x: Math.round(Math.max(0, W - (c.x + c.w))), y: c.y, w: c.w, h: c.h };
-    } else {
-      S.markers.forEach(m => m.bands.forEach(b => { b.y = H - 1 - b.y; }));
-      S.arrows.forEach(a => { a.y = H - 1 - a.y; });
-      S.strips.concat(S.quant.rows).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
-      S.crop = { x: c.x, y: Math.round(Math.max(0, H - (c.y + c.h))), w: c.w, h: c.h };
-    }
+    const S = App.S, W = App.src.w, H = App.src.h;
+    const mirror = A => {
+      const c = A.crop;
+      if (axis === 'h') {
+        A.lanes.forEach(l => { l.x = W - 1 - l.x; });
+        A.crop = { x: Math.round(Math.max(0, W - (c.x + c.w))), y: c.y, w: c.w, h: c.h };
+      } else {
+        A.markers.forEach(m => m.bands.forEach(b => { b.y = H - 1 - b.y; }));
+        A.arrows.forEach(a => { a.y = H - 1 - a.y; });
+        A.strips.concat(A.quant.rows).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
+        A.crop = { x: c.x, y: Math.round(Math.max(0, H - (c.y + c.h))), w: c.w, h: c.h };
+      }
+    };
+    mirror(S);
+    Object.values(S.rowStash || {}).forEach(A => { mirror(A); if (axis === 'h') A.lanes.sort((p, q) => p.x - q.x); });
+    if (axis === 'v' && S.gelRows) { S.gelRows = S.gelRows.map(r => ({ y0: H - r.y1, y1: H - r.y0 })).reverse(); S.gelRow = S.gelRows.length - 1 - S.gelRow; const st = {}; Object.entries(S.rowStash).forEach(([k, v]) => { st[S.gelRows.length - 1 - k] = v; }); S.rowStash = st; }
     S.flip[axis] = !S.flip[axis];
     S.rotation = -S.rotation;
     if (App.autoRotation != null) App.autoRotation = -App.autoRotation;
@@ -417,16 +424,22 @@
     const W = App.src.w, H = App.src.h, cx = (W - 1) / 2, cy = (H - 1) / 2;
     const t = d * Math.PI / 180, co = Math.cos(t), si = Math.sin(t);
     const T = (x, y) => { const dx = x - cx, dy = y - cy; return { x: co * dx - si * dy + cx, y: si * dx + co * dy + cy }; };
-    const c = S.crop, ccx = c.x + c.w / 2, ccy = c.y + c.h / 2;
-    const laneX0 = S.lanes.map(l => l.x);
-    S.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = T(lx, b.y).y; }); });
-    S.arrows.forEach(a => { a.y = T(ccx, a.y).y; });
-    // strips and band boxes span the crop: carried at its horizontal centre like arrows
-    S.strips.concat(S.quant.rows).forEach(r => { r.y0 = T(ccx, r.y0).y; r.y1 = T(ccx, r.y1).y; });
-    S.lanes.forEach(l => { l.x = T(l.x, ccy).x; });
-    const nc = T(ccx, ccy);
-    const w = Math.min(c.w, W), h = Math.min(c.h, H);
-    S.crop = { x: Math.round(Math.max(0, Math.min(W - w, nc.x - w / 2))), y: Math.round(Math.max(0, Math.min(H - h, nc.y - h / 2))), w: Math.round(w), h: Math.round(h) };
+    // one set of annotations (the shown row, or a stashed one): everything moves with its crop
+    const carry = A => {
+      const c = A.crop, ccx = c.x + c.w / 2, ccy = c.y + c.h / 2;
+      const laneX0 = A.lanes.map(l => l.x);
+      A.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = T(lx, b.y).y; }); });
+      A.arrows.forEach(a => { a.y = T(ccx, a.y).y; });
+      // strips and band boxes span the crop: carried at its horizontal centre like arrows
+      A.strips.concat(A.quant.rows).forEach(r => { r.y0 = T(ccx, r.y0).y; r.y1 = T(ccx, r.y1).y; });
+      A.lanes.forEach(l => { l.x = T(l.x, ccy).x; });
+      const nc = T(ccx, ccy);
+      const w = Math.min(c.w, W), h = Math.min(c.h, H);
+      A.crop = { x: Math.round(Math.max(0, Math.min(W - w, nc.x - w / 2))), y: Math.round(Math.max(0, Math.min(H - h, nc.y - h / 2))), w: Math.round(w), h: Math.round(h) };
+    };
+    carry(S);
+    Object.values(S.rowStash || {}).forEach(carry);
+    if (S.gelRows) S.gelRows.forEach(r => { r.y0 = T(cx, r.y0).y; r.y1 = T(cx, r.y1).y; });
     S.rotation = deg;
     App.sortLanesIfNeeded();
     App.ensureRot();
@@ -501,10 +514,45 @@
   // pixels of the gel actually placed per inch of the printed figure (no upsampling)
   App.effectiveDpi = function () { return App.visibleWidthPx() / (App.gelWidthMm() / 25.4); };
   App.maxSafeWidthMm = function (dpi) { return Math.floor(App.visibleWidthPx() / (dpi || 300) * 25.4); };
-  App.autoCrop = function () {
-    App.S.crop = E.autoCrop(App.ensureRot(), App.S.bright);
+  App.autoCrop = function (band) {
+    App.S.crop = E.autoCrop(App.ensureRot(), App.S.bright, band);
     App.cropMeta = E.autoCrop.meta || null;
     App.updateSaturation();
+  };
+
+  /* ---------- gels with several rows of wells ----------
+   * Each row is analysed on its own; the figure shows one row at a time. Annotations of the rows not
+   * shown wait in S.rowStash, so switching back and forth loses nothing. */
+  const ROW_KEYS = ['crop', 'lanes', 'laneHalfW', 'lanePitch', 'markers', 'groups', 'conditions', 'arrows', 'strips', 'quant'];
+  // the image band one row may use: its own extent plus room for its wells above, never into a neighbour
+  App.rowBand = function (k) {
+    const rows = App.S.gelRows, r = rows[k], H = App.ensureRot().h, rh = r.y1 - r.y0;
+    const prev = rows[k - 1], next = rows[k + 1];
+    const up = prev ? Math.min(rh * 0.45, (r.y0 - prev.y1) * 0.5) : rh * 0.45;
+    const down = next ? Math.min(rh * 0.15, (next.y0 - r.y1) * 0.5) : rh * 0.15;
+    return { y0: Math.max(0, r.y0 - up), y1: Math.min(H, r.y1 + down) };
+  };
+  App.rowCount = function () { return App.S.gelRows ? App.S.gelRows.length : 1; };
+  function analyseRow(k) {
+    App.autoCrop(App.rowCount() > 1 ? App.rowBand(k) : undefined);
+    App.autoLevels();
+    App.autoLanes();
+    const loaded = App.loadedLaneRange();
+    if (loaded) App.setLaneRange(loaded[0], loaded[1]);
+    App.autoMarkers();
+    App.fixIndices();
+    App.updateSaturation();
+  }
+  App.setGelRow = function (k) {
+    const S = App.S;
+    if (!S.gelRows || k === S.gelRow || !S.gelRows[k]) return false;
+    S.rowStash[S.gelRow] = JSON.parse(JSON.stringify(Object.fromEntries(ROW_KEYS.map(key => [key, S[key]]))));
+    S.gelRow = k;
+    const st = S.rowStash[k];
+    if (st) { ROW_KEYS.forEach(key => { S[key] = st[key]; }); delete S.rowStash[k]; App.updateSaturation(); }
+    else { S.groups = []; S.conditions = []; S.arrows = []; S.strips = []; S.quant = defaultQuant(); S.markers = []; S.lanes = []; analyseRow(k); }
+    App._emptyKey = null;
+    return true;
   };
   App.autoLevels = function () {
     const lv = E.autoLevels(App.cropImg());
@@ -833,7 +881,12 @@
     T('deskew');
     if (fresh) App.autoDeskew();
     T('crop');
+    // the whole gel first: that is where the rows of wells are counted
     App.autoCrop();
+    const rows = E.autoCrop.rows || [];
+    S.gelRows = rows.length > 1 ? rows : null;
+    S.gelRow = 0; S.rowStash = {};
+    if (S.gelRows) App.autoCrop(App.rowBand(0));
     T('levels');
     App.autoLevels();
     T('lanes');
@@ -1168,6 +1221,9 @@
     S.quant = Object.assign(defaultQuant(), S.quant || {});
     if (S.markerImage === undefined) S.markerImage = null;
     S.flip = Object.assign({ h: false, v: false }, S.flip || {});
+    if (S.gelRows === undefined) S.gelRows = null;
+    if (S.gelRow == null) S.gelRow = 0;
+    S.rowStash = S.rowStash || {};
     return S;
   }
   App.normalizeState = normalize;
