@@ -15,15 +15,45 @@
     App.mode = m;
     $('modeBanner').classList.toggle('hidden', !m);
     $('modeText').textContent = m === 'arrow' ? L('点击目标条带（原图或成图上都行），自动吸附并估算大小', 'Click the target band (on either image); it snaps to the band and estimates the size')
-      : m === 'group' ? L('在成图上从第一个泳道名拖到最后一个，松开即生成分组横线', 'Drag from the first to the last lane name on the figure; release to create the group line') : '';
+      : m === 'group' ? L('在成图上从第一个泳道名拖到最后一个，松开即生成分组横线', 'Drag from the first to the last lane name on the figure; release to create the group line')
+      : m === 'strip' ? L('在原图上从上到下拖过要显示的区域（含 Marker 刻度），松开生成一个分条', 'On the raw image, drag down across the region to show (include the marker ticks); release to add the strip')
+      : m === 'quant' ? L('在原图上点一下条带（自动框住），或上下拖出框的范围', 'Click a band on the raw image (the box fits itself), or drag across it') : '';
     $('btnAddArrow').classList.toggle('on', m === 'arrow');
     $('btnAddGroup').classList.toggle('on', m === 'group');
+    $('btnAddStrip').classList.toggle('on', m === 'strip');
+    $('btnAddBox').classList.toggle('on', m === 'quant');
     prev.classList.toggle('arming', m === 'arrow');
     G.Editor.draw();
   }
   $('modeCancel').onclick = () => setMode(null);
   $('btnAddArrow').onclick = () => { if (S()) setMode(App.mode === 'arrow' ? null : 'arrow'); };
   $('btnAddGroup').onclick = () => { if (S()) setMode(App.mode === 'group' ? null : 'group'); };
+  $('btnAddStrip').onclick = () => { if (S()) setMode(App.mode === 'strip' ? null : 'strip'); };
+  $('btnAddBox').onclick = () => { if (S()) setMode(App.mode === 'quant' ? null : 'quant'); };
+
+  /* a strip or band box drawn on the raw image: y0..y1, or (a click) only the point clicked */
+  App.finishRegion = function (mode, y0, y1, x, yClick) {
+    const st = S(), c = st.crop;
+    setMode(null);
+    if (mode === 'quant') {
+      const r = y0 != null ? { y0, y1 } : G.Quant.bandBox(App, x, yClick);
+      if (!r) return;
+      st.quant.rows.push({ y0: r.y0, y1: r.y1, name: '' });
+      // the second box is usually the loading control: suggest it
+      if (st.quant.rows.length === 2 && st.quant.control < 0) st.quant.control = 1;
+      App.commit();
+      const d = $('quantDetails'); if (d && !d.open) d.open = true;
+      requestAnimationFrame(() => { const inp = document.querySelector(`#boxList input[data-q="${st.quant.rows.length - 1}"]`); if (inp) inp.focus(); });
+    } else {
+      const hh = Math.max(12, c.h * 0.08);
+      const r = y0 != null ? { y0, y1 } : { y0: Math.max(c.y, yClick - hh), y1: Math.min(c.y + c.h, yClick + hh) };
+      st.strips.push({ y0: r.y0, y1: r.y1, label: '' });
+      st.markers.forEach(m => App.thinMarkerLabels(m, false));
+      App.commit();
+      const k = st.strips.length - 1;
+      requestAnimationFrame(() => openEd('strip', k));
+    }
+  };
   $('btnAddCond').onclick = () => {
     if (!S()) return;
     S().conditions.push({ name: '', values: S().lanes.map(() => '') });
@@ -43,16 +73,17 @@
 
   /* ---------- inline text editor ---------- */
   let edit = null;   // { kind, id, orig }
-  const getVal = (kind, id) => kind === 'lane' ? S().lanes[id].name : kind === 'group' ? S().groups[id].text : S().conditions[id].name;
-  const setVal = (kind, id, v) => { if (kind === 'lane') S().lanes[id].name = v; else if (kind === 'group') S().groups[id].text = v; else S().conditions[id].name = v; };
+  const getVal = (kind, id) => kind === 'lane' ? S().lanes[id].name : kind === 'group' ? S().groups[id].text : kind === 'strip' ? S().strips[id].label : S().conditions[id].name;
+  const setVal = (kind, id, v) => { if (kind === 'lane') S().lanes[id].name = v; else if (kind === 'group') S().groups[id].text = v; else if (kind === 'strip') S().strips[id].label = v; else S().conditions[id].name = v; };
   function openEd(kind, id) {
     closePop();
-    const el = prev.querySelector(kind === 'lane' ? `g[data-edit="lane"][data-src="${id}"]` : kind === 'group' ? `g[data-edit="group"][data-k="${id}"]` : `g[data-edit="condname"][data-r="${id}"]`);
+    const el = prev.querySelector(kind === 'lane' ? `g[data-edit="lane"][data-src="${id}"]` : kind === 'group' ? `g[data-edit="group"][data-k="${id}"]`
+      : kind === 'strip' ? `g[data-edit="strip"][data-k="${id}"]` : `g[data-edit="condname"][data-r="${id}"]`);
     if (!el) return;
     const r = el.getBoundingClientRect();
     edit = { kind, id, orig: getVal(kind, id) || '' };
     fed.value = edit.orig;
-    fed.placeholder = kind === 'lane' ? L(`孔 ${id + 1} 名称`, `Well ${id + 1} name`) : kind === 'group' ? L('分组文字', 'Group label') : L('条件名', 'Condition name');
+    fed.placeholder = kind === 'lane' ? L(`孔 ${id + 1} 名称`, `Well ${id + 1} name`) : kind === 'group' ? L('分组文字', 'Group label') : kind === 'strip' ? L('蛋白 / 探针名，如 p53', 'Protein / probe, e.g. p53') : L('条件名', 'Condition name');
     const w = Math.max(120, Math.min(240, r.width + 50));
     fed.style.width = w + 'px';
     fed.style.left = clamp(r.left + r.width / 2 - w / 2, 4, innerWidth - w - 4) + 'px';
@@ -99,16 +130,16 @@
     let estHtml = L('没有可用的 Marker，无法估算大小', 'No usable marker; the size cannot be estimated');
     if (info) {
       const v = `<b>${info.extrap || info.disagree ? '≈' : ''}${App.fmtSize(est)}</b>`;
-      estHtml = L(`按 Marker 估算 ${v}（${Math.round(est)} bp）`, `Estimated from marker: ${v} (${Math.round(est)} bp)`);
+      estHtml = L(`按 Marker 估算 ${v}（${App.fmtExact(est)}）`, `Estimated from marker: ${v} (${App.fmtExact(est)})`);
       if (info.extrap) estHtml += '<br><span class="warn-t">' + L('超出 Marker 范围，为外推值，成图会标 ≈', 'Outside the marker range: extrapolated, shown with ≈') + '</span>';
       if (info.perMarker.length > 1) estHtml += '<br>' + info.perMarker.map(p => L(`孔 ${p.lane + 1}：`, `well ${p.lane + 1}: `) + App.fmtSize(p.bp) + (p.extrap ? L('（外推）', ' (extrapolated)') : '')).join(L('；', '; '))
         + (info.disagree ? ' <span class="warn-t">' + L('两者相差 &gt;10%', 'differ by &gt;10%') + '</span>' : '');
     }
     pop.innerHTML = `<h4>${L('目标条带箭头', 'Target band arrow')}</h4>
-      <div class="field"><input type="text" id="pName" placeholder="${L('名称（可空），如 GAPDH、PCR 产物', 'Name (optional), e.g. GAPDH, PCR product')}" value="${esc(a.text)}"></div>
+      <div class="field"><input type="text" id="pName" placeholder="${App.kind() === 'dna' || App.kind() === 'rna' ? L('名称（可空），如 PCR 产物', 'Name (optional), e.g. PCR product') : L('名称（可空），如 p53、GAPDH', 'Name (optional), e.g. p53, GAPDH')}" value="${esc(a.text)}"></div>
       <div class="est">${estHtml}</div>
       <div class="field inline"><label class="switch"><input type="checkbox" id="pSize" ${a.size ? 'checked' : ''}><span>${L('标注大小', 'Show size')}</span></label>
-        <input type="text" id="pSizeText" placeholder="${est ? App.fmtSize(est) : L('如 452 bp', 'e.g. 452 bp')}" value="${esc(a.sizeText || '')}" style="flex:1" title="${L('留空 = 用估算值；也可填理论大小', 'Empty = use the estimate; or type the expected size')}"></div>
+        <input type="text" id="pSizeText" placeholder="${est ? App.fmtSize(est) : (App.baseUnit() === 'kDa' ? L('如 53 kDa', 'e.g. 53 kDa') : L('如 452 bp', 'e.g. 452 bp'))}" value="${esc(a.sizeText || '')}" style="flex:1" title="${L('留空 = 用估算值；也可填理论大小', 'Empty = use the estimate; or type the expected size')}"></div>
       <div class="field inline"><label class="inline-label">${L('位置', 'Side')}</label>
         <select id="pSide" style="width:auto"><option value="">${L('自动', 'Auto')}</option><option value="right">${L('右侧', 'Right')}</option><option value="left">${L('左侧', 'Left')}</option></select>
         <span class="hint" style="margin:0">${L('上下位置在原图上拖品红线', 'Drag the magenta line on the image to move it')}</span></div>
@@ -129,7 +160,7 @@
     pop.querySelector('#pDel').onclick = () => { S().arrows.splice(k, 1); App.selArrow = -1; popK = -1; pop.classList.add('hidden'); App.commit(); };
     setTimeout(() => pop.querySelector('#pName').focus(), 0);
   }
-  document.addEventListener('mousedown', e => { if (popK >= 0 && !pop.contains(e.target) && !e.target.closest('[data-aed]') && !e.target.closest('g[data-edit="arrow"]')) closePop(); });
+  document.addEventListener('pointerdown', e => { if (popK >= 0 && !pop.contains(e.target) && !e.target.closest('[data-aed]') && !e.target.closest('g[data-edit="arrow"]')) closePop(); });
 
   /* ---------- preview pointer handling ---------- */
   let press = null;
@@ -140,18 +171,18 @@
       g.classList.toggle('active', a != null && s >= Math.min(a, b) && s <= Math.max(a, b));
     });
   }
-  prev.addEventListener('mousedown', e => {
+  prev.addEventListener('pointerdown', e => {
     if (!S()) return;
     const g = e.target.closest('[data-edit]');
     if (!g) return;
     if (g.dataset.edit === 'lane') { press = { src: +g.dataset.src, x: e.clientX, y: e.clientY, moved: false, end: +g.dataset.src }; e.preventDefault(); }
   });
-  window.addEventListener('mousemove', e => {
+  window.addEventListener('pointermove', e => {
     if (!press) return;
     if (Math.abs(e.clientX - press.x) + Math.abs(e.clientY - press.y) > 6) press.moved = true;
     if (press.moved) { const l = laneAt(e.clientX, e.clientY); if (l != null) press.end = l; highlight(press.src, press.end); }
   });
-  window.addEventListener('mouseup', e => {
+  window.addEventListener('pointerup', e => {
     if (!press) return;
     const p = press; press = null;
     highlight(null);
@@ -170,6 +201,7 @@
     if (!g) { if (App.mode === 'arrow') G.UI.toast(L('请点在凝胶图像上的条带', 'Click a band on the gel image')); return; }
     const kind = g.dataset.edit;
     if (kind === 'group') openEd('group', +g.dataset.k);
+    else if (kind === 'strip') openEd('strip', +g.dataset.k);
     else if (kind === 'condname') openEd('condname', +g.dataset.r);
     else if (kind === 'cond') {
       const c = S().conditions[+g.dataset.r], i = +g.dataset.src, cyc = { '': '+', '+': '−', '−': '' };

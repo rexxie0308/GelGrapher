@@ -11,8 +11,10 @@
   const defaultStyle = () => ({
     gelWidthMm: 45, autoWidth: true, mmPerLane: 5.5, fontPt: 7, lineWidthPt: 0.5, labelAngle: 'auto', laneNumbers: false, frame: false,
     panelLetter: '', panelPt: 8, spliceStyle: 'gap', spliceGapPt: 1.5, tickLenPt: 2.5, labelGapPt: 2.5,
-    unitHeader: true, groupTicks: false, dpi: 600, laneNumberMode: 'well'
+    unitHeader: true, groupTicks: false, dpi: 600, laneNumberMode: 'well', stripGapPt: 3
   });
+  // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
+  const defaultQuant = () => ({ rows: [], bg: 'edge', wFrac: 0.7, control: -1, ref: -1 });
 
   const App = {
     S: null,            // serialisable state
@@ -24,11 +26,22 @@
     selLane: -1, selArrow: -1,
   };
 
-  function prefs() { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch (e) { return {}; } }
+  // preferences live in localStorage when the browser allows it, in memory otherwise
+  let prefMem = null;
+  function prefs() {
+    if (!prefMem) { try { prefMem = JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch (e) { prefMem = {}; } }
+    return JSON.parse(JSON.stringify(prefMem));
+  }
+  function writePrefs(p) { prefMem = p; try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch (e) { /* storage blocked */ } }
+  // ladder, label unit and band look are remembered per experiment type (a Western is not a PCR gel)
+  function typePrefs(type) { return (prefs().byType || {})[type] || {}; }
   function savePrefs() {
     const S = App.S; if (!S) return;
-    const m0 = S.markers[0] || {};
-    localStorage.setItem(PREF_KEY, JSON.stringify(Object.assign(prefs(), { style: S.style, ladderId: m0.ladderId || App.prefLadder, unit: m0.unit || App.prefUnit, invert: S.levels.invert })));
+    const m0 = S.markers[0] || {}, p = prefs();
+    p.byType = p.byType || {};
+    p.byType[S.gelType] = { ladderId: m0.ladderId || App.prefLadder, unit: m0.unit || App.prefUnit, darkBands: App.darkBands() };
+    p.style = S.style; p.gelType = S.gelType;
+    writePrefs(p);
   }
 
   function busy(on, text) {
@@ -39,9 +52,44 @@
   App.defaultStyle = defaultStyle;
   App.onDropFile = null;   // set by the UI layer
 
-  App.VERSION = '0.5.0';
+  App.NAME = 'GelGrapher';
+  App.VERSION = '1.0.0';
   App.prefs = prefs;
-  App.setPref = function (k, v) { const p = prefs(); p[k] = v; localStorage.setItem(PREF_KEY, JSON.stringify(p)); };
+  App.setPref = function (k, v) { const p = prefs(); p[k] = v; writePrefs(p); };
+  App.notify = function (msg) { if (G.UI && G.UI.alert) G.UI.alert(msg); else console.error(msg); };
+
+  // ---------- experiment type ----------
+  App.gelType = function () { return G.Gels.get(App.S ? App.S.gelType : prefs().gelType); };
+  App.kind = function () { return App.gelType().kind; };
+  // unit the sizes are stored in (bp / nt / kDa)
+  App.baseUnit = function () { return G.Ladders.KIND_UNIT[App.kind()]; };
+  // true when the figure shows dark bands on a light background
+  App.darkBands = function () { const S = App.S; return S.bright ? !!S.levels.invert : !S.levels.invert; };
+  App.setDarkBands = function (dark) { App.S.levels.invert = !!dark === App.S.bright; };
+  function typeDefaults(type, bright) {
+    const t = G.Gels.get(type), tp = typePrefs(t.id);
+    const lad = G.Ladders.get(tp.ladderId);
+    App.prefLadder = lad && lad.kind === t.kind ? tp.ladderId : t.ladder;
+    App.prefUnit = tp.unit && G.Ladders.unitsFor(t.kind).includes(tp.unit) ? tp.unit : G.Gels.unitOf(t.id);
+    App.invertInherited = tp.darkBands != null;
+    const dark = tp.darkBands != null ? tp.darkBands : t.darkBands != null ? t.darkBands : !bright;
+    return { invert: dark === bright };
+  }
+  /* Switch the experiment type of the open image: ladders come from the new library, labels use its
+   * unit and the default band look follows the type. Lanes, names and annotations stay. */
+  App.setGelType = function (id) {
+    const S = App.S, t = G.Gels.get(id), prevKind = App.kind();
+    S.gelType = t.id;
+    S.levels.invert = typeDefaults(t.id, S.bright).invert;
+    App.setPref('gelType', t.id);
+    if (t.kind !== prevKind) {
+      const lanes = S.markers.map(m => m.lane);
+      App.autoMarkers();
+      // nothing in the new library fits on its own: keep the marker lanes with the type's default ladder
+      if (!S.markers.length && lanes.length) { S.markers = lanes.map(l => App.newMarker(l, App.prefLadder)); App.matchMarkers(true); }
+    }
+    S.markers.forEach(m => { m.unit = App.prefUnit; });
+  };
 
   // ---------- hashing ----------
   App.sha256 = async function (buffer) {
@@ -86,27 +134,27 @@
   };
 
   // install a decoded image as the current source and run the automatic pipeline
-  function startFrom(input) {
+  function startFrom(input, gelType) {
     const img = input.img;
     App.src = { w: img.width, h: img.height, data: img.data };
     App.srcBuffer = input.buffer;
-    App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null;
-    const p = prefs();
+    App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
+    App.clearMarkerImage(true);
+    const p = prefs(), type = G.Gels.get(gelType || p.gelType).id, bright = E.detectBright(App.src);
     App.S = {
+      gelType: type,
       file: { name: input.name, bits: img.bits, dpi: img.dpi, actualMax: img.actualMax, sha256: input.sha256, size: input.buffer.byteLength },
-      bright: E.detectBright(App.src),
+      bright,
       rotation: 0,
-      levels: { black: 0, white: 1, gamma: 1, invert: p.invert != null ? p.invert : false },
+      levels: { black: 0, white: 1, gamma: 1, invert: typeDefaults(type, bright).invert },
       crop: { x: 0, y: 0, w: img.width, h: img.height },
       lanes: [], laneHalfW: 10,
       markers: [],
-      groups: [], conditions: [], arrows: [],
+      groups: [], conditions: [], arrows: [], strips: [],
+      quant: defaultQuant(), markerImage: null,
       style: Object.assign(defaultStyle(), p.style || {}),
       saturatedInCrop: 0
     };
-    App.invertInherited = p.invert != null;
-    App.prefLadder = G.Ladders.get(p.ladderId) ? p.ladderId : 'gr1kbplus';
-    App.prefUnit = p.unit || 'bp';
     App.loadWarnings = img.warnings || [];
     App.hist = []; App.future = [];
     App.autoAll(true);
@@ -116,25 +164,27 @@
   }
 
   // file: File or {name, buffer}; or an array of them (several exposures of one gel)
-  App.load = async function (file) {
-    if (Array.isArray(file) && file.length > 1) return App.loadMany(file);
+  // gelType: optional experiment type for this image (default: the last one used)
+  App.load = async function (file, gelType) {
+    if (Array.isArray(file) && file.length > 1) return App.loadMany(file, gelType);
     if (Array.isArray(file)) file = file[0];
     busy(true, L('正在读取并自动识别…', 'Reading and detecting…'));
     await new Promise(r => setTimeout(r, 30));
     try {
       const input = await App.readInput(file);
       App.exposures = null;
-      startFrom(input);
+      App.isExample = false;
+      startFrom(input, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
-      alert(L('读取失败：', 'Could not read the file: ') + e.message);
+      App.notify(L('读取失败：', 'Could not read the file: ') + e.message);
     } finally { busy(false); }
   };
 
   /* Several exposures of one gel: score each on a downsampled copy, open the best. Only the chosen
    * image is kept decoded; the others keep their file bytes and are decoded again when picked. */
-  App.loadMany = async function (files) {
+  App.loadMany = async function (files, gelType) {
     busy(true, L(`正在评估 ${files.length} 张曝光…`, `Scoring ${files.length} exposures…`));
     await new Promise(r => setTimeout(r, 30));
     try {
@@ -156,11 +206,12 @@
       list.forEach((e, i) => { e.rank = order.indexOf(i) + 1; });
       App.exposures = list;
       App.expIdx = bestInput.k;
-      startFrom(bestInput);
+      App.isExample = false;
+      startFrom(bestInput, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
-      alert(L('读取失败：', 'Could not read the file: ') + e.message);
+      App.notify(L('读取失败：', 'Could not read the file: ') + e.message);
     } finally { busy(false); }
   };
 
@@ -194,7 +245,7 @@
         return { ok: true, kept: true };
       }
       const names = App.figureLanes().map(i => S.lanes[i].name);
-      startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 });
+      startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 }, S.gelType);
       const fl = App.figureLanes();
       const same = fl.length === names.length;
       if (same) { fl.forEach((i, j) => { App.S.lanes[i].name = names[j]; }); App.commit(); }
@@ -219,6 +270,50 @@
       App._display = null;
     }
     return App.rot;
+  };
+
+  /* ---------- marker image (Western blots) ----------
+   * Chemiluminescence images rarely show a prestained ladder. Imagers take a white-light /
+   * colorimetric picture of the same membrane in the same position: loaded here, it is used only to
+   * find the marker bands. The figure still shows the blot image. */
+  App.markerSrc = null;
+  App.hasMarkerImage = function () { return !!(App.markerSrc && App.S && App.S.markerImage); };
+  App.setMarkerImage = function (input) {
+    const img = input.img;
+    if (img.width !== App.src.w || img.height !== App.src.h) {
+      throw new Error(L(`Marker 图尺寸 ${img.width}×${img.height} 与胶图 ${App.src.w}×${App.src.h} 不一致；需要同一次拍摄、同一位置的白光图`,
+        `The marker image is ${img.width}×${img.height} px but the blot is ${App.src.w}×${App.src.h} px; use the white-light image taken in the same position`));
+    }
+    App.markerSrc = { w: img.width, h: img.height, data: img.data };
+    App.markerBuffer = input.buffer;
+    App.markerBright = E.detectBright(App.markerSrc);
+    App.markerRot = null; App._markerDisplay = null;
+    App.S.markerImage = { name: input.name, sha256: input.sha256, bits: img.bits };
+  };
+  // quiet: only drop the pixels (a new main image is being loaded)
+  App.clearMarkerImage = function (quiet) {
+    App.markerSrc = null; App.markerBuffer = null; App.markerRot = null; App._markerDisplay = null;
+    if (!quiet && App.S) App.S.markerImage = null;
+  };
+  App.ensureMarkerRot = function () {
+    if (!App.markerSrc) return null;
+    if (!App.markerRot || App.markerRotFor !== App.S.rotation) {
+      App.markerRot = E.rotate(App.markerSrc, App.S.rotation);
+      App.markerRotFor = App.S.rotation;
+      App._markerDisplay = null;
+    }
+    return App.markerRot;
+  };
+  // the marker image as a display canvas (auto contrast, bands dark), for the overlay on the raw image
+  App.markerCanvas = function () {
+    const r = App.ensureMarkerRot();
+    if (!r) return null;
+    if (App._markerDisplay && App._markerDisplay.rot === App.S.rotation) return App._markerDisplay.c;
+    const lv = E.autoLevels(r), c = document.createElement('canvas');
+    c.width = r.w; c.height = r.h;
+    c.getContext('2d').putImageData(E.toImageData(r, { black: lv.black, white: lv.white, gamma: 1, invert: App.markerBright }), 0, 0);
+    App._markerDisplay = { rot: App.S.rotation, c };
+    return c;
   };
 
   App.renderFull = function () {
@@ -274,6 +369,8 @@
     const laneX0 = S.lanes.map(l => l.x);
     S.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = T(lx, b.y).y; }); });
     S.arrows.forEach(a => { a.y = T(ccx, a.y).y; });
+    // strips and band boxes span the crop: carried at its horizontal centre like arrows
+    S.strips.concat(S.quant.rows).forEach(r => { r.y0 = T(ccx, r.y0).y; r.y1 = T(ccx, r.y1).y; });
     S.lanes.forEach(l => { l.x = T(l.x, ccy).x; });
     const nc = T(ccx, ccy);
     const w = Math.min(c.w, W), h = Math.min(c.h, H);
@@ -292,11 +389,11 @@
   App.refineMarkers = function () {
     const S = App.S;
     if (!S.markers.some(m => m.bands.length)) { App.matchMarkers(false); return; }
-    App._peakCrop = App.bandStrip();
+    App._mkCrop = App.markerStrip();
     try {
       S.markers.forEach(m => {
         if (!S.lanes[m.lane] || !m.bands.length) return;
-        const peaks = App.lanePeaks(m.lane).map(p => p.y + S.crop.y);
+        const peaks = App.markerPeaks(m.lane).map(p => p.y + S.crop.y);
         const ys = m.bands.map(b => b.y).sort((a, b) => a - b);
         m.bands.forEach(b => {
           if (!(b.matched || b.manual)) return;
@@ -307,7 +404,7 @@
           if (best != null) b.y = best;
         });
       });
-    } finally { App._peakCrop = null; }
+    } finally { App._mkCrop = null; }
   };
 
   // ---------- resets ----------
@@ -388,6 +485,7 @@
     const nearestNew = o => { if (toNew.has(o)) return toNew.get(o); let bi = 0, bd = Infinity; xs.forEach((x, n) => { const d = Math.abs(x - (old[o] ? old[o].x : 0)); if (d < bd) { bd = d; bi = n; } }); return bi; };
     S.lanes = xs.map((x, n) => { const o = fromOld[n] >= 0 ? old[fromOld[n]] : null; return { x, name: o ? o.name : '', hidden: o ? !!o.hidden : false }; });
     S.markers = S.markers.filter(m => toNew.has(m.lane)).map(m => Object.assign(m, { lane: toNew.get(m.lane) }));
+    if (S.quant.ref >= 0) S.quant.ref = toNew.has(S.quant.ref) ? toNew.get(S.quant.ref) : -1;
     S.groups.forEach(g => { g.from = nearestNew(g.from); g.to = nearestNew(g.to); });
     S.conditions.forEach(c => { const v = c.values.slice(); c.values = xs.map((x, n) => (fromOld[n] >= 0 ? v[fromOld[n]] || '' : '')); });
     App.fixIndices();
@@ -502,6 +600,7 @@
     S.conditions.forEach(c => c.values.splice(i, 1));
     S.markers = S.markers.filter(m => m.lane !== i);
     S.markers.forEach(m => { m.lane = shift(m.lane); });
+    S.quant.ref = S.quant.ref === i ? -1 : shift(S.quant.ref);
     App.fixIndices();
   };
 
@@ -513,6 +612,7 @@
     S.groups.forEach(g => { g.from = inv[g.from] ?? g.from; g.to = inv[g.to] ?? g.to; });
     S.conditions.forEach(c => { const v = c.values.slice(); c.values = order.map(o => v[o] || ''); });
     S.markers.forEach(m => { m.lane = inv[m.lane] ?? m.lane; });
+    if (S.quant.ref >= 0) S.quant.ref = inv[S.quant.ref] ?? S.quant.ref;
   };
 
   App.fixIndices = function () {
@@ -520,6 +620,7 @@
     S.groups.forEach(g => { g.from = Math.min(g.from, n - 1); g.to = Math.min(g.to, n - 1); });
     S.conditions.forEach(c => { c.values.length = n; for (let i = 0; i < n; i++) c.values[i] = c.values[i] || ''; });
     S.markers = S.markers.filter(m => m.lane != null && m.lane < n);
+    if (S.quant.ref >= n) S.quant.ref = -1;
   };
 
   App.sortLanesIfNeeded = function () {
@@ -530,30 +631,60 @@
 
   // ---------- markers (one or more ladder lanes, matched jointly: same gel = same migration curve) ----------
   App.newMarker = function (lane, ladderId) {
-    return { lane, ladderId: ladderId || G.Ladders.favorites()[0] || App.prefLadder || 'gr1kbplus', unit: App.prefUnit || 'bp', side: 'auto', bands: [] };
+    const kind = App.kind();
+    return { lane, ladderId: ladderId || G.Ladders.favorites(kind)[0] || App.prefLadder || App.gelType().ladder, unit: App.prefUnit || App.baseUnit(), side: 'auto', bands: [] };
   };
 
   App.lanePeaks = function (i) {
     const S = App.S, c = App._peakCrop || App.bandStrip();
     return E.detectBands(E.laneProfile(c, S.bright, S.lanes[i].x, S.laneHalfW));
   };
+  // where marker bands are looked for: the marker image when one is loaded, the gel otherwise
+  App.markerStrip = function () {
+    const r = App.hasMarkerImage() && App.ensureMarkerRot();
+    return r ? E.cropImg(r, { x: 0, y: App.S.crop.y, w: r.w, h: App.S.crop.h }) : App.bandStrip();
+  };
+  App.markerPeaks = function (i) {
+    const S = App.S, c = App._mkCrop || App.markerStrip();
+    return E.detectBands(E.laneProfile(c, App.hasMarkerImage() ? App.markerBright : S.bright, S.lanes[i].x, S.laneHalfW));
+  };
 
   // find ladder lanes (many sharp bands) and pick ladders for them
   App.autoMarkers = function () {
-    const S = App.S;
-    App._peakCrop = App.bandStrip();
+    const S = App.S, kind = App.kind();
+    App._mkCrop = App.markerStrip();
     try {
-      const peaks = S.lanes.map((l, i) => App.lanePeaks(i));
+      const peaks = S.lanes.map((l, i) => App.markerPeaks(i));
       const counts = peaks.map(p => E.sharpBandCount(p));
       const rg = App.laneRange() || [0, S.lanes.length - 1];
       // only lanes that will be in the figure
-      let lanes = counts.map((c, i) => i).filter(i => i >= rg[0] && i <= rg[1] && counts[i] >= 6);
-      // keep at most 3 (the lanes with the most bands), in lane order
-      lanes = lanes.sort((a, b) => counts[b] - counts[a]).slice(0, 3).sort((a, b) => a - b);
-      const all = G.Ladders.all(), favs = G.Ladders.favorites();
+      let lanes = counts.map((c, i) => i).filter(i => i >= rg[0] && i <= rg[1] && counts[i] >= App.gelType().minMarkerBands);
+      const all = G.Ladders.all(kind), favs = G.Ladders.favorites(kind);
       // "my ladders" get a bonus; without favourites the last used ladder plays that role
       const prefer = favs.length ? favs : [App.prefLadder];
-      const h = App._peakCrop.h, pk = lanes.map(i => peaks[i]);
+      const h = App._mkCrop.h;
+      /* Many bands alone do not make a ladder: cell lysates on a protein gel have more bands than any
+       * marker. A ladder lane (1) fits a likely ladder (the preferred ones and the type's usual one),
+       * (2) has about as many clear bands as that ladder, not many more, and (3) has bands of similar
+       * strength, while a lysate's bands vary a lot. Lanes far below the best on all three drop out. */
+      if (lanes.length > 1) {
+        const likely = [...new Set(prefer.concat([App.gelType().ladder]))].map(G.Ladders.get).filter(l => l && l.kind === kind);
+        const ladderness = i => {
+          const r = likely.length ? E.jointLadders([peaks[i]], likely, h, prefer) : null;
+          if (!r) return 0;
+          const vmax = Math.max(0, ...peaks[i].map(p => p.v));
+          const clear = peaks[i].filter(p => p.v >= vmax * 0.08), top = clear.filter(p => p.v >= vmax * 0.12).map(p => p.v / vmax);
+          const mean = top.reduce((a, b) => a + b, 0) / Math.max(1, top.length);
+          const cv = Math.sqrt(top.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, top.length)) / Math.max(1e-9, mean);
+          return r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.max(0, cv - 0.45));
+        };
+        const fit = new Map(lanes.map(i => [i, ladderness(i)]));
+        const best = Math.max(...fit.values());
+        if (best >= 0.45) lanes = lanes.filter(i => fit.get(i) >= best * 0.8);
+      }
+      // keep at most 3 (the lanes with the most bands), in lane order
+      lanes = lanes.sort((a, b) => counts[b] - counts[a]).slice(0, 3).sort((a, b) => a - b);
+      const pk = lanes.map(i => peaks[i]);
       let picks = null;
       App.ladderNotice = null;
       if (lanes.length) {
@@ -578,21 +709,21 @@
       S.markers = lanes.map((ln, k) => App.newMarker(ln, picks ? picks[k].id : prefer[0]));
       S.markers.forEach(m => { if (!S.lanes[m.lane].name) S.lanes[m.lane].name = 'M'; });
       App.matchMarkers(true);
-    } finally { App._peakCrop = null; }
+    } finally { App._mkCrop = null; }
   };
 
   // match all markers jointly; manually placed bands are kept as anchors
   App.matchMarkers = function (fresh) {
-    const S = App.S, c = App._peakCrop || App.bandStrip();
+    const S = App.S, c = App._mkCrop || App.markerStrip();
     const ms = S.markers.filter(m => G.Ladders.get(m.ladderId) && S.lanes[m.lane]);
     S.markers.forEach(m => { if (!ms.includes(m)) m.bands = []; });
     if (!ms.length) return;
-    App._peakCrop = c;
+    App._mkCrop = c;
     try {
       const input = ms.map(m => {
         const lad = G.Ladders.get(m.ladderId);
         const anchors = fresh ? [] : m.bands.filter(b => b.manual && lad.sizes.includes(b.bp)).map(b => ({ k: lad.sizes.indexOf(b.bp), y: b.y - S.crop.y }));
-        return { peaks: App.lanePeaks(m.lane), sizes: lad.sizes, anchors };
+        return { peaks: App.markerPeaks(m.lane), sizes: lad.sizes, anchors };
       });
       const res = E.matchMulti(input, c.h);
       ms.forEach((m, i) => {
@@ -610,7 +741,7 @@
         m.bands.forEach(b => { if (b.y < S.crop.y - 2 || b.y > S.crop.y + S.crop.h + 2) b.show = false; });
         if (fresh || !prev.size) App.thinMarkerLabels(m, true);
       });
-    } finally { App._peakCrop = null; }
+    } finally { App._mkCrop = null; }
   };
 
   // hide labels that would collide in the final figure; keep reference bands first
@@ -618,7 +749,8 @@
     const S = App.S, st = S.style;
     const scale = (App.gelWidthMm() * G.Render.MM) / Math.max(1, App.visibleWidthPx());
     const minGap = st.fontPt * 1.05 / scale; // in image px
-    const B = m.bands.filter(b => b.y >= S.crop.y && b.y <= S.crop.y + S.crop.h && (!keepHidden || b.show));
+    const inStrip = y => !S.strips.length || S.strips.some(r => y >= Math.min(r.y0, r.y1) && y <= Math.max(r.y0, r.y1));
+    const B = m.bands.filter(b => b.y >= S.crop.y && b.y <= S.crop.y + S.crop.h && inStrip(b.y) && (!keepHidden || b.show));
     const order = B.slice().sort((a, b) => (b.ref - a.ref) || ((b.matched || b.manual) - (a.matched || a.manual)) || (b.bp % 1000 === 0) - (a.bp % 1000 === 0));
     const kept = [];
     order.forEach(b => { if (kept.every(k => Math.abs(k.y - b.y) >= minGap)) kept.push(b); });
@@ -681,12 +813,16 @@
     } finally { App._peakCrop = null; }
   };
 
-  // short label for a size: 1.5 kb / 480 bp
+  // short label for a size: 1.5 kb / 480 bp / 850 nt / 53 kDa
   App.fmtSize = function (v) {
     if (!v) return '';
+    const kind = App.kind();
+    if (kind === 'protein' || kind === 'native') return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + ' kDa';
     if (v >= 995) { const kb = Math.round(v / 100) / 10; return (kb % 1 ? kb.toFixed(1) : kb.toFixed(0)) + ' kb'; }
-    return (v >= 200 ? Math.round(v / 10) * 10 : Math.round(v)) + ' bp';
+    return (v >= 200 ? Math.round(v / 10) * 10 : Math.round(v)) + (kind === 'rna' ? ' nt' : ' bp');
   };
+  // exact value in the base unit (popover, logs, tables)
+  App.fmtExact = function (v) { return v == null ? '' : (App.baseUnit() === 'kDa' ? (Math.round(v * 10) / 10) : Math.round(v)) + ' ' + App.baseUnit(); };
   App.arrowLabel = function (a) {
     let sz = '';
     if (a.size) {
@@ -753,8 +889,11 @@
       const ins = keep.filter(i => i >= a && i <= b);
       return ins.length ? { from: remap.get(ins[0]), to: remap.get(ins[ins.length - 1]), text: g.text, k } : null;
     }).filter(Boolean);
+    // strips: horizontal regions shown stacked (Western panels); none = the whole crop height
+    const strips = S.strips.map((r, k) => ({ y0: Math.max(0, Math.min(r.y0, r.y1) - cy), y1: Math.min(S.crop.h, Math.max(r.y0, r.y1) - cy), label: r.label || '', k }))
+      .filter(r => r.y1 - r.y0 >= 2).sort((a, b) => a.y0 - b.y0);
     return {
-      preview: !!preview,
+      preview: !!preview, kind: App.kind(), strips,
       crop: S.crop, levels: S.levels, style: Object.assign({}, S.style, { gelWidthMm: App.gelWidthMm() }), file: S.file,
       lanes: keep.map(i => ({ x: S.lanes[i].x - cx, name: S.lanes[i].name, hidden: S.lanes[i].hidden, src: i })),
       conditions: S.conditions.map(c => ({ name: c.name, values: keep.map(i => c.values[i] || '') })),
@@ -777,7 +916,7 @@
     cc.getContext('2d').drawImage(App.fullCanvas, Math.round(r.x), Math.round(r.y), cc.width, cc.height, 0, 0, cc.width, cc.height);
     const approxScale = App.gelWidthMm() * G.Render.MM / App.visibleWidthPx();
     const gel = G.Render.composeGel(R, cc, approxScale);
-    const key = [App._display, r.x, r.y, r.w, r.h, gel.canvas.width, R.lanes.map(l => l.hidden ? 'h' + l.x : '').join()].join('|');
+    const key = [App._display, r.x, r.y, r.w, r.h, gel.canvas.width, gel.canvas.height, R.lanes.map(l => l.hidden ? 'h' + l.x : '').join(), R.strips.map(t => t.y0 + '-' + t.y1).join()].join('|');
     if (App._gelKey !== key) { App._gelKey = key; App._gelHref = gel.canvas.toDataURL('image/png'); }
     App._lastGel = gel;
     const out = G.Render.build(R, gel, App._gelHref);
@@ -882,7 +1021,7 @@
       const m = S.markers.find(x => x.lane === i);
       lanes.push({ name: S.lanes[i].name, hidden: !!S.lanes[i].hidden, marker: m ? { ladderId: m.ladderId, unit: m.unit, side: m.side } : null });
     }
-    return { gelfigTemplate: 3, app: 'GelFigure ' + App.VERSION, lanes,
+    return { gelfigTemplate: 3, app: App.NAME + ' ' + App.VERSION, gelType: S.gelType, lanes,
       // custom ladders travel with the template, so another computer gets the same Markers
       ladders: G.Ladders.defsFor(S.markers.map(m => m.ladderId)),
       groups: S.groups.map(g => ({ from: rel(g.from), to: rel(g.to), text: g.text })),
@@ -905,6 +1044,7 @@
     const S = App.S;
     if (!t || !t.gelfigTemplate) throw new Error(L('不是 GelFigure 样式文件', 'Not a GelFigure style file'));
     const imported = (t.ladders || []).filter(d => G.Ladders.importDef(d)).map(d => d.name);
+    if (t.gelType && t.gelType !== S.gelType) App.setGelType(t.gelType);
     const chk = App.checkTemplate(t);
     if (chk.missingLadders.length) throw new Error(L(`样式里的 Ladder 在本机不存在，且文件中没有它的定义：${chk.missingLadders.join(', ')}。请先在"自定义 Ladder"里添加同名型号。`, `The style uses ladders that are not on this computer and carries no definition for them: ${chk.missingLadders.join(', ')}. Add them under "Custom ladder" first.`));
     // v1 files stored absolute lanes: treat them as starting at the figure's first lane
@@ -913,7 +1053,7 @@
     if (tl.length && r[0] + tl.length - 1 !== r[1]) { App.setLaneRange(r[0], Math.min(S.lanes.length - 1, r[0] + tl.length - 1)); r = App.laneRange(); }
     const abs = k => Math.min(S.lanes.length - 1, r[0] + k);
     tl.forEach((l, k) => { const i = abs(k); S.lanes[i].name = l.name || ''; S.lanes[i].hidden = !!l.hidden; });
-    const mk = tl.map((l, k) => (l.marker ? Object.assign(App.newMarker(abs(k), l.marker.ladderId), { unit: l.marker.unit || 'bp', side: l.marker.side || 'auto' }) : null)).filter(Boolean);
+    const mk = tl.map((l, k) => (l.marker ? Object.assign(App.newMarker(abs(k), l.marker.ladderId), { unit: l.marker.unit || App.prefUnit || App.baseUnit(), side: l.marker.side || 'auto' }) : null)).filter(Boolean);
     if (mk.length) S.markers = mk;
     S.groups = (t.groups || []).map(g => ({ from: abs(g.from), to: abs(g.to), text: g.text || '' }));
     S.conditions = (t.conditions || []).map(c => ({ name: c.name, values: S.lanes.map((l, i) => (i >= r[0] && i - r[0] < (c.values || []).length ? c.values[i - r[0]] : '')) }));
@@ -945,8 +1085,9 @@
   App.projectData = function () {
     const S = App.S;
     return {
-      gelfigProject: 1, app: 'GelFigure ' + App.VERSION, savedAt: new Date().toISOString(),
+      gelfigProject: 1, app: App.NAME + ' ' + App.VERSION, savedAt: new Date().toISOString(),
       source: { name: S.file.name, sha256: S.file.sha256, bytes: b64(App.srcBuffer) },
+      markerSource: App.hasMarkerImage() ? { name: S.markerImage.name, sha256: S.markerImage.sha256, bytes: b64(App.markerBuffer) } : null,
       ladders: G.Ladders.defsFor(S.markers.map(m => m.ladderId)),
       initial: App.initial, autoRotation: App.autoRotation,
       state: S
@@ -965,17 +1106,33 @@
     const raw = unb64(P.source.bytes);
     const input = { name: P.source.name, buffer: raw, img: await G.TIFF.decodeBuffer(raw, P.source.name), sha256: await App.sha256(raw) };
     if (P.source.sha256 && input.sha256 !== P.source.sha256) throw new Error(L('项目里的原始图像校验失败（SHA-256 不一致），文件可能已损坏', 'The original image inside the project fails its SHA-256 check; the file may be damaged'));
-    restore(input, P.state, P.initial, P.autoRotation);
+    let marker = null;
+    if (P.markerSource && P.markerSource.bytes) {
+      const mb = unb64(P.markerSource.bytes);
+      marker = { name: P.markerSource.name, buffer: mb, img: await G.TIFF.decodeBuffer(mb, P.markerSource.name), sha256: await App.sha256(mb) };
+    }
+    restore(input, P.state, P.initial, P.autoRotation, marker);
   };
-  function restore(input, state, initial, autoRotation) {
+  // states written by GelFigure or older versions lack the newer fields
+  function normalize(S) {
+    S.gelType = G.Gels.get(S.gelType).id;
+    S.style = Object.assign(defaultStyle(), S.style || {});
+    S.strips = S.strips || [];
+    S.quant = Object.assign(defaultQuant(), S.quant || {});
+    if (S.markerImage === undefined) S.markerImage = null;
+    return S;
+  }
+  App.normalizeState = normalize;
+  function restore(input, state, initial, autoRotation, marker) {
     App.src = { w: input.img.width, h: input.img.height, data: input.img.data };
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
-    App.exposures = null;
-    App.S = state;
-    App.S.style = Object.assign(defaultStyle(), App.S.style || {});
+    App.exposures = null; App.isExample = false;
+    App.S = normalize(state);
+    App.clearMarkerImage(true);
+    if (marker) { App.setMarkerImage(marker); } else App.S.markerImage = null;
     App.loadWarnings = input.img.warnings || [];
-    App.initial = initial || App.snapshot();
+    if (initial) { try { App.initial = JSON.stringify(normalize(JSON.parse(initial))); } catch (e) { App.initial = App.snapshot(); } } else App.initial = App.snapshot();
     App.autoRotation = autoRotation != null ? autoRotation : state.rotation;
     App.hist = [App.snapshot()]; App.future = [];
     App.ensureRot();
@@ -984,7 +1141,7 @@
   }
 
   // ---------- autosave draft (IndexedDB): survives refresh / crash ----------
-  const DB = 'gelfigure', STORE = 'drafts';
+  const DB = 'gelgrapher', STORE = 'drafts';
   // some browsers never answer indexedDB.open for file:// pages; give up instead of hanging
   let dbP = null;
   function idb() {
@@ -1005,7 +1162,7 @@
     const db = await idb();
     return new Promise((res, rej) => { const tx = db.transaction(STORE, mode), st = tx.objectStore(STORE), r = fn(st); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); });
   }
-  let draftTimer = 0, draftSha = null;
+  let draftTimer = 0, draftSha = null, draftMarkerSha = null;
   App.saveDraftSoon = function () {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(App.saveDraft, 800);
@@ -1016,19 +1173,27 @@
       await idbDo('readwrite', st => {
         // the source bytes are written once per image, the state on every change
         if (draftSha !== App.S.file.sha256) { st.put(App.srcBuffer, 'src'); draftSha = App.S.file.sha256; }
-        st.put({ state: App.snapshot(), initial: App.initial, autoRotation: App.autoRotation, name: App.S.file.name, sha256: App.S.file.sha256, savedAt: Date.now(), ladders: G.Ladders.defsFor(App.S.markers.map(m => m.ladderId)) }, 'meta');
+        const mk = App.hasMarkerImage() ? App.S.markerImage : null;
+        if (mk && draftMarkerSha !== mk.sha256) { st.put(App.markerBuffer, 'msrc'); draftMarkerSha = mk.sha256; }
+        st.put({ state: App.snapshot(), initial: App.initial, autoRotation: App.autoRotation, name: App.S.file.name, sha256: App.S.file.sha256, savedAt: Date.now(),
+          marker: mk && { name: mk.name, sha256: mk.sha256 }, ladders: G.Ladders.defsFor(App.S.markers.map(m => m.ladderId)) }, 'meta');
       });
     } catch (e) { /* private mode etc.: drafts are best-effort */ }
   };
   App.peekDraft = async function () { try { return await idbDo('readonly', st => st.get('meta')); } catch (e) { return null; } };
-  App.dropDraft = async function () { draftSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); }); } catch (e) { /* ignore */ } };
+  App.dropDraft = async function () { draftSha = draftMarkerSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); st.delete('msrc'); }); } catch (e) { /* ignore */ } };
   App.restoreDraft = async function () {
     const meta = await App.peekDraft(), buf = await idbDo('readonly', st => st.get('src'));
     if (!meta || !buf) throw new Error(L('没有可恢复的草稿', 'No draft to restore'));
     (meta.ladders || []).forEach(d => G.Ladders.importDef(d));
     const input = { name: meta.name, buffer: buf, img: await G.TIFF.decodeBuffer(buf, meta.name), sha256: meta.sha256 };
+    let marker = null;
+    if (meta.marker) {
+      const mb = await idbDo('readonly', st => st.get('msrc'));
+      if (mb) { marker = { name: meta.marker.name, buffer: mb, img: await G.TIFF.decodeBuffer(mb, meta.marker.name), sha256: meta.marker.sha256 }; draftMarkerSha = meta.marker.sha256; }
+    }
     draftSha = meta.sha256;
-    restore(input, JSON.parse(meta.state), meta.initial, meta.autoRotation);
+    restore(input, JSON.parse(meta.state), meta.initial, meta.autoRotation, marker);
   };
   function predictY(bp, bands) {
     const B = bands.slice().sort((a, b) => b.bp - a.bp);

@@ -1,14 +1,34 @@
-/* Export: PNG (DPI + sRGB + embedded processing summary), TIFF (LZW), SVG, uncropped figure-matched
- * image, untouched original data, JSON processing log. */
+/* Export: PNG (DPI + sRGB + embedded processing summary), TIFF (LZW), SVG, PDF (vector), uncropped
+ * figure-matched image, untouched original data, JSON processing log, densitometry CSV / chart. */
 (function (G) {
   'use strict';
+  const L = (...a) => G.L(...a);
 
-  function download(blob, name) {
+  // file types a Claude artifact viewer saves directly; anything else is handed over inside a .zip
+  const HOST_TYPES = new Set(['gif', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'json', 'md', 'csv', 'html', 'svg', 'pdf', 'xlsx', 'zip', 'docx', 'pptx']);
+  /* Save a file. Inside a Claude artifact the viewer is asked to confirm (the page itself may not
+   * download); elsewhere it is an ordinary browser download. Resolves 'saved' | 'declined' | 'failed'. */
+  async function download(blob, name) {
+    if (!(blob instanceof Blob)) blob = new Blob([blob]);
+    const dl = await G.Host.downloads();
+    if (dl) {
+      let data = blob, fname = name;
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      if (!HOST_TYPES.has(ext)) { data = await G.Zip.make([{ name, data: blob }]); fname = name + '.zip'; }
+      try { await dl.save({ filename: fname, data }); return 'saved'; } catch (e) {
+        const code = e && e.code;
+        if (code === 'declined') return 'declined';
+        if (code === 'rate_limited') { if (G.UI) G.UI.toast(L('另一个保存确认还开着，请先处理它', 'Another save prompt is still open; answer it first')); return 'failed'; }
+        if (code === 'too_large') { if (G.App) G.App.notify(L('文件太大，无法在这里保存；请降低导出分辨率', 'The file is too large to save here; try a lower export resolution')); return 'failed'; }
+        // unavailable in this view: fall back to an ordinary download below
+      }
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    return 'saved';
   }
 
   // ---- PNG chunks ----
@@ -75,7 +95,7 @@
   function summaryText(S) {
     const A = G.App, k = A.clipStats();
     return JSON.stringify({
-      tool: 'GelFigure ' + A.VERSION, source: S.file.name, sha256: S.file.sha256,
+      tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
       rotationDeg: S.rotation, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
       sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
@@ -86,7 +106,7 @@
   async function exportPNG(svg, wPt, hPt, dpi, name, S) {
     const c = await svgToCanvas(svg, wPt, hPt, dpi);
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-    download(await pngDecorate(blob, dpi, S ? { Software: 'GelFigure ' + G.App.VERSION, Description: summaryText(S) } : {}), name);
+    return download(await pngDecorate(blob, dpi, S ? { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) } : {}), name);
   }
 
   // ---- TIFF (8-bit grayscale, LZW, with resolution) ----
@@ -115,7 +135,7 @@
     const rps = Math.max(1, Math.floor(65536 / w)), nStrips = Math.ceil(h / rps);
     const strips = [];
     for (let s = 0; s < nStrips; s++) strips.push(lzwEncode(gray.subarray(s * rps * w, Math.min(h, (s + 1) * rps) * w)));
-    const d = latin1(desc || ''), sw = latin1('GelFigure ' + G.App.VERSION);
+    const d = latin1(desc || ''), sw = latin1(G.App.NAME + ' ' + G.App.VERSION);
     const tags = 14;
     let off = 8 + 2 + tags * 12 + 4;
     const resOff = off; off += 16;
@@ -148,16 +168,21 @@
     const id = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, n = c.width * c.height;
     const g = new Uint8Array(n);
     for (let i = 0; i < n; i++) g[i] = Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2]);
-    download(new Blob([encodeTiffGray(g, c.width, c.height, dpi, summaryText(S))], { type: 'image/tiff' }), name);
+    return download(new Blob([encodeTiffGray(g, c.width, c.height, dpi, summaryText(S))], { type: 'image/tiff' }), name);
   }
 
   function exportSVG(svg, name) {
-    download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), name);
+    return download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), name);
+  }
+  // vector PDF; resolves {status, missing: characters the standard PDF fonts cannot show}
+  async function exportPDF(svg, name, S, title) {
+    const r = await G.PDF.fromSVG(svg, { title: title || (S ? S.file.name : 'Figure'), subject: S ? summaryText(S) : '' });
+    return { status: await download(r.blob, name), missing: r.missing };
   }
 
   /* Uncropped image for the supplement, processed exactly like the figure (Nature asks for the
    * same contrast and orientation), with the crop box and well numbers; cut lanes are marked X. */
-  function exportUncropped(S, fullCanvas, name) {
+  async function exportUncropped(S, fullCanvas, name) {
     const W = fullCanvas.width, H = fullCanvas.height;
     const fs = Math.max(14, Math.round(W / 70));
     const top = fs * 4, bottom = fs * 3.2;
@@ -170,6 +195,9 @@
     ctx.strokeStyle = '#e53935'; ctx.lineWidth = Math.max(2, W / 600);
     ctx.setLineDash([fs * 0.6, fs * 0.4]);
     ctx.strokeRect(r.x, r.y + top, r.w, r.h);
+    // strips shown in the figure (Western panels)
+    ctx.strokeStyle = '#0e8f8f'; ctx.setLineDash([fs * 0.3, fs * 0.3]);
+    (S.strips || []).forEach(st => { const y0 = Math.min(st.y0, st.y1), y1 = Math.max(st.y0, st.y1); ctx.strokeRect(r.x, y0 + top, r.w, y1 - y0); });
     ctx.setLineDash([]);
     ctx.font = `${fs}px Arial`; ctx.textAlign = 'center';
     S.lanes.forEach((l, i) => {
@@ -186,24 +214,34 @@
     const key = S.lanes.map((l, i) => `${l.hidden ? 'X' : i + 1}: ${l.name || '—'}`).join('   ');
     ctx.fillText(key, fs * 0.5, H + top + fs * 2.4, W - fs);
     const dpi = Math.round(S.file.dpi) || 300;
-    c.toBlob(async b => download(await pngDecorate(b, dpi, { Software: 'GelFigure ' + G.App.VERSION, Description: summaryText(S) }), name), 'image/png');
+    const b = await new Promise(res => c.toBlob(res, 'image/png'));
+    return download(await pngDecorate(b, dpi, { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) }), name);
   }
 
-  // the untouched bytes of the source file (byte-identical to what the imager wrote)
-  function exportOriginal(S, buffer) {
+  // the untouched bytes of the source file (byte-identical to what the imager wrote); a Western
+  // marker image travels along in the same archive
+  async function exportOriginal(S, buffer, marker) {
     const ext = (S.file.name.match(/\.[^.]+$/) || ['.tif'])[0];
-    download(new Blob([buffer]), S.file.name.replace(/\.[^.]+$/, '') + `_original_sha256-${String(S.file.sha256).slice(0, 12)}${ext}`);
+    const nm = S.file.name.replace(/\.[^.]+$/, '') + `_original_sha256-${String(S.file.sha256).slice(0, 12)}${ext}`;
+    if (!marker) return download(new Blob([buffer]), nm);
+    const mext = (marker.name.match(/\.[^.]+$/) || ['.tif'])[0];
+    const mn = marker.name.replace(/\.[^.]+$/, '') + `_marker_sha256-${String(marker.sha256).slice(0, 12)}${mext}`;
+    return download(await G.Zip.make([{ name: nm, data: buffer }, { name: mn, data: marker.buffer }]), S.file.name.replace(/\.[^.]+$/, '') + '_original_data.zip');
   }
 
   function processingLog(S) {
-    const A = G.App, k = A.clipStats(), r = A.laneRange();
+    const A = G.App, k = A.clipStats(), r = A.laneRange(), unit = A.baseUnit();
     const bounds = G.Render.laneBounds(S.lanes, A.src.w);
-    return {
-      tool: 'GelFigure', version: A.VERSION, exportedAt: new Date().toISOString(),
+    const rnd = v => (v == null ? null : unit === 'kDa' ? Math.round(v * 10) / 10 : Math.round(v));
+    const log = {
+      tool: A.NAME, version: A.VERSION, basedOn: 'GelFigure 0.5.0 (MIT, github.com/poplarity/GelFigure)', exportedAt: new Date().toISOString(),
+      experiment: { type: S.gelType, name: A.gelType().name(), sizeUnit: unit },
       environment: { userAgent: navigator.userAgent, figureFont: 'Arial, Helvetica, sans-serif (vector text)' },
       source: { file: S.file.name, sha256: S.file.sha256, bytes: S.file.size, width: A.src.w, height: A.src.h, bitDepth: S.file.bits, dpi: S.file.dpi || null },
+      markerImage: A.hasMarkerImage() ? { file: S.markerImage.name, sha256: S.markerImage.sha256, use: 'marker band positions only; not shown in the figure' } : null,
       rotationDeg: S.rotation, autoRotationDeg: A.autoRotation,
       crop: S.crop, figureWells: r ? [r[0] + 1, r[1] + 1] : null,
+      strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
       levels: Object.assign({ note: 'linear whole-image stretch; values are fractions of full scale' }, S.levels),
       clipping: {
         sensorSaturatedPixels: k.sensor, sensorSaturatedFrac: k.sensorFrac,
@@ -213,31 +251,62 @@
       resolution: { gelWidthMm: A.gelWidthMm(), gelPixelsAcross: A.visibleWidthPx(), effectiveGelDpi: Math.round(A.effectiveDpi()), exportDpi: S.style.dpi },
       lanes: S.lanes.map((l, i) => ({ well: i + 1, x: Math.round(l.x * 10) / 10, name: l.name, removedFromFigure: !!l.hidden,
         removal: l.hidden ? { reason: l.hiddenReason || 'manual', xFrom: Math.round(bounds[i][0]), xTo: Math.round(bounds[i][1]) } : undefined })),
-      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, fitScore: m.score, bands: m.bands.map(b => ({ bp: b.bp, y: Math.round(b.y * 10) / 10, autoMatched: b.matched, manual: b.manual, labelled: b.show })) })),
+      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, fitScore: m.score, unit: m.unit,
+        bands: m.bands.map(b => ({ size: b.bp, y: Math.round(b.y * 10) / 10, autoMatched: b.matched, manual: b.manual, labelled: b.show })) })),
       arrows: S.arrows.map(a => {
         const e = A.estimateInfo(a.y);
         return { text: a.text, y: Math.round(a.y * 10) / 10, label: A.arrowLabel(a), userSize: a.sizeText || null,
-          estimatedBp: e ? Math.round(e.bp) : null, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [],
-          perMarker: e ? e.perMarker.map(p => ({ well: p.lane + 1, bp: Math.round(p.bp), extrapolated: p.extrap })) : [] };
+          estimatedSize: e ? rnd(e.bp) : null, unit, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [],
+          perMarker: e ? e.perMarker.map(p => ({ well: p.lane + 1, size: rnd(p.bp), extrapolated: p.extrap })) : [] };
       }),
       groups: S.groups.map(g => ({ fromWell: Math.min(g.from, g.to) + 1, toWell: Math.max(g.from, g.to) + 1, text: g.text })),
       conditions: S.conditions, style: S.style,
       legendHints: legendHints(S)
     };
+    if (S.quant.rows.length) {
+      const R = G.Quant.measure(A);
+      log.densitometry = {
+        method: { background: R.method, boxWidthPx: Math.round(R.halfWidthPx * 20) / 10, values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' },
+        loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceWell: R.ref + 1,
+        boxes: S.quant.rows.map(q => ({ name: q.name, yFrom: Math.round(Math.min(q.y0, q.y1)), yTo: Math.round(Math.max(q.y0, q.y1)) })),
+        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j],
+          values: R.rows.map((row, k2) => ({ band: row.name, volume: +R.vol[k2][j].toFixed(4), saturatedPixels: R.cells[k2][j].sat, normalized: R.norm[k2][j] == null ? null : +R.norm[k2][j].toFixed(5), relative: R.rel[k2][j] == null ? null : +R.rel[k2][j].toFixed(5) })) })),
+        saturatedWells: R.saturatedLanes.map(i => i + 1)
+      };
+    }
+    return log;
   }
 
+  const KIND_LADDER = { dna: 'DNA ladders', rna: 'RNA ladders', protein: 'protein molecular-weight markers', native: 'native protein markers' };
   function legendHints(S) {
-    const h = [];
+    const h = [], A = G.App;
     const cut = S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null);
-    if (cut.length) h.push(`Lane${cut.length > 1 ? 's' : ''} ${cut.join(', ')} ${cut.length > 1 ? 'were' : 'was'} removed from the same gel; splice sites are indicated by ` + (S.style.spliceStyle === 'line' ? 'lines.' : 'white gaps.'));
+    const what = A.gelType().western || S.gelType === 'southern' ? 'blot' : 'gel';
+    if (cut.length) h.push(`Lane${cut.length > 1 ? 's' : ''} ${cut.join(', ')} ${cut.length > 1 ? 'were' : 'was'} removed from the same ${what}; splice sites are indicated by ` + (S.style.spliceStyle === 'line' ? 'lines.' : 'white gaps.'));
+    const strips = (S.strips || []).filter(t => Math.abs(t.y1 - t.y0) >= 2);
+    if (strips.length > 1) h.push(`The ${strips.length} panels are regions of the same ${what} image${strips.some(t => t.label) ? ` (${strips.map(t => t.label || '–').join(', ')})` : ''}; intervening regions were omitted and are shown in the uncropped image.`);
     if (S.levels.invert) h.push('Image colours were inverted for display.');
     if (S.levels.gamma !== 1) h.push(`A non-linear gamma adjustment (γ = ${S.levels.gamma}) was applied to the whole image.`);
-    const names = [...new Set(S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean).map(l => l.name.replace(/\s*\(.*\)/, '')))];
+    const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
+    const names = [...new Set(lads.map(l => l.name.replace(/\s*\(.*\)/, '')))];
     if (names.length === 1) h.push(`M, ${names[0]}.`);
-    else if (names.length > 1) h.push(`M, DNA ladders (${S.markers.map(m => `lane ${m.lane + 1}: ${G.Ladders.get(m.ladderId).name.replace(/\s*\(.*\)/, '')}`).join('; ')}).`);
-    if (S.arrows.some(a => a.size && !a.sizeText && (G.App.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
+    else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${G.Ladders.get(m.ladderId).name.replace(/\s*\(.*\)/, '')}`).join('; ')}).`);
+    if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
+    if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
+    if (S.quant.rows.length) {
+      const R = G.Quant.measure(A), bg = { edge: 'a straight-line background between the box edges', rolling: 'a rolling-ball background', none: 'no background subtraction' }[R.method];
+      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : '';
+      h.push(`Band intensities were quantified by densitometry of the raw image (integrated density in fixed-width boxes, ${bg})${ctl} and expressed relative to lane ${R.ref + 1}.`);
+    }
     return h;
   }
 
-  G.Export = { download, exportPNG, exportTIFF, exportSVG, exportUncropped, exportOriginal, processingLog, legendHints, svgToCanvas, encodeTiffGray, pngDecorate };
+  // densitometry bar chart: PNG / SVG / PDF
+  async function exportChart(chart, fmt, base, dpi, S) {
+    if (fmt === 'svg') return exportSVG(chart.svg, base + '.svg');
+    if (fmt === 'pdf') return (await exportPDF(chart.svg, base + '.pdf', S, 'Densitometry')).status;
+    return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
+  }
+
+  G.Export = { download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, encodeTiffGray, pngDecorate };
 })(window);

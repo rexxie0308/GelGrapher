@@ -252,19 +252,25 @@
       }
       return out;
     };
-    // heaviest run, then absorb neighbours carrying real signal that are not too far away
-    const grow = (segs, n, gapFrac, spanFrac, minMassFrac) => {
+    // heaviest run, then absorb neighbours carrying real signal that are not too far away. Weak runs
+    // in between never block the next real one; with farFrac, a strong run (>= 10 % of the heaviest)
+    // is reached across a wider gap: on a protein gel a few faint lanes (wash, flow-through) must not
+    // cut the marker and lysate lanes off the crop.
+    const grow = (segs, n, gapFrac, spanFrac, minMassFrac, farFrac) => {
       if (!segs.length) return null;
-      const total = segs.reduce((a, s) => a + s.mass, 0);
+      const total = segs.reduce((a, s) => a + s.mass, 0), heavy = Math.max(...segs.map(s => s.mass));
+      const real = s => s.mass > total * minMassFrac;
+      const reach = (s, gap, lim) => real(s) && (gap <= lim || (farFrac && s.mass >= heavy * 0.1 && gap <= n * farFrac));
       let lo = segs.reduce((bi, s, i) => (s.mass > segs[bi].mass ? i : bi), 0), hi = lo;
       for (let changed = true; changed;) {
         changed = false;
         const span = segs[hi].e - segs[lo].s + 1, lim = Math.max(n * gapFrac, span * spanFrac);
-        const L = segs[lo - 1], R = segs[hi + 1];
-        if (L && L.mass > total * minMassFrac && segs[lo].s - L.e <= lim) { lo--; changed = true; }
-        if (R && R.mass > total * minMassFrac && R.s - segs[hi].e <= lim) { hi++; changed = true; }
+        let li = lo - 1; while (li >= 0 && !real(segs[li])) li--;
+        let ri = hi + 1; while (ri < segs.length && !real(segs[ri])) ri++;
+        if (li >= 0 && reach(segs[li], segs[lo].s - segs[li].e, lim)) { lo = li; changed = true; }
+        if (ri < segs.length && reach(segs[ri], segs[ri].s - segs[hi].e, lim)) { hi = ri; changed = true; }
       }
-      return { s: segs[lo].s, e: segs[hi].e, segs: segs.slice(lo, hi + 1) };
+      return { s: segs[lo].s, e: segs[hi].e, segs: segs.slice(lo, hi + 1).filter(real) };
     };
     const FULL = { x: 0, y: 0, w: img.w, h: img.h };
     // 5x5 box blur: dust specks (1-2 px) drop ~10x, bands and lanes keep their level
@@ -291,7 +297,7 @@
     const xRange = (prof, thrFrac) => {
       const cp = gaussSmooth(prof, 1), m = Math.max(...cp);
       if (m <= 0) return null;
-      return grow(runs(cp, m * thrFrac, 1).filter(r => r.e - r.s >= 2), w, 0.12, 0.6, 0.01);
+      return grow(runs(cp, m * thrFrac, 1).filter(r => r.e - r.s >= 2), w, 0.12, 0.6, 0.01, 0.4);
     };
     // pass 1: columns over the whole height (strong signal only)
     const xr1 = xRange(colP, 0.35);
@@ -1032,6 +1038,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice
   };
 })(window);

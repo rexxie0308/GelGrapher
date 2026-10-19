@@ -6,7 +6,7 @@
   const box = document.getElementById('editorBox');
   const ctx = cv.getContext('2d');
   const view = { s: 1, ox: 0, oy: 0 };
-  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false;
+  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null;
   const HIT = 7;
 
   const toImg = (sx, sy) => ({ x: (sx - view.ox) / view.s, y: (sy - view.oy) / view.s });
@@ -48,6 +48,10 @@
     ctx.save();
     ctx.translate(view.ox, view.oy); ctx.scale(view.s, view.s);
     ctx.drawImage(App.fullCanvas, 0, 0);
+    // white-light marker image of a Western, laid over the blot to check the ladder positions
+    if (App.hasMarkerImage() && document.getElementById('mkOverlay').checked) {
+      ctx.globalAlpha = 0.45; ctx.drawImage(App.markerCanvas(), 0, 0); ctx.globalAlpha = 1;
+    }
     if (document.getElementById('showSat').checked) ctx.drawImage(App.getSatCanvas(), 0, 0);
     ctx.restore();
 
@@ -67,6 +71,40 @@
       for (let y = a.y % step; y < h; y += step) { ctx.moveTo(0, Math.round(y) + 0.5); ctx.lineTo(w, Math.round(y) + 0.5); }
       for (let x = a.x % step; x < w; x += step) { ctx.moveTo(Math.round(x) + 0.5, 0); ctx.lineTo(Math.round(x) + 0.5, h); }
       ctx.stroke(); ctx.restore();
+    }
+
+    // strips (teal) and densitometry band boxes (green)
+    ctx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
+    S.strips.forEach((t, k) => {
+      const p0 = toScr(c.x, Math.min(t.y0, t.y1)), p1 = toScr(c.x + c.w, Math.max(t.y0, t.y1));
+      const hov = hover && hover.type === 'sedge' && hover.k === k;
+      ctx.fillStyle = 'rgba(14,143,143,.10)'; ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+      ctx.strokeStyle = '#0e8f8f'; ctx.lineWidth = hov ? 2.4 : 1.4; ctx.setLineDash([6, 3]);
+      ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y); ctx.setLineDash([]);
+      // name just above the strip's top right corner, outside the crop (band-box names sit beside their box)
+      const t1 = G.L('分条', 'Strip') + ' ' + (k + 1) + (t.label ? ': ' + t.label : '');
+      ctx.textAlign = 'right'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.strokeText(t1, p1.x - 4, p0.y - 5); ctx.fillStyle = '#0b6e6e'; ctx.fillText(t1, p1.x - 4, p0.y - 5);
+    });
+    const qhw = App.S.quant.rows.length ? G.Quant.boxHalfWidth(S) : 0;
+    const qLanes = G.Quant.quantLanes(App);
+    S.quant.rows.forEach((r, k) => {
+      const ya = toScr(0, Math.min(r.y0, r.y1)).y, yb = toScr(0, Math.max(r.y0, r.y1)).y;
+      const hov = hover && (hover.type === 'qedge' || hover.type === 'qbody') && hover.k === k, ctl = k === S.quant.control;
+      ctx.strokeStyle = ctl ? '#7a8b00' : '#1f9d55'; ctx.lineWidth = hov ? 2 : 1.2;
+      ctx.fillStyle = ctl ? 'rgba(122,139,0,.12)' : 'rgba(31,157,85,.12)';
+      qLanes.forEach(i => {
+        const x0 = toScr(S.lanes[i].x - qhw, 0).x, x1 = toScr(S.lanes[i].x + qhw, 0).x;
+        ctx.fillRect(x0, ya, x1 - x0, yb - ya); ctx.strokeRect(x0, ya, x1 - x0, yb - ya);
+      });
+      const t2 = r.name || G.L(`条带 ${k + 1}`, `Band ${k + 1}`);
+      ctx.textAlign = 'left'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.strokeText(t2, b.x + 8, (ya + yb) / 2 + 4); ctx.fillStyle = ctl ? '#5c6900' : '#14713a'; ctx.fillText(t2, b.x + 8, (ya + yb) / 2 + 4);
+    });
+    if (creating) {
+      const ya = toScr(0, Math.min(creating.y0, creating.y1)).y, yb = toScr(0, Math.max(creating.y0, creating.y1)).y;
+      ctx.fillStyle = creating.mode === 'strip' ? 'rgba(14,143,143,.18)' : 'rgba(31,157,85,.18)';
+      ctx.fillRect(a.x, ya, b.x - a.x, yb - ya);
     }
 
     // crop rect + handles
@@ -131,7 +169,7 @@
         ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
         ctx.setLineDash([]);
         if (bd.show || hov) {
-          const txt = G.Ladders.fmt(bd.bp, 'bp');
+          const txt = G.Ladders.fmt(bd.bp, App.baseUnit());
           const tx = right ? x1 + 5 : x0 - 5, ty = y + 3.8;
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(255,255,255,.85)';
@@ -153,7 +191,7 @@
       ctx.fillStyle = '#c026d3';
       ctx.beginPath(); ctx.moveTo(b.x + 2, y); ctx.lineTo(b.x + 13, y - 5.5); ctx.lineTo(b.x + 13, y + 5.5); ctx.fill();
       const est = App.estimateBp(ar.y);
-      const t = (ar.text || G.L('箭头', 'Arrow')) + (est ? `  ≈${Math.round(est)} bp` : '');
+      const t = (ar.text || G.L('箭头', 'Arrow')) + (est ? `  ≈${App.fmtSize(est)}` : '');
       const tw = ctx.measureText(t).width;
       ctx.fillStyle = 'rgba(192,38,211,.12)';
       roundRect(ctx, b.x + 17, y - 9, tw + 12, 18, 6); ctx.fill();
@@ -182,6 +220,12 @@
       mk.bands.forEach((b, k) => { const d = Math.abs(p.y - b.y); if (d <= bd) { bd = d; best = k; } });
       if (best >= 0) return { type: 'band', m: mi, i: best };
     }
+    // edges of band boxes and strips (drag up / down); inside a band box = move it
+    if (inX) {
+      for (let k = 0; k < S.quant.rows.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.quant.rows[k][e]) <= tol) return { type: 'qedge', k, e };
+      for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
+      for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= c.x && p.x <= c.x + c.w) return { type: 'qbody', k }; }
+    }
     if (inY) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
     if (inY && Math.abs(p.x - c.x) <= tol) return { type: 'crop', k: 'w' };
     if (inY && Math.abs(p.x - c.x - c.w) <= tol) return { type: 'crop', k: 'e' };
@@ -197,14 +241,31 @@
     if (!h) return 'default';
     if (h.type === 'crop') return CURSORS[h.k];
     if (h.type === 'lane') return 'ew-resize';
-    if (h.type === 'band' || h.type === 'arrow') return 'ns-resize';
+    if (h.type === 'band' || h.type === 'arrow' || h.type === 'qedge' || h.type === 'sedge') return 'ns-resize';
+    if (h.type === 'qbody') return 'move';
     if (h.type === 'cropmove') return 'move';
     return 'grab';
   }
 
-  cv.addEventListener('mousedown', (e) => {
+  /* Pointer input (mouse, pen and touch). Two fingers pinch-zoom and pan; one finger behaves like
+   * the mouse. Strip / band-box modes create a region by dragging (or a click: a box sized to the band). */
+  const touches = new Map();
+  let pinch = null;
+  const setCreating = c => { creating = c; };
+  cv.addEventListener('pointerdown', (e) => {
     if (!App.S) return;
     box.focus({ preventScroll: true });
+    if (e.pointerType === 'touch') {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        // a second finger turns any drag into a pinch
+        drag = null; creating = null;
+        const [p1, p2] = [...touches.values()], r = cv.getBoundingClientRect();
+        pinch = { d: Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1, mx: (p1.x + p2.x) / 2 - r.left, my: (p1.y + p2.y) / 2 - r.top, view0: Object.assign({}, view) };
+        e.preventDefault(); return;
+      }
+    }
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
     const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
     const p = toImg(sx, sy);
     // placing a target-band arrow: one click, snapped to the band under the cursor
@@ -214,12 +275,21 @@
       e.preventDefault();
       return;
     }
+    if (App.mode === 'strip' || App.mode === 'quant') {
+      const c = App.S.crop;
+      if (p.y >= c.y && p.y <= c.y + c.h) { setCreating({ mode: App.mode, y0: p.y, y1: p.y, x: p.x, sy }); draw(); }
+      e.preventDefault();
+      return;
+    }
     const h = hitTest(sx, sy, e.shiftKey);
     drag = { h, sx, sy, p0: p, crop0: Object.assign({}, App.S.crop), moved: false, view0: Object.assign({}, view) };
     if (h.type === 'lane') { App.selLane = h.i; App.selArrow = -1; drag.x0 = App.S.lanes[h.i].x; App.emit('select'); }
     else if (h.type === 'arrow') { App.selArrow = h.i; App.selLane = -1; drag.y0 = App.S.arrows[h.i].y; App.emit('select'); }
     else if (h.type === 'band') { drag.y0 = App.S.markers[h.m].bands[h.i].y; }
-    else if (h.type === 'inside') {
+    else if (h.type === 'qedge') { drag.y0 = App.S.quant.rows[h.k][h.e]; }
+    else if (h.type === 'sedge') { drag.y0 = App.S.strips[h.k][h.e]; }
+    else if (h.type === 'qbody') { const q = App.S.quant.rows[h.k]; drag.q0 = [q.y0, q.y1]; }
+    if (h.type === 'inside' || h.type === 'qbody') {
       let best = -1, bd = Infinity;
       App.S.lanes.forEach((l, i) => { const d = Math.abs(l.x - p.x); if (d < bd) { bd = d; best = i; } });
       drag.pickLane = bd <= App.S.laneHalfW * 1.6 ? best : -1;
@@ -228,9 +298,24 @@
     e.preventDefault();
   });
 
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('pointermove', (e) => {
     if (!App.S) return;
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+    if (pinch) {
+      if (touches.size < 2) return;
+      const [p1, p2] = [...touches.values()], d = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+      const mx = (p1.x + p2.x) / 2 - r.left, my = (p1.y + p2.y) / 2 - r.top, v0 = pinch.view0;
+      const ns = Math.max(0.02, Math.min(40, v0.s * d / pinch.d));
+      view.s = ns; view.ox = mx - (pinch.mx - v0.ox) * ns / v0.s; view.oy = my - (pinch.my - v0.oy) * ns / v0.s;
+      draw(); refreshZoom(); return;
+    }
+    if (creating) {
+      const p = toImg(sx, sy), c = App.S.crop;
+      creating.y1 = Math.max(c.y, Math.min(c.y + c.h, p.y));
+      if (Math.abs(sy - creating.sy) > 4) creating.moved = true;
+      draw(); return;
+    }
     if (!drag) {
       if (e.target !== cv) return;
       if (App.mode === 'arrow') {
@@ -240,6 +325,7 @@
         cv.style.cursor = 'crosshair'; draw();
         return;
       }
+      if (App.mode === 'strip' || App.mode === 'quant') { cv.style.cursor = 'crosshair'; return; }
       const h = hitTest(sx, sy, e.shiftKey);
       const changed = JSON.stringify(h) !== JSON.stringify(hover);
       hover = h; cv.style.cursor = cursorFor(h);
@@ -272,17 +358,31 @@
       b.y = Math.max(0, Math.min(rot.h, drag.y0 + dy)); b.manual = true; b.matched = false;
     } else if (h.type === 'arrow') {
       S.arrows[h.i].y = Math.max(0, Math.min(rot.h, drag.y0 + dy));
+    } else if (h.type === 'qedge') {
+      S.quant.rows[h.k][h.e] = Math.max(0, Math.min(rot.h, drag.y0 + dy));
+    } else if (h.type === 'sedge') {
+      S.strips[h.k][h.e] = Math.max(0, Math.min(rot.h, drag.y0 + dy));
+    } else if (h.type === 'qbody') {
+      const q = S.quant.rows[h.k], d = E_clamp(dy, -Math.min(...drag.q0), rot.h - Math.max(...drag.q0));
+      q.y0 = drag.q0[0] + d; q.y1 = drag.q0[1] + d;
     }
     draw(); App.refresh();
   });
   function E_clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
-  window.addEventListener('mouseup', () => {
+  function endPointer(e) {
+    if (e && e.pointerType === 'touch') { touches.delete(e.pointerId); if (pinch) { if (touches.size < 2) pinch = null; return; } }
+    if (creating) {
+      const c = creating; creating = null;
+      if (App.finishRegion) App.finishRegion(c.mode, c.moved ? Math.min(c.y0, c.y1) : null, c.moved ? Math.max(c.y0, c.y1) : null, c.x, c.y0);
+      draw();
+      return;
+    }
     if (!drag) return;
     const d = drag; drag = null;
     const S = App.S;
     if (!d.moved) {
-      if (d.h.type === 'inside') { App.selLane = d.pickLane; App.selArrow = -1; App.emit('select'); draw(); }
+      if (d.h.type === 'inside' || d.h.type === 'qbody') { App.selLane = d.pickLane; App.selArrow = -1; App.emit('select'); draw(); }
       if (d.h.type === 'pan') { App.selLane = -1; App.selArrow = -1; App.emit('select'); draw(); }
       cv.style.cursor = cursorFor(hover);
       return;
@@ -292,7 +392,9 @@
     if (d.h.type === 'band') App.matchMarkers(false);
     if (d.h.type !== 'pan' && d.h.type !== 'inside') App.commit();
     cv.style.cursor = cursorFor(hover);
-  });
+  }
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', e => { if (e.pointerType === 'touch') touches.delete(e.pointerId); pinch = null; if (creating) { creating = null; draw(); } });
 
   cv.addEventListener('dblclick', (e) => {
     if (!App.S) return;
@@ -332,7 +434,7 @@
     // H: cut the selected lane from the figure / bring it back (splice gap added automatically)
     if ((e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && App.selLane >= 0 && App.toggleLaneHidden) {
       const l = App.S.lanes[App.selLane];
-      if (App.toggleLaneHidden(App.selLane, !l.hidden)) App.commit();
+      App.toggleLaneHidden(App.selLane, !l.hidden).then(ok => { if (ok) App.commit(); });
       e.preventDefault();
     }
     if (App.selLane >= 0 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {

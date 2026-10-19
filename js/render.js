@@ -56,8 +56,9 @@
     return segs;
   }
 
-  // Compose processed gel (canvas of the crop) into final panel raster, cutting hidden lanes.
-  // Returns {canvas, map(xCropPx) -> x in panel px, segs, gapPx}
+  // Compose processed gel (canvas of the crop) into final panel raster, cutting hidden lanes and, when
+  // strips are set, stacking only those horizontal regions with a white gap between them.
+  // Returns {canvas, map(xCropPx) -> x in panel px, mapY(yCropPx) -> y in panel px or null, segs, vsegs, gapPx}
   function composeGel(S, cropCanvas, scalePtPerPx) {
     const W = cropCanvas.width, H = cropCanvas.height;
     const segs = segments(S, W);
@@ -66,16 +67,29 @@
     let total = 0;
     segs.forEach(s => { s.px0 = Math.round(s.x0); s.px1 = Math.round(s.x1); s.off = total; total += s.px1 - s.px0 + gapPx; });
     total -= gapPx;
+    const strips = (S.strips || []).length ? S.strips : [{ y0: 0, y1: H, label: '' }];
+    const vgap = strips.length > 1 ? Math.max(1, Math.round((st.stripGapPt != null ? st.stripGapPt : 3) / scalePtPerPx)) : 0;
+    let totalH = 0;
+    const vsegs = strips.map(r => {
+      const v = { py0: Math.max(0, Math.round(r.y0)), py1: Math.min(H, Math.round(r.y1)), label: r.label, k: r.k };
+      v.off = totalH; totalH += v.py1 - v.py0 + vgap;
+      return v;
+    });
+    totalH -= vgap;
     const c = document.createElement('canvas');
-    c.width = Math.max(1, total); c.height = H;
+    c.width = Math.max(1, total); c.height = Math.max(1, totalH);
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, H);
-    segs.forEach(s => ctx.drawImage(cropCanvas, s.px0, 0, s.px1 - s.px0, H, s.off, 0, s.px1 - s.px0, H));
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    vsegs.forEach(v => segs.forEach(s => ctx.drawImage(cropCanvas, s.px0, v.py0, s.px1 - s.px0, v.py1 - v.py0, s.off, v.off, s.px1 - s.px0, v.py1 - v.py0)));
     const map = (x) => {
       for (const s of segs) if (x >= s.px0 - 0.5 && x <= s.px1 + 0.5) return s.off + (x - s.px0);
       return x;
     };
-    return { canvas: c, map, segs, gapPx };
+    const mapY = (y) => {
+      for (const v of vsegs) if (y >= v.py0 - 0.5 && y <= v.py1 + 0.5) return v.off + (y - v.py0);
+      return null;
+    };
+    return { canvas: c, map, mapY, segs, vsegs, gapPx, vgap };
   }
 
   function autoAngle(labels, pitchPt, pt) {
@@ -112,14 +126,16 @@
     const grow = (x0, y0, x1, y1) => { box.x0 = Math.min(box.x0, x0); box.y0 = Math.min(box.y0, y0); box.x1 = Math.max(box.x1, x1); box.y1 = Math.max(box.y1, y1); };
 
     els.push(`<image ${S.preview ? 'data-edit="gel" ' : ''}x="0" y="0" width="${f(W)}" height="${f(H)}" preserveAspectRatio="none" href="${imgHref}" xlink:href="${imgHref}"/>`);
-    // splice marker lines
+    const vsegs = gel.vsegs || [{ off: 0, py0: 0, py1: Hpx }];
+    const mapY = gel.mapY || (y => y);
+    // splice marker lines (one piece per strip: a line never crosses the gap between strips)
     if (gel.segs.length > 1 && st.spliceStyle === 'line') {
       gel.segs.slice(1).forEach(s => {
         const x = s.off * sc;
-        els.push(`<line x1="${f(x)}" y1="0" x2="${f(x)}" y2="${f(H)}" stroke="${S.levels.invert ? '#000' : '#fff'}" stroke-width="${f(lw)}"/>`);
+        vsegs.forEach(v => els.push(`<line x1="${f(x)}" y1="${f(v.off * sc)}" x2="${f(x)}" y2="${f((v.off + v.py1 - v.py0) * sc)}" stroke="${S.levels.invert ? '#000' : '#fff'}" stroke-width="${f(lw)}"/>`));
       });
     }
-    if (st.frame) els.push(`<rect x="0" y="0" width="${f(W)}" height="${f(H)}" fill="none" stroke="#000" stroke-width="${f(lw)}"/>`);
+    if (st.frame) vsegs.forEach(v => els.push(`<rect x="0" y="${f(v.off * sc)}" width="${f(W)}" height="${f((v.py1 - v.py0) * sc)}" fill="none" stroke="#000" stroke-width="${f(lw)}"/>`));
 
     const vis = S.lanes.map((l, i) => ({ l, i })).filter(o => !o.l.hidden);
     const X = (i) => gel.map(S.lanes[i].x) * sc;
@@ -239,10 +255,10 @@
     markers.forEach((mk, mi) => {
       const side = sides[mi];
       const off = extent[side] ? extent[side] + 3 : 0;  // a second column on the same side sits further out
-      const shown = mk.bands.filter(b => b.show && b.y != null && b.y >= 0 && b.y <= Hpx);
+      const shown = mk.bands.filter(b => b.show && b.y != null && mapY(b.y) != null);
       let maxTw = 0;
       shown.forEach(b => {
-        const y = b.y * sc, label = G.Ladders.fmt(b.bp, mk.unit);
+        const y = mapY(b.y) * sc, label = G.Ladders.fmt(b.bp, mk.unit);
         const tw = measure(label, pt); maxTw = Math.max(maxTw, tw);
         if (side === 'left') {
           if (!off) els.push(`<line x1="${f(-tick - 1)}" y1="${f(y)}" x2="${f(-1)}" y2="${f(y)}" stroke="#000" stroke-width="${f(lw)}"/>`);
@@ -254,24 +270,40 @@
           grow(W, y - pt, W + tick + 2.5 + off + tw, y + pt);
         }
       });
-      for (let k = 1; k < shown.length; k++) if ((shown[k].y - shown[k - 1].y) * sc < pt * 0.95) {
+      for (let k = 1; k < shown.length; k++) if (Math.abs(mapY(shown[k].y) - mapY(shown[k - 1].y)) * sc < pt * 0.95) {
         overlap(G.L('部分 Marker 标签间距过小会重叠，可点"精简标签"或手动取消勾选', 'Some marker labels are too close and overlap; click "Thin labels" or untick some')); break;
       }
-      if (st.unitHeader && shown.length && mk.unit !== 'auto') {
-        const u = mk.unit === 'kb' ? 'kb' : 'bp';
+      const head = G.Ladders.unitHeader(mk.unit);
+      if (st.unitHeader && shown.length && head) {
         const ux = side === 'left' ? -tick - 2.5 - off : W + tick + 2.5 + off;
-        const uy = unitRowY;
-        els.push(textEl(`(${u})`, ux, uy, pt, side === 'left' ? 'end' : 'start'));
-        grow(side === 'left' ? ux - measure('(bp)', pt) : ux, uy - pt * 1.2, side === 'left' ? 0 : ux + measure('(bp)', pt), uy + pt * 0.3);
+        const uy = unitRowY, hw = measure(head, pt);
+        els.push(textEl(head, ux, uy, pt, side === 'left' ? 'end' : 'start'));
+        grow(side === 'left' ? ux - hw : ux, uy - pt * 1.2, side === 'left' ? 0 : ux + hw, uy + pt * 0.3);
       }
-      extent[side] = tick + 2.5 + off + Math.max(maxTw, measure('(bp)', pt));
+      extent[side] = tick + 2.5 + off + Math.max(maxTw, st.unitHeader && head ? measure(head, pt) : 0);
     });
+
+    // ---- strip labels (protein / probe names) to the right of each strip ----
+    const stripLab = (S.strips || []).length ? vsegs.map(v => ({ v, t: v.label || (P ? G.L('点击命名', 'Click to name') : '') })) : [];
+    if (stripLab.some(o => o.t)) {
+      const off = extent.right ? extent.right + 3 : 0, x = W + 3 + off;
+      let maxW = 0;
+      stripLab.forEach(({ v, t }) => {
+        if (!t) return;
+        const y = (v.off + (v.py1 - v.py0) / 2) * sc + pt * 0.35, tw = measure(t, pt);
+        maxW = Math.max(maxW, tw);
+        els.push(ed(`data-edit="strip" data-k="${v.k}"`, textEl(t, x, y, pt, 'start', v.label ? '' : phStyle)));
+        grow(W, y - pt, x + tw, y + pt * 0.3);
+      });
+      extent.right = 3 + off + maxW;
+    }
 
     // ---- arrows (expected product): free side preferred, otherwise outside the marker labels ----
     const arrows = (S.arrows || []).filter(a => a.y != null);
     const defSide = !extent.right ? 'right' : !extent.left ? 'left' : 'right';
     arrows.forEach((a, k) => {
-      const y = a.y * sc, side = a.side || defSide;
+      if (mapY(a.y) == null) return;
+      const y = mapY(a.y) * sc, side = a.side || defSide;
       const s = pt * 0.75, label = a.label != null ? a.label : (a.text || '');
       const off = extent[side] ? extent[side] + 2 : 0;
       const attrs = `data-edit="arrow" data-k="${a.k != null ? a.k : k}"`;

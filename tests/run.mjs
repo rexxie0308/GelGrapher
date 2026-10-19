@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Runs GelFigure's two self-tests in real browsers through Playwright:
+/* Runs GelGrapher's two self-tests in real browsers through Playwright:
  *   test/test.html                       engine: TIFF decoding, deskew, crop, lanes, ladders, rendering
  *   index.html?demo=1&uitest=1&draft=1    interface: editing, rotation, lane removal, exports, projects, drafts…
  * The app is served from a throw-away local HTTP server (no network access is needed).
@@ -55,7 +55,16 @@ const UI_CHECKS = [
   ['project file round trip', r => r.project.same],
   ['best exposure is picked', r => r.exposures.picked === 'exp_x0.7.tif'],
   ['switching exposure keeps annotations', r => r.exposures.switched.kept && r.exposures.nameKept === 'keepme' && r.exposures.stripItems === 3],
-  ['draft is saved and restored', r => r.draft && r.draft.restored && r.draftDropped]
+  ['draft is saved and restored', r => r.draft && r.draft.restored && r.draftDropped],
+  // GelGrapher additions
+  ['experiment type switches ladders and units', r => r.gelType.protein.kDa && r.gelType.back.bp],
+  ['strips stack chosen regions and are disclosed', r => r.strips.ok],
+  ['densitometry matches the synthetic truth', r => r.quant.maxErr < 0.05 && r.quant.chart && r.quant.csvLines > 4],
+  ['vector PDF is valid and keeps Greek letters as text', r => r.pdf.ok],
+  ['ZIP round trip', r => r.zip.ok],
+  ['project keeps the Western marker image', r => r.markerProject.ok],
+  ['Western example: ladder, strips and densitometry', r => r.western.ok],
+  ['SDS-PAGE example: ladder lane found among lysates', r => r.sds.ok]
 ];
 
 async function runIn(name, base) {

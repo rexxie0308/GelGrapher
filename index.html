@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- Everything runs locally. This policy forbids the page from contacting any server, so images can never leave the computer. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-<meta name="description" content="GelFigure: turn a raw agarose gel image into a publication-ready figure in the browser. Offline, nothing is uploaded.">
-<title>GelFigure</title>
+<meta name="description" content="GelGrapher: publication-ready figures and densitometry for DNA / RNA gels, SDS-PAGE, Western, Southern and Northern blots, in the browser. Nothing is uploaded.">
+<title>GelGrapher</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111827'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='8' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='13' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='18' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='23' width='6' height='2.2' rx='1'/%3E%3Crect x='19' y='15' width='7' height='3' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">GelFigure</div>
+  <div class="brand">GelGrapher</div>
   <button class="chip" id="imgChip" title="打开 / 更换图片" data-en-title="Open / replace image"><span class="chip-dot"></span><span id="imgChipName" data-en="Open image">打开图片</span></button>
   <div class="coach" id="coach"><span class="coach-dot"></span><span id="coachText" data-en="Drop a gel image into the window to start">把凝胶图拖进窗口即可开始</span></div>
   <div class="topbar-right">
@@ -22,7 +22,7 @@
       <button class="btn ghost" id="btnTplMenu" data-en="File ▾">文件 ▾</button>
       <div class="menu hidden" id="tplMenu">
         <label><span data-en="Open image…">打开图片…</span><small data-en="Select several exposures of one gel to pick the best automatically">可一次选多张同一块胶的不同曝光，自动挑最佳</small><input type="file" id="fileInput3" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" multiple hidden></label>
-        <label><span data-en="Open project…">打开项目…</span><small data-en=".gelfig project file (original image and all annotations)">.gelfig 项目文件（含原图和全部标注）</small><input type="file" id="projInput" accept=".gelfig,.json" hidden></label>
+        <label><span data-en="Open project…">打开项目…</span><small data-en=".gelfig project file, or a .zip that contains one">.gelfig 项目文件，或包含它的 .zip</small><input type="file" id="projInput" accept=".gelfig,.json,.zip" hidden></label>
         <button id="btnSaveProj"><span data-en="Save project…">保存项目…</span><small data-en="Original image + every setting and annotation; continue on any computer">原图 + 全部参数和标注，可在任何电脑接着做</small></button>
         <div class="menu-sep"></div>
         <button id="btnSaveTpl"><span data-en="Save style…">保存样式…</span><small data-en="Lane names, markers, groups, layout — reuse for similar gels">泳道名、Marker、分组、版式，下次同类胶一键套用</small></button>
@@ -41,6 +41,7 @@
       </div>
       <div class="menu hidden right" id="exportMenu">
         <button id="btnTIFF"><span data-en="TIFF (LZW, grayscale)">TIFF（LZW，灰度）</span><small data-en="For journals that only accept TIFF (e.g. PLOS)">PLOS 等只收 TIFF 的期刊</small></button>
+        <button id="btnPDF"><span data-en="PDF (vector)">PDF（矢量）</span><small data-en="Text and lines stay vector; the gel is embedded pixel for pixel">文字和线条为矢量，胶图逐像素嵌入</small></button>
         <button id="btnSVG" data-en="SVG (vector, editable in Illustrator)">SVG（矢量，可在 AI 中编辑）</button>
         <div class="menu-sep"></div>
         <button id="btnUncropped"><span data-en="Uncropped image (same processing)">未裁切图（与成图同处理）</span><small data-en="For the supplement: same contrast and orientation, crop box and well numbers marked">补充材料用：同一对比度/方向，标出裁切框与孔号</small></button>
@@ -50,7 +51,8 @@
         <label class="menu-check"><input type="checkbox" id="preflightOn" checked> <span data-en="Check before export">导出前检查</span></label>
       </div>
     </div>
-    <input type="file" id="fileInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig" multiple hidden>
+    <input type="file" id="fileInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden>
+    <input type="file" id="markerInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" hidden>
   </div>
 </header>
 
@@ -58,10 +60,12 @@
   <aside id="panel">
     <div class="empty" id="emptyState">
       <div class="empty-icon">▣</div>
-      <h2 data-en="Drop a gel image here">把凝胶图拖进来</h2>
-      <p data-en-html="TIFF from iBright and other imagers (16 / 8-bit), PNG or JPG.<br>Straightening, cropping, lanes and marker sizes are automatic —<br>you only type the lane names and export.">iBright 等成像仪导出的 TIFF（16 / 8 位）、PNG、JPG 都可以。<br>转正、裁切、泳道、Marker 全部自动完成，<br>你只需要填泳道名然后导出。</p>
-      <label class="btn primary big"><span data-en="Choose file">选择文件</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig" multiple hidden></label>
-      <button class="btn big" id="btnDemo" data-en="Try the example">看看示例</button>
+      <h2 data-en="Drop a gel or blot image here">把凝胶或印迹图拖进来</h2>
+      <div class="field type-field"><label for="gelTypeStart" data-en="Experiment">实验类型</label><select id="gelTypeStart"></select><p class="hint" id="gelTypeStartHint"></p></div>
+      <p data-en-html="TIFF from iBright, ChemiDoc and other imagers (16 / 8-bit), PNG or JPG.<br>Straightening, cropping, lanes and marker sizes are automatic;<br>you type the lane names and export.">iBright、ChemiDoc 等成像仪导出的 TIFF（16 / 8 位）、PNG、JPG 都可以。<br>转正、裁切、泳道、Marker 全部自动完成，<br>你只需要填泳道名然后导出。</p>
+      <label class="btn primary big"><span data-en="Choose file">选择文件</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
+      <div class="examples"><span class="ex-label" data-en="Examples (synthetic)">示例（合成图）</span>
+        <button class="btn" id="btnDemo" data-example="dna" data-en="DNA gel">DNA 凝胶</button><button class="btn" data-example="sds" data-en="SDS-PAGE">SDS-PAGE</button><button class="btn" data-example="western" data-en="Western blot">Western</button></div>
       <div id="draftBox" class="draft hidden">
         <div><span data-en="Unfinished figure from last time:">上次有未完成的图：</span><b id="draftName"></b><br><span class="muted small" id="draftTime"></span></div>
         <div class="inline"><button class="btn sm primary" id="btnDraftRestore" data-en="Restore">恢复</button><button class="btn sm ghost" id="btnDraftDrop" data-en="Discard">丢弃</button></div>
@@ -74,8 +78,9 @@
       <!-- image -->
       <section class="sec">
         <div class="sec-head"><span class="sec-n">1</span><span data-en="Image">图像</span><span class="sec-status" id="stImage"></span></div>
+        <div class="field type-field"><label for="gelType" data-en="Experiment">实验类型</label><select id="gelType"></select><p class="hint" id="gelTypeHint"></p></div>
         <div class="seg full" id="polSeg">
-          <button data-inv="0" data-en="White bands on black (raw)">黑底白带（原样）</button><button data-inv="1" data-en="Black bands on white (inverted)">白底黑带（反色）</button>
+          <button data-dark="0"><span data-en="Bright bands, dark background">黑底亮带</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span data-en="Dark bands, light background">白底暗带</span><small class="pol-note" data-k="1"></small></button>
         </div>
         <p class="hint" id="invNote"></p>
         <div class="field">
@@ -162,6 +167,12 @@
           <button class="btn sm" id="btnAddMarker" data-en="+ Add marker lane">+ 添加 Marker 泳道</button>
           <button class="btn sm ghost" id="btnAutoMarkers" data-en="Re-detect">重新识别</button>
         </div>
+        <div class="mk-image" id="mkImageBox">
+          <div class="cl-head"><span data-en="Marker image">Marker 白光图</span> <span class="h3-note" data-en="optional, for Westerns">可选，Western 用</span></div>
+          <p class="hint" id="mkImageText" data-en="Ladder invisible on the chemiluminescence image? Load the white-light / colorimetric image taken in the same position. It is used only to find the marker bands; the figure still shows the blot.">化学发光图上看不到 Marker？载入同一位置拍的白光 / 比色图，只用来定位 Marker 条带，成图仍是印迹图本身。</p>
+          <div class="field inline"><button class="btn sm" id="btnMarkerImg" data-en="Load marker image…">载入 Marker 图…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel" data-en="Remove">移除</button>
+            <label class="switch hidden" id="mkOverlayWrap"><input type="checkbox" id="mkOverlay" checked><span data-en="Overlay on image">叠加显示</span></label></div>
+        </div>
         <details class="adv" id="favAdv">
           <summary><span data-en="Favourite ladders ★">常用型号 ★</span><span class="h3-note" id="favNote"></span></summary>
           <p class="hint" style="margin-top:2px" data-en="Click ★ on a marker card to make it a favourite. Detection prefers favourites but still switches (with a notice) when none fits.">点 Marker 卡片里的 ★ 收藏。自动识别优先选常用型号；明显不吻合时仍会换型号并提示。</p>
@@ -171,7 +182,7 @@
         <details class="adv">
           <summary data-en="Custom ladder">自定义 Ladder</summary>
           <div class="field"><input type="text" id="customName" placeholder="名称" data-en-placeholder="Name"></div>
-          <div class="field"><input type="text" id="customSizes" placeholder="条带大小 bp，逗号分隔：5000,3000,2000,1000,500" data-en-placeholder="Band sizes in bp, comma separated: 5000,3000,2000,1000,500"></div>
+          <div class="field"><input type="text" id="customSizes" placeholder="条带大小，逗号分隔" data-en-placeholder="Band sizes, comma separated"></div>
           <button class="btn sm" id="btnSaveLadder" data-en="Save and use">保存并使用</button>
           <div id="customList" class="list"></div>
         </details>
@@ -184,6 +195,7 @@
           <button class="tool" id="btnAddGroup"><span class="ti">⎴</span><span data-en="Group line">分组横线</span><small data-en="Drag across lane names on the figure">在成图上拖过几个泳道名</small></button>
           <button class="tool" id="btnAddArrow"><span class="ti">◀</span><span data-en="Target band">目标条带</span><small data-en="Click a band; its size is estimated">点一下条带，自动标大小</small></button>
           <button class="tool" id="btnAddCond"><span class="ti">±</span><span data-en="Condition row">条件行</span><small data-en="+ / − matrix">+ / − 矩阵</small></button>
+          <button class="tool" id="btnAddStrip"><span class="ti">☰</span><span data-en="Strip">分条</span><small data-en="Show only chosen regions, stacked (target + loading control)">只出所选区域并上下拼接（目的蛋白 + 内参）</small></button>
         </div>
         <div id="annoList" class="list"></div>
       </section>
@@ -210,7 +222,7 @@
             <span class="h3-note" id="angleInfo"></span>
           </div>
           <div class="field inline wrap">
-            <label class="switch"><input type="checkbox" id="unitHeader" checked><span data-en="(bp) header">(bp) 标题</span></label>
+            <label class="switch"><input type="checkbox" id="unitHeader" checked><span data-en="Unit header (kDa / bp)">单位标题 (kDa / bp)</span></label>
             <label class="switch"><input type="checkbox" id="laneNumbers"><span data-en="Lane numbers">泳道编号</span></label>
             <label class="switch"><input type="checkbox" id="frame"><span data-en="Frame">边框</span></label>
             <label class="switch"><input type="checkbox" id="groupTicks"><span data-en="Group line ends">分组线端点</span></label>
@@ -219,11 +231,52 @@
             <label class="inline-label"><span data-en="Numbering">编号</span> <select id="laneNumberMode" style="width:auto"><option value="well" data-en="By well">按加样孔号</option><option value="seq" data-en="In figure order">按图中顺序</option></select></label>
             <label class="inline-label"><span data-en="Panel letter">面板字母</span> <input type="text" id="panelLetter" maxlength="2" class="num" placeholder="a"></label>
           </div>
+          <div class="field inline">
+            <label class="inline-label"><span data-en="Gap between strips">分条间隙</span> <input type="number" id="stripGap" min="0" max="12" step="0.5" class="num"> pt</label>
+          </div>
           <button class="btn sm ghost" id="btnResetLayout" data-en="Reset layout">重置版式</button>
         </details>
       </section>
 
-      <div id="legendHints" class="legend"></div>
+      <!-- quantification -->
+      <section class="sec" id="quantSec">
+        <details class="adv flush" id="quantDetails">
+          <summary class="sec-head as-summary"><span class="sec-n">7</span><span data-en="Quantify">定量分析</span> <span class="h3-note" id="stQuant" data-en="densitometry, band sizes">灰度、条带大小</span></summary>
+          <div class="seg full" id="quantTabs"><button data-tab="int" class="on" data-en="Band intensity">条带灰度</button><button data-tab="size" data-en="Band sizes">条带大小</button></div>
+          <div id="quantInt">
+            <p class="lead" data-en-html="Add a <b>band box</b> per protein or product (e.g. target and loading control): click the band on the raw image, or drag across it.">为每个目的条带加一个<b>条带框</b>（如目的蛋白和内参）：在原图上点一下条带，或上下拖出范围。</p>
+            <div class="field inline"><button class="btn sm" id="btnAddBox" data-en="+ Band box">+ 条带框</button><span class="h3-note" data-en="tick = loading control">勾选 = 内参</span></div>
+            <div id="boxList" class="list"></div>
+            <div class="field inline">
+              <label class="inline-label"><span data-en="Background">背景</span> <select id="qBg" style="width:auto"><option value="edge" data-en="Straight line at box edges">框边直线</option><option value="rolling" data-en="Rolling ball (lane profile)">滚球（泳道曲线）</option><option value="none" data-en="None">不扣除</option></select></label>
+            </div>
+            <div class="field"><label><span data-en="Box width">框宽</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
+            <div class="field inline"><label class="inline-label"><span data-en="Relative to lane">相对于泳道</span> <select id="qRef" style="width:auto"></select></label></div>
+            <div id="quantTable" class="qtable"></div>
+            <div id="quantChart" class="qchart"></div>
+            <div class="field inline wrap" id="quantActions">
+              <button class="btn sm" id="btnQCopy" data-en="Copy table">复制表格</button><button class="btn sm" id="btnQCSV">CSV</button>
+              <select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="svg">SVG</option><option value="pdf">PDF</option></select><button class="btn sm" id="btnQChart" data-en="Export chart">导出柱状图</button>
+            </div>
+            <details class="adv"><summary data-en="Lane profile">泳道曲线</summary>
+              <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
+              <canvas id="qProfile" height="130"></canvas>
+              <p class="hint" data-en="Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.">沿泳道的信号（左侧为胶的上端）。阴影为条带框，虚线为扣除的背景。</p>
+            </details>
+            <p class="hint" data-en="Numbers come from the raw pixel values (only rotation is applied; the contrast setting has no effect). Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.">数值来自原始像素（只做了旋转，对比度设置不影响数值）。框内有饱和像素时结果不可靠，会标出。只比较同一张图内的泳道。</p>
+          </div>
+          <div id="quantSize" class="hidden">
+            <p class="lead" data-en="Every band in every lane of the figure, sized against the marker.">成图中每条泳道的每个条带，按 Marker 估算大小。</p>
+            <div id="sizeTable" class="qtable"></div>
+            <div class="field inline"><button class="btn sm" id="btnSCopy" data-en="Copy table">复制表格</button><button class="btn sm" id="btnSCSV">CSV</button></div>
+          </div>
+        </details>
+      </section>
+
+      <div class="legend-wrap">
+        <div id="legendHints" class="legend"></div>
+        <button class="btn sm claude-btn hidden" id="btnClaude" data-en="Draft legend and methods with Claude">用 Claude 起草图注和方法</button>
+      </div>
     </div>
   </aside>
 
@@ -231,7 +284,7 @@
     <section class="pane-col" id="rawCol">
       <div class="col-head">
         <span class="col-title" data-en="Raw image">原图</span>
-        <span class="col-sub" data-en="Red box = figure area · blue = lanes · yellow = marker bands">红框 = 出图范围 · 蓝线 = 泳道 · 黄线 = Marker 条带</span>
+        <span class="col-sub" data-en="Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes">红框 = 出图范围 · 蓝线 = 泳道 · 黄线 = Marker 条带 · 青色 = 分条 · 绿色 = 条带框</span>
         <span class="flex"></span>
         <button class="btn sm ghost" id="fitFull" title="显示整张图" data-en-title="Show the whole image" data-en="Full">全图</button>
         <button class="btn sm ghost" id="fitCrop" title="放大到出图范围" data-en-title="Zoom to the figure area" data-en="Crop">范围</button>
@@ -268,61 +321,81 @@
 <div id="toasts"></div>
 
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
-  <button class="dlg-x" id="btnHelpClose">×</button>
+  <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
   <div data-en-html="
   <h3>Fastest way to a figure</h3>
   <ol>
-    <li>Drop the gel image — straightening, cropping, lanes, markers and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
+    <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
     <li><b>Click a lane name</b> on the figure and type; Enter jumps to the next (or paste a whole row on the left).</li>
-    <li>Check the marker ladder on the left.</li>
-    <li>“Export PNG” at the top right. A pre-flight check points out problems first.</li>
+    <li>Check the ladder on the left. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
+    <li>“Export PNG” at the top right (or PDF, TIFF, SVG). A pre-flight check points out problems first.</li>
   </ol>
   <h3>Common tasks</h3>
   <ul>
     <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
     <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
+    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
+    <li><b>Densitometry</b>: step 7, “+ Band box”, click the band on the raw image. Tick the loading control; the table and chart are normalized to it.</li>
+    <li><b>Band sizes in every lane</b>: step 7, “Band sizes”.</li>
     <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
-    <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the marker; values outside the ladder are marked ≈.</li>
+    <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
-    <li><b>A marker band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
-    <li><b>Rotation</b>: annotations rotate with the image. Use the grid to judge by eye.</li>
+    <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
   </ul>
   <h3>Image integrity</h3>
   <ul>
     <li>Only linear, whole-image adjustments; gamma is locked at 1 unless unlocked.</li>
     <li>Camera saturation (re-image needed) and contrast clipping (fixable) are reported separately.</li>
-    <li>Removed lanes get a splice mark; never splice different gels into one panel.</li>
+    <li>Removed lanes get a splice mark and strips a gap; never splice different gels into one panel.</li>
+    <li>Densitometry uses the raw pixel values, never the display contrast.</li>
     <li>Also export the uncropped image and the original file for the supplement.</li>
   </ul>
   <p class='muted small'>Shortcuts: Ctrl+Z undo · Ctrl+Shift+Z redo · Space+drag pan · wheel zoom · H remove/restore lane · Esc cancel</p>
-  <p class='muted small'>Open source (MIT): <a href='https://github.com/poplarity/GelFigure' target='_blank' rel='noopener'>github.com/poplarity/GelFigure</a> — bug reports and ladder additions welcome.</p>">
+  <p class='muted small'>GelGrapher is based on GelFigure by poplarity (MIT): <a href='https://github.com/poplarity/GelFigure' target='_blank' rel='noopener'>github.com/poplarity/GelFigure</a>. Source: <a href='https://github.com/rexxie0308/GelGrapher' target='_blank' rel='noopener'>github.com/rexxie0308/GelGrapher</a>.</p>">
   <h3>最快的出图方式</h3>
   <ol>
-    <li>拖入胶图 —— 转正、裁切、泳道、Marker、对比度全部自动完成。同一块胶的多张曝光可以一起拖进来，自动挑最好的一张。</li>
+    <li>选择<b>实验类型</b>（DNA 胶、RNA / Northern、Southern、SDS-PAGE、非变性 PAGE、Western），拖入图片 —— 转正、裁切、泳道、Marker、对比度全部自动完成。同一块胶的多张曝光可以一起拖进来，自动挑最好的一张。</li>
     <li>在右侧成图上<b>点泳道名</b>输入，回车自动跳到下一条（也可在左侧一次粘贴一整行名称）。</li>
-    <li>核对左侧 Marker 型号是否正确。</li>
-    <li>右上角"导出 PNG"。导出前会自动检查常见问题。</li>
+    <li>核对左侧 Marker 型号。Western：化学发光图上没有 Marker 时，载入白光 <b>Marker 图</b>。</li>
+    <li>右上角"导出 PNG"（或 PDF、TIFF、SVG）。导出前会自动检查常见问题。</li>
   </ol>
   <h3>常用操作</h3>
   <ul>
     <li><b>只出一部分泳道</b>：左侧"出图范围"选孔号，或在原图上拖红框左右边。泳道名称不会丢。</li>
     <li><b>剪掉中间某条泳道</b>：在原图上选中后按 <code>H</code>（或取消"显示"），会自动加拼接间隙，图注中需说明。</li>
+    <li><b>Western 目的蛋白 + 内参</b>：标注里点"分条"，在原图上拖过每个区域。成图只显示这些分条并上下拼接，各自命名。</li>
+    <li><b>灰度定量</b>：第 7 步"+ 条带框"，在原图上点条带。勾选内参后表格和柱状图都按内参归一化。</li>
+    <li><b>各泳道条带大小</b>：第 7 步"条带大小"。</li>
     <li><b>分组横线</b>：在成图上从一个泳道名拖到另一个泳道名。</li>
     <li><b>目标条带箭头</b>：点"目标条带"，再点那条带；大小按 Marker 估算，超出 Marker 范围会标 ≈。</li>
     <li><b>+ / − 条件行</b>：加一行后，在成图上点格子即可在 + / − / 空 之间切换。</li>
     <li><b>Marker 条带不对</b>：在原图上上下拖那条黄线，其余条带会围绕它重新匹配。</li>
-    <li><b>旋转</b>：标注会跟着图一起转；可打开参考网格目测。</li>
   </ul>
   <h3>图像规范</h3>
   <ul>
     <li>只做全图线性调整；Gamma 默认锁定为 1。</li>
     <li>区分相机过曝（只能重拍）和色阶削顶（可调回）。</li>
-    <li>剪除泳道会自动加拼接分隔；不同凝胶不可拼进同一面板。</li>
+    <li>剪除泳道自动加拼接分隔，分条之间留间隙；不同凝胶不可拼进同一面板。</li>
+    <li>灰度定量使用原始像素值，不受显示对比度影响。</li>
     <li>建议同时导出"未裁切图"和"原始数据"放补充材料。</li>
   </ul>
   <p class="muted small">快捷键：Ctrl+Z 撤销 · Ctrl+Shift+Z 重做 · 空格+拖动 平移 · 滚轮 缩放 · H 剪除/恢复泳道 · Esc 取消当前操作</p>
-  <p class="muted small">开源（MIT）：<a href="https://github.com/poplarity/GelFigure" target="_blank" rel="noopener">github.com/poplarity/GelFigure</a> —— 欢迎反馈问题、补充 Ladder 型号。</p>
+  <p class="muted small">GelGrapher 基于 poplarity 的 GelFigure（MIT）：<a href="https://github.com/poplarity/GelFigure" target="_blank" rel="noopener">github.com/poplarity/GelFigure</a>。源码：<a href="https://github.com/rexxie0308/GelGrapher" target="_blank" rel="noopener">github.com/rexxie0308/GelGrapher</a>。</p>
   </div>
+</div></div>
+
+<div id="askDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body ask">
+  <div id="askText"></div>
+  <div class="pf-actions"><span class="flex"></span><button class="btn" id="askNo" data-en="Cancel">取消</button><button class="btn primary" id="askYes">OK</button></div>
+</div></div>
+
+<div id="claudeDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body claude">
+  <button class="dlg-x" id="btnClaudeClose" aria-label="Close">×</button>
+  <h3 data-en="Legend and methods draft">图注和方法草稿</h3>
+  <p class="hint" data-en="Only text is sent to Claude: lane names, sizes, settings and numbers. The image stays in this browser. Check every statement before you use it.">只把文字发给 Claude：泳道名、大小、参数和数值。图像不会离开本机浏览器。使用前请逐句核对。</p>
+  <div id="claudeOut" class="claude-out" aria-live="polite"></div>
+  <div class="pf-actions"><span id="claudeNote" class="muted small"></span><span class="flex"></span>
+    <button class="btn" id="claudeStop" data-en="Stop">停止</button><button class="btn" id="claudeAgain" data-en="Write again">重新生成</button><button class="btn primary" id="claudeCopy" data-en="Copy">复制</button></div>
 </div></div>
 
 <div id="preflightDlg" class="dlg hidden"><div class="dlg-body pf">
@@ -341,13 +414,20 @@
 <script src="js/i18n.js"></script>
 <script src="js/tiff.js"></script>
 <script src="js/ladders.js"></script>
+<script src="js/gels.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/render.js"></script>
+<script src="js/quant.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/host.js"></script>
 <script src="js/export.js"></script>
 <script src="js/demo.js"></script>
 <script src="js/app.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/figedit.js"></script>
+<script src="js/quantui.js"></script>
+<script src="js/claude.js"></script>
 </body>
 </html>

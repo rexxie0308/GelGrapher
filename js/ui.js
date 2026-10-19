@@ -32,6 +32,35 @@
     });
   }
 
+  /* ---------- in-page dialogs (alert / confirm are not available in every host) ---------- */
+  let askQueue = Promise.resolve();
+  function ask(html, opts) {
+    opts = opts || {};
+    // self-tests answer without showing the dialog
+    if (UI.autoConfirm != null && opts.confirm) return Promise.resolve(!!UI.autoConfirm);
+    const run = () => new Promise(resolve => {
+      $('askText').innerHTML = html;
+      $('askYes').textContent = opts.ok || 'OK';
+      $('askYes').classList.toggle('danger-btn', !!opts.danger);
+      $('askNo').classList.toggle('hidden', !opts.confirm);
+      $('askNo').textContent = L('取消', 'Cancel');
+      $('askDlg').classList.remove('hidden');
+      const done = v => { $('askDlg').classList.add('hidden'); window.removeEventListener('keydown', key, true); resolve(v); };
+      const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); done(true); } };
+      window.addEventListener('keydown', key, true);
+      $('askYes').onclick = () => done(true);
+      $('askNo').onclick = () => done(false);
+      setTimeout(() => $('askYes').focus(), 0);
+    });
+    const p = askQueue.then(run);
+    askQueue = p.catch(() => {});
+    return p;
+  }
+  const textHtml = t => esc(t).replace(/\n/g, '<br>');
+  const alertDlg = msg => ask(textHtml(msg), {});
+  const confirmDlg = (msg, ok, danger) => ask(textHtml(msg), { confirm: true, ok: ok || L('继续', 'Continue'), danger });
+  const UI = { autoConfirm: null };
+
   /* ---------- helpers ---------- */
   const range = () => (S() && App.laneRange()) || null;
   // lanes that appear in the figure, left to right
@@ -45,12 +74,22 @@
 
   /* ---------- loading ---------- */
   // files: FileList / array. A .gelfig opens a project; several images = several exposures
-  async function load(files) {
+  async function load(files, gelType) {
     files = [...(files.length != null ? files : [files])];
     if (!files.length) return;
+    // a .zip (as saved from a Claude artifact) is unpacked first
+    const zips = files.filter(f => /\.zip$/i.test(f.name));
+    if (zips.length) {
+      try {
+        const inner = [];
+        for (const z of zips) (await G.Zip.read(await z.arrayBuffer())).forEach(e => inner.push(new File([e.data], e.name)));
+        files = files.filter(f => !zips.includes(f)).concat(inner.filter(f => /\.(gelfig|tiff?|png|jpe?g|bmp)$/i.test(f.name)));
+      } catch (e) { alertDlg(L('无法打开 ZIP：', 'Could not open the ZIP: ') + e.message); return; }
+      if (!files.length) { alertDlg(L('ZIP 里没有图片或项目文件', 'The ZIP contains no image or project file')); return; }
+    }
     const proj = files.find(f => /\.gelfig$/i.test(f.name));
     if (proj) return openProject(proj);
-    await App.load(files.length > 1 ? files : files[0]);
+    await App.load(files.length > 1 ? files : files[0], gelType);
     if (!S()) return;
     const r = range(), n = r ? r[1] - r[0] + 1 : 0, nw = S().lanes.length, nm = S().markers.length;
     let msg = L(`识别完成：${nw} 个加样孔，出图 ${n} 条泳道` + (nm ? `，${nm} 个 Marker` : '，未找到 Marker'),
@@ -65,8 +104,9 @@
     if (Math.abs(S().rotation) >= App.AUTO_ROT_LIMIT - 0.3) toast(L(`自动转正达到上限 ±${App.AUTO_ROT_LIMIT}°，请人工确认角度`, `Auto-straightening reached its ±${App.AUTO_ROT_LIMIT}° limit; please check the angle`), 5200);
   }
   async function openProject(f) {
+    if (/\.zip$/i.test(f.name)) return load([f]);
     try { App.busy(true, L('正在打开项目…', 'Opening project…')); await App.openProject(await f.arrayBuffer()); toast(L('项目已打开', 'Project opened')); }
-    catch (e) { alert(L('打开项目失败：', 'Could not open the project: ') + e.message); } finally { App.busy(false); }
+    catch (e) { alertDlg(L('打开项目失败：', 'Could not open the project: ') + e.message); } finally { App.busy(false); }
   }
   App.onDropFile = f => load([f]);
   function bindFile(id) { $(id).addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) load(fs); }); }
@@ -74,7 +114,46 @@
   $('projInput').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) openProject(f); });
   $('imgChip').onclick = () => $('fileInput').click();
   const demoFile = () => new File([G.Demo.encodeTiff16(G.Demo.makeGel())], 'demo_gel.tif', { type: 'image/tiff' });
-  $('btnDemo').onclick = () => load([demoFile()]);
+  /* ---------- examples: synthetic gels, filled in the way a finished figure would be ---------- */
+  const EXAMPLE_NAMES = { dna: 'example_DNA_agarose.tif', sds: 'example_SDS-PAGE_Coomassie.tif', western: 'example_Western_p53.tif' };
+  async function loadExample(kind) {
+    App.busy(true, L('正在生成示例…', 'Building the example…'));
+    await new Promise(r => setTimeout(r, 30));
+    const g = G.Demo.makeGel({ preset: kind });
+    await App.load({ name: EXAMPLE_NAMES[kind], buffer: G.Demo.encodeTiff16(g) }, g.truth.gelType);
+    if (!S()) return;
+    App.isExample = kind;
+    const st = S(), fl = figLanes();
+    if (kind === 'dna') {
+      const names = ['M', 'WT', 'WT', 'KO-1', 'NTC', '*lacZ*-1', '*lacZ*-2', 'pUC19', 'pUC19', 'Clone A', 'Clone B'];
+      fl.forEach((li, k) => { st.lanes[li].name = names[k] || ''; });
+      st.groups = [{ from: fl[1], to: fl[3], text: 'Genotyping' }, { from: fl[5], to: fl[8], text: 'Plasmid' }];
+      const b = st.markers[0] && st.markers[0].bands.find(x => x.bp === 1500);
+      st.arrows = b ? [{ y: b.y, text: 'Product', size: true, side: '' }] : [];
+    } else {
+      fl.forEach((li, k) => { if (g.truth.names[k] != null) st.lanes[li].name = g.truth.names[k]; });
+      const yOf = g.truth.yOf;
+      if (kind === 'sds') {
+        st.groups = [{ from: fl[4], to: fl[8], text: 'Ni-NTA' }];
+        const y = App.snapBandY(st.lanes[fl[6]].x, yOf(45));
+        st.arrows = y != null ? [{ y, text: 'His-MBP', size: true, side: '' }] : [];
+      } else {
+        st.groups = [{ from: fl[1], to: fl[fl.length - 1], text: 'Doxorubicin' }];
+        const mid = st.lanes[fl[Math.floor(fl.length / 2)]].x;
+        const t = G.Quant.bandBox(App, mid, yOf(g.truth.target.size)), c = G.Quant.bandBox(App, mid, yOf(g.truth.control.size));
+        st.quant.rows = [{ y0: t.y0, y1: t.y1, name: g.truth.target.name }, { y0: c.y0, y1: c.y1, name: g.truth.control.name }];
+        st.quant.control = 1; st.quant.ref = fl[1];
+        const ty = (t.y0 + t.y1) / 2, cy = (c.y0 + c.y1) / 2;
+        st.strips = [{ y0: ty - 58, y1: ty + 26, label: g.truth.target.name }, { y0: cy - 24, y1: cy + 24, label: g.truth.control.name }];
+        st.markers.forEach(m => App.thinMarkerLabels(m, false));
+        $('quantDetails').open = true;
+      }
+    }
+    App.commit();
+    toast(L('这是合成的示例图；拖入你自己的图片即可开始', 'This is a synthetic example; drop your own image to start'), 4200);
+  }
+  G.UI_loadExample = loadExample;
+  document.querySelectorAll('[data-example]').forEach(b => { b.onclick = () => loadExample(b.dataset.example); });
   // drop anywhere in the window
   let dragDepth = 0;
   window.addEventListener('dragenter', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; document.body.classList.add('dragging'); } });
@@ -95,7 +174,7 @@
   }
   $('btnDraftRestore').onclick = async () => {
     try { App.busy(true, L('正在恢复…', 'Restoring…')); await App.restoreDraft(); toast(L('已恢复上次的进度', 'Restored your last session')); }
-    catch (e) { alert(L('恢复失败：', 'Could not restore: ') + e.message); } finally { App.busy(false); }
+    catch (e) { alertDlg(L('恢复失败：', 'Could not restore: ') + e.message); } finally { App.busy(false); }
   };
   $('btnDraftDrop').onclick = async () => { await App.dropDraft(); $('draftBox').classList.add('hidden'); };
 
@@ -127,7 +206,7 @@
   $('btnHelpClose').onclick = () => $('helpDlg').classList.add('hidden');
   $('btnLang').onclick = () => G.I18N.set(G.I18N.lang === 'en' ? 'zh' : 'en');
   G.I18N.onChange(() => {
-    renderFavs(); renderExposures();
+    syncTypeHints(); renderFavs(); renderExposures();
     if (S()) App.emit('change');
     else offerDraft();
   });
@@ -167,53 +246,86 @@
       $('pfGo').onclick = () => close(true);
     });
   }
-  async function exportRaster(kind) {
+  // toast only for files the viewer actually kept
+  const saved = (status, msg) => { if (status === 'saved') toast(msg); };
+  async function exportFigure(kind) {
     if (needImage()) return;
     if (!(await preflight())) return;
     App.busy(true, L('正在导出…', 'Exporting…'));
     try {
-      const f = App.buildFigure(false), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi()), fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
-      if (kind === 'tiff') await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S());
-      else await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
-      toast(L(`已导出 ${dpi} dpi ${fmt}`, `Exported ${dpi} dpi ${fmt}`) + (eff < dpi ? L(`（胶图本身 ${eff} dpi）`, ` (the gel itself is ${eff} dpi)`) : ''));
-    } catch (e) { alert(e.message); } finally { App.busy(false); }
+      const f = App.buildFigure(false), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi());
+      if (kind === 'pdf') {
+        const r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
+        if (r.missing.length) alertDlg(L(`PDF 使用标准字体，以下字符无法显示，已替换为 "?"：${r.missing.join(' ')}。需要这些字符请用 SVG 或 PNG。`,
+          `The PDF uses the standard PDF fonts, which cannot show these characters (written as "?"): ${r.missing.join(' ')}. Use SVG or PNG for them.`));
+        saved(r.status, L('已导出矢量 PDF', 'Exported vector PDF'));
+        return;
+      }
+      const fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
+      const st = kind === 'tiff' ? await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S())
+        : await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
+      saved(st, L(`已导出 ${dpi} dpi ${fmt}`, `Exported ${dpi} dpi ${fmt}`) + (eff < dpi ? L(`（胶图本身 ${eff} dpi）`, ` (the gel itself is ${eff} dpi)`) : ''));
+    } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPNG').onclick = () => exportRaster('png');
-  $('btnTIFF').onclick = () => exportRaster('tiff');
-  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; G.Export.exportSVG(App.buildFigure(false).svg, baseName() + '_figure.svg'); toast(L('已导出 SVG', 'Exported SVG')); };
-  $('btnUncropped').onclick = () => { if (needImage()) return; App.renderFull(); G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'); toast(L('已导出未裁切图（与成图同处理）', 'Exported the uncropped image (same processing as the figure)')); };
-  $('btnOriginal').onclick = () => { if (needImage()) return; G.Export.exportOriginal(S(), App.srcBuffer); toast(L('已导出原始文件', 'Exported the original file') + ' (SHA-256 ' + S().file.sha256.slice(0, 12) + '…)'); };
-  $('btnLog').onclick = () => { if (needImage()) return; G.Export.download(new Blob([JSON.stringify(G.Export.processingLog(S()), null, 2)], { type: 'application/json' }), baseName() + '_processing_log.json'); };
+  $('btnPNG').onclick = () => exportFigure('png');
+  $('btnTIFF').onclick = () => exportFigure('tiff');
+  $('btnPDF').onclick = () => exportFigure('pdf');
+  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(App.buildFigure(false).svg, baseName() + '_figure.svg'), L('已导出 SVG', 'Exported SVG')); };
+  $('btnUncropped').onclick = async () => { if (needImage()) return; App.renderFull(); saved(await G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'), L('已导出未裁切图（与成图同处理）', 'Exported the uncropped image (same processing as the figure)')); };
+  $('btnOriginal').onclick = async () => {
+    if (needImage()) return;
+    const mk = App.hasMarkerImage() ? { name: S().markerImage.name, sha256: S().markerImage.sha256, buffer: App.markerBuffer } : null;
+    saved(await G.Export.exportOriginal(S(), App.srcBuffer, mk), L('已导出原始文件', 'Exported the original file') + ' (SHA-256 ' + S().file.sha256.slice(0, 12) + '…)');
+  };
+  $('btnLog').onclick = async () => { if (needImage()) return; saved(await G.Export.download(new Blob([JSON.stringify(G.Export.processingLog(S()), null, 2)], { type: 'application/json' }), baseName() + '_processing_log.json'), L('已导出处理日志', 'Exported the processing log')); };
 
   /* ---------- project / style files ---------- */
   $('btnSaveProj').onclick = async () => {
     if (needImage()) return;
     const b = await App.projectBlob();
-    G.Export.download(b, baseName() + '.gelfig');
-    toast(L('项目已保存（含原图，可在其他电脑打开继续编辑）', 'Project saved (includes the original image; continue on any computer)'));
+    saved(await G.Export.download(b, baseName() + '.gelfig'), L('项目已保存（含原图，可在其他电脑打开继续编辑）', 'Project saved (includes the original image; continue on any computer)'));
   };
-  $('btnSaveTpl').onclick = () => { if (!needImage()) G.Export.download(new Blob([JSON.stringify(App.template(), null, 2)], { type: 'application/json' }), baseName() + '_style.json'); };
+  $('btnSaveTpl').onclick = async () => { if (!needImage()) saved(await G.Export.download(new Blob([JSON.stringify(App.template(), null, 2)], { type: 'application/json' }), baseName() + '_style.json'), L('样式已保存', 'Style saved')); };
   $('tplInput').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f || needImage()) return;
     try {
       const t = JSON.parse(await f.text()), chk = App.checkTemplate(t), a = chk.templateLanes, b = chk.figureLanes;
-      if (a && a !== b && !confirm(L(
-        `样式有 ${a} 条泳道，当前出图范围是 ${b} 条。\n套用后会从当前第一条泳道起按顺序对应，并把出图范围调整为 ${a} 条。继续吗？`,
-        `The style has ${a} lanes; the figure currently shows ${b}.\nNames will be applied in order from the first lane and the figure range set to ${a} lanes. Continue?`))) return;
+      if (a && a !== b && !(await confirmDlg(L(
+        `样式有 ${a} 条泳道，当前出图范围是 ${b} 条。\n套用后会从当前第一条泳道起按顺序对应，并把出图范围调整为 ${a} 条。`,
+        `The style has ${a} lanes; the figure currently shows ${b}.\nNames will be applied in order from the first lane and the figure range set to ${a} lanes.`), L('套用', 'Apply')))) return;
       const r = App.applyTemplate(t);
       toast(L('样式已套用', 'Style applied') + (r.importedLadders.length ? L(`，并导入自定义 Ladder：${list(r.importedLadders)}`, `; imported custom ladders: ${list(r.importedLadders)}`) : ''));
-    } catch (err) { alert(L('样式载入失败：', 'Could not apply the style: ') + err.message); }
+    } catch (err) { alertDlg(L('样式载入失败：', 'Could not apply the style: ') + err.message); }
   });
-  $('btnResetAll').onclick = () => {
+  $('btnResetAll').onclick = async () => {
     if (needImage()) return;
-    if (!confirm(L('重置整图：旋转、裁切、泳道、Marker、名称、分组、箭头、版式全部回到刚导入时的样子。\n此操作会清空撤销记录。继续吗？',
-      'Reset everything: rotation, crop, lanes, markers, names, groups, arrows and layout go back to how they were right after import.\nThis clears the undo history. Continue?'))) return;
+    if (!(await confirmDlg(L('重置整图：旋转、裁切、泳道、Marker、名称、分组、箭头、分条、条带框、版式全部回到刚导入时的样子。\n此操作会清空撤销记录。',
+      'Reset everything: rotation, crop, lanes, markers, names, groups, arrows, strips, band boxes and layout go back to how they were right after import.\nThis clears the undo history.'), L('重置', 'Reset'), true))) return;
     App.resetAll(); G.Editor.fitCrop(); toast(L('已回到导入时的状态', 'Back to the state after import'));
   };
 
+  /* ---------- experiment type ---------- */
+  function fillTypes(sel) {
+    sel.innerHTML = G.Gels.TYPES.map(t => `<option value="${t.id}">${esc(t.name())}</option>`).join('');
+  }
+  function syncTypeHints() {
+    const cur = S() ? S().gelType : App.gelType().id;
+    ['gelType', 'gelTypeStart'].forEach(id => { const el = $(id); if (!el.options.length || el.dataset.lang !== G.I18N.lang) { fillTypes(el); el.dataset.lang = G.I18N.lang; } el.value = cur; });
+    const t = G.Gels.get(cur);
+    $('gelTypeHint').textContent = t.hint(); $('gelTypeStartHint').textContent = t.hint();
+    $('mkImageBox').classList.toggle('emph', !!t.western);
+  }
+  $('gelTypeStart').addEventListener('change', e => { App.setPref('gelType', e.target.value); syncTypeHints(); renderFavs(); });
+  $('gelType').addEventListener('change', done(e => {
+    App.setGelType(e.target.value);
+    const n = S().markers.length;
+    toast(L(`已切换为 ${App.gelType().name()}；Marker 按新的型号库重新识别（${n} 个）`, `Switched to ${App.gelType().name()}; markers re-detected from its ladder library (${n})`), 3600);
+    renderFavs();
+  }));
+
   /* ---------- 1 image ---------- */
-  document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { S().levels.invert = b.dataset.inv === '1'; App.invertInherited = false; }));
+  document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { App.setDarkBands(b.dataset.dark === '1'); App.invertInherited = false; }));
   $('lvBlack').addEventListener('input', live(e => { S().levels.black = Math.min(fromSlider(+e.target.value), S().levels.white - 0.0005); $('lvBlackV').textContent = pct(S().levels.black); drawHisto(); updateClipLine(); }));
   $('lvWhite').addEventListener('input', live(e => { S().levels.white = Math.max(fromSlider(+e.target.value), S().levels.black + 0.0005); $('lvWhiteV').textContent = pct(S().levels.white); drawHisto(); updateClipLine(); }));
   $('lvBlack').addEventListener('change', done()); $('lvWhite').addEventListener('change', done());
@@ -309,9 +421,9 @@
     $('btnCutEmpty').onclick = done(() => { empt.forEach(i => App.setLaneHidden(i, true, 'empty lane (suggested, user confirmed)')); toast(L(`已剪除 ${empt.length} 条空泳道（Ctrl+Z 可撤销）`, `Removed ${empt.length} empty lane${empt.length > 1 ? 's' : ''} (Ctrl+Z to undo)`)); });
     $('btnIgnoreEmpty').onclick = () => { empt.forEach(i => ignoredEmpty.add(st.file.sha256 + ':' + i)); updateEmptyBar(); };
   }
-  // cutting a marker lane removes the size reference: always ask
-  function toggleLaneHidden(i, hidden) {
-    if (hidden && isMarkerLane(i) && !confirm(L(`孔 ${i + 1} 是 Marker 泳道，剪除后成图上就没有分子量参照了。确定剪除吗？`, `Well ${i + 1} is a marker lane; removing it leaves the figure without a size reference. Remove it anyway?`))) return false;
+  // cutting a marker lane removes the size reference: always ask. Resolves true when changed.
+  async function toggleLaneHidden(i, hidden) {
+    if (hidden && isMarkerLane(i) && !(await confirmDlg(L(`孔 ${i + 1} 是 Marker 泳道，剪除后成图上就没有分子量参照了。`, `Well ${i + 1} is a marker lane; removing it leaves the figure without a size reference.`), L('剪除', 'Remove'), true))) return false;
     App.setLaneHidden(i, hidden, 'manual');
     return true;
   }
@@ -359,11 +471,33 @@
     if (!S().lanes[sel].name) S().lanes[sel].name = 'M';
     App.matchMarkers(true);
   });
+  /* Western marker image: white-light picture of the same membrane, same position */
+  $('btnMarkerImg').onclick = () => { if (!needImage()) $('markerInput').click(); };
+  $('markerInput').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f || !S()) return;
+    App.busy(true, L('正在读取 Marker 图…', 'Reading the marker image…'));
+    await new Promise(r => setTimeout(r, 30));
+    try {
+      const input = await App.readInput(f);
+      App.setMarkerImage(input);
+      const prev = S().markers.map(m => ({ lane: m.lane, ladderId: m.ladderId }));
+      App.autoMarkers();
+      if (!S().markers.length && prev.length) { S().markers = prev.map(m => App.newMarker(m.lane, m.ladderId)); App.matchMarkers(true); }
+      App.commit();
+      const n = S().markers.length;
+      toast(n ? L(`已在 Marker 图上识别出 ${n} 个 Marker 泳道`, `Found ${n} marker lane${n > 1 ? 's' : ''} on the marker image`)
+        : L('Marker 图上没找到明显的 Marker 泳道，可在第 4 步手动添加', 'No clear ladder lane on the marker image; add the marker lane in step 4'), 4200);
+    } catch (err) { alertDlg(err.message); } finally { App.busy(false); }
+  });
+  $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast(L('已移除 Marker 图，Marker 条带改从胶图本身识别', 'Marker image removed; marker bands are read from the blot itself again')); });
+  $('mkOverlay').addEventListener('change', () => G.Editor.draw());
+
   $('btnSaveLadder').onclick = () => {
     const name = $('customName').value.trim();
     const sizes = $('customSizes').value.split(/[,，\s]+/).map(Number).filter(v => v > 0);
-    if (!name || sizes.length < 2) { alert(L('请输入名称和至少 2 个条带大小', 'Enter a name and at least 2 band sizes')); return; }
-    const lad = G.Ladders.saveCustom(name, sizes);
+    if (!name || sizes.length < 2) { alertDlg(L('请输入名称和至少 2 个条带大小', 'Enter a name and at least 2 band sizes')); return; }
+    const lad = G.Ladders.saveCustom(name, sizes, App.kind());
     if (!G.Ladders.isFavorite(lad.id)) G.Ladders.toggleFavorite(lad.id);   // new custom ladders start as favourites
     if (S() && S().markers.length) { S().markers[0].ladderId = lad.id; App.matchMarkers(true); App.commit(); }
     renderFavs();
@@ -377,23 +511,28 @@
       : L('自动识别在全部型号中挑选（常用型号略优先）', 'Detection picks from all ladders (favourites slightly preferred)'));
   });
   function renderFavs() {
-    const favs = G.Ladders.favorites();
+    const kind = App.kind(), favs = G.Ladders.favorites(kind), u = G.Ladders.KIND_UNIT[kind];
     $('favNote').textContent = favs.length ? L(`${favs.length} 个`, `${favs.length}`) : L('未设置', 'none');
-    $('favList').innerHTML = G.Ladders.all().map(l => `<div class="item"><button class="star${G.Ladders.isFavorite(l.id) ? '' : ' off'}" data-fav="${l.id}" title="${L('设为/取消常用', 'Add to / remove from favourites')}">★</button><span style="flex:1">${esc(l.name)}</span></div>`).join('');
+    const eg = { bp: '5000,3000,2000,1000,500', nt: '6000,4000,3000,2000,1000,500', kDa: '250,130,100,70,55,35,25,15,10' }[u];
+    $('customSizes').placeholder = L(`条带大小（${u}），逗号分隔：${eg}`, `Band sizes in ${u}, comma separated: ${eg}`);
+    $('favList').innerHTML = G.Ladders.all(kind).map(l => `<div class="item"><button class="star${G.Ladders.isFavorite(l.id) ? '' : ' off'}" data-fav="${l.id}" title="${L('设为/取消常用', 'Add to / remove from favourites')}">★</button><span style="flex:1">${esc(l.name)}</span></div>`).join('');
     $('favList').querySelectorAll('[data-fav]').forEach(b => b.onclick = () => { G.Ladders.toggleFavorite(b.dataset.fav); renderFavs(); if (S()) renderMarkers(); });
-    const custom = G.Ladders.all().filter(l => l.custom);
+    const custom = G.Ladders.all(kind).filter(l => l.custom);
     $('customList').innerHTML = custom.map(l => `<div class="item"><span style="flex:1">${esc(l.name)} <span class="h3-note">${L(`${l.sizes.length} 条`, `${l.sizes.length} bands`)}</span></span><button class="x" data-cdel="${l.id}" title="${L('删除', 'Delete')}">×</button></div>`).join('');
-    $('customList').querySelectorAll('[data-cdel]').forEach(b => b.onclick = () => {
+    $('customList').querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
       const used = S() && S().markers.some(m => m.ladderId === b.dataset.cdel);
       if (used) { toast(L('当前图正在使用这个型号，先给 Marker 换一个型号再删除', 'This ladder is in use; choose another ladder for the marker first')); return; }
-      if (!confirm(L('删除这个自定义 Ladder？', 'Delete this custom ladder?'))) return;
+      if (!(await confirmDlg(L('删除这个自定义 Ladder？', 'Delete this custom ladder?'), L('删除', 'Delete'), true))) return;
       G.Ladders.removeCustom(b.dataset.cdel); renderFavs(); if (S()) renderMarkers();
     });
   }
   renderFavs();
   function laneOpt(i, sel) { const l = S().lanes[i]; return `<option value="${i}"${i === sel ? ' selected' : ''}>${i + 1}${l.name ? ' · ' + esc(l.name.replace(/\*/g, '')).slice(0, 10) : ''}</option>`; }
   function renderMarkers() {
-    const st = S(), all = G.Ladders.ordered(), r = range();
+    const st = S(), kind = App.kind(), r = range(), unit = App.baseUnit();
+    const all = G.Ladders.ordered(kind);
+    // a ladder of another kind still in use stays selectable (e.g. right after switching the type)
+    st.markers.forEach(m => { const l = G.Ladders.get(m.ladderId); if (l && !all.includes(l)) all.push(l); });
     $('markerList').innerHTML = st.markers.map((m, mi) => {
       const sc = m.score != null ? Math.round(m.score * 100) : null;
       const out = !r || m.lane < r[0] || m.lane > r[1];
@@ -406,16 +545,18 @@
         <select data-f="ladder">${all.map(l => `<option value="${l.id}"${l.id === m.ladderId ? ' selected' : ''}>${G.Ladders.isFavorite(l.id) ? '★ ' : ''}${esc(l.name)}</option>`).join('')}</select>
         <div class="row2">
           <select data-f="side"><option value="auto">${L('标签：自动分侧', 'Labels: auto side')}</option><option value="left">${L('标签在左', 'Labels left')}</option><option value="right">${L('标签在右', 'Labels right')}</option></select>
-          <select data-f="unit"><option value="bp">bp</option><option value="kb">kb</option><option value="auto">bp/kb</option></select>
+          <select data-f="unit">${G.Ladders.unitsFor(kind).concat(G.Ladders.unitsFor(kind).includes(m.unit) ? [] : [m.unit]).map(u => `<option value="${u}">${u === 'auto' ? 'bp/kb' : u}</option>`).join('')}</select>
         </div>
         <details class="adv"><summary>${L(`条带（显示 ${shown}/${m.bands.length}）`, `Bands (${shown}/${m.bands.length} shown)`)}</summary>
           <div class="list">${m.bands.map((b, k) => `<div class="item"><label class="switch"><input type="checkbox" data-band="${k}" ${b.show ? 'checked' : ''}></label>
-            <span style="flex:1">${b.bp} bp${b.ref ? ' ★' : ''}</span><span class="tag ${b.manual ? 'man' : b.matched ? 'ok' : ''}">${b.manual ? L('手动', 'manual') : b.matched ? L('已对上', 'matched') : L('推测', 'predicted')}</span></div>`).join('')}</div>
+            <span style="flex:1">${b.bp} ${unit}${b.ref ? ' ★' : ''}</span><span class="tag ${b.manual ? 'man' : b.matched ? 'ok' : ''}">${b.manual ? L('手动', 'manual') : b.matched ? L('已对上', 'matched') : L('推测', 'predicted')}</span></div>`).join('')}</div>
           <div class="field inline"><button class="btn sm" data-f="thin">${L('精简标签', 'Thin labels')}</button><button class="btn sm ghost" data-f="match">${L('重新匹配', 'Re-match')}</button></div>
           <p class="hint">${L('某条带对错了：在原图上把那条黄线拖到正确位置，其余会围绕它重新匹配。', 'A band is wrong? Drag its yellow line on the image to the right place; the others re-fit around it.')}</p>
         </details>
       </div>`;
-    }).join('') || `<p class="hint">${L('出图范围内没有 Marker。点下面按钮把一条泳道设为 Marker。', 'No marker in the figure range. Use the button below to mark a lane as the marker.')}</p>`;
+    }).join('') || `<p class="hint">${App.gelType().western
+      ? L('出图范围内没有 Marker。化学发光图上看不到 Marker 时，载入下面的白光 Marker 图；或把一条泳道设为 Marker 后在原图上拖动黄线到各条带。', 'No marker in the figure range. If the ladder does not show on the chemiluminescence image, load the white-light marker image below, or mark a lane as the marker and drag its yellow lines onto the bands.')
+      : L('出图范围内没有 Marker。点下面按钮把一条泳道设为 Marker。', 'No marker in the figure range. Use the button below to mark a lane as the marker.')}</p>`;
     $('markerList').querySelectorAll('.mk-card').forEach(card => {
       const m = st.markers[+card.dataset.mi], q = f => card.querySelector(`[data-f="${f}"]`);
       q('side').value = m.side; q('unit').value = m.unit;
@@ -448,8 +589,8 @@
       inp.addEventListener('change', done());
       inp.addEventListener('focus', () => { App.selLane = i; G.Editor.draw(); });
     });
-    $('laneList').querySelectorAll('[data-h]').forEach(inp => inp.addEventListener('change', e => {
-      if (toggleLaneHidden(+inp.dataset.h, !e.target.checked)) App.commit(); else e.target.checked = true;
+    $('laneList').querySelectorAll('[data-h]').forEach(inp => inp.addEventListener('change', async e => {
+      if (await toggleLaneHidden(+inp.dataset.h, !e.target.checked)) App.commit(); else e.target.checked = true;
     }));
     $('laneList').querySelectorAll('[data-del]').forEach(b => b.onclick = done(() => { App.removeLane(+b.dataset.del); App.selLane = -1; toast(L('已删除泳道（Ctrl+Z 可撤销）', 'Lane deleted (Ctrl+Z to undo)')); }));
     $('laneCountNote').textContent = L(`${st.lanes.length} 孔`, `${st.lanes.length} wells`);
@@ -470,8 +611,12 @@
       <button class="btn sm ghost" data-aed="${k}" style="flex:1;justify-content:flex-start">${esc(App.arrowLabel(a) || L('（未命名）', '(unnamed)'))}</button><button class="x" data-adel="${k}">×</button></div>`));
     st.conditions.forEach((c, r) => rows.push(`<div class="item"><span class="kind">${L('条件', 'Condition')}</span>
       <input type="text" data-c="${r}" value="${esc(c.name)}" placeholder="${L('条件名，如 EcoRI', 'Condition, e.g. EcoRI')}"><button class="x" data-cdel="${r}">×</button></div>`));
+    st.strips.forEach((t, k) => rows.push(`<div class="item"><span class="kind">${L('分条', 'Strip')}</span>
+      <input type="text" data-st="${k}" value="${esc(t.label)}" placeholder="${L('名称，如 p53、GAPDH', 'Name, e.g. p53, GAPDH')}"><button class="x" data-stdel="${k}">×</button></div>`));
     const box = $('annoList');
     box.innerHTML = rows.join('');
+    box.querySelectorAll('[data-st]').forEach(inp => { const t = st.strips[+inp.dataset.st]; inp.addEventListener('input', live(e => { t.label = e.target.value; })); inp.addEventListener('change', done()); });
+    box.querySelectorAll('[data-stdel]').forEach(b => b.onclick = done(() => { st.strips.splice(+b.dataset.stdel, 1); }));
     box.querySelectorAll('[data-g]').forEach(inp => { const g = st.groups[+inp.dataset.g]; inp.addEventListener('input', live(e => { g.text = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-c]').forEach(inp => { const c = st.conditions[+inp.dataset.c]; inp.addEventListener('input', live(e => { c.name = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-gdel]').forEach(b => b.onclick = done(() => st.groups.splice(+b.dataset.gdel, 1)));
@@ -489,6 +634,7 @@
   ['unitHeader', 'laneNumbers', 'frame', 'groupTicks'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
+  $('stripGap').addEventListener('change', done(e => { S().style.stripGapPt = E.clamp(+e.target.value || 0, 0, 12); }));
   $('laneNumberMode').addEventListener('change', done(e => { S().style.laneNumberMode = e.target.value; }));
   // journal column width = total figure width (labels included): solve for the gel width
   $('widthPreset').addEventListener('change', e => {
@@ -540,9 +686,12 @@
     if (!r) msg = L('在原图上拖红框，或在左侧"出图范围"选择泳道', 'Drag the red box on the image, or choose wells under "Lanes in figure"');
     else if (named < fl.length) msg = L(`下一步：在右侧成图上<b>点灰色的泳道号</b>输入名称，回车跳到下一条（还差 ${fl.length - named} 条）`,
       `Next: <b>click a grey lane number</b> on the figure and type its name; Enter moves on (${fl.length - named} to go)`);
-    else if (!visMk.length) msg = L('出图范围里没有 Marker：左侧第 4 步把 Marker 泳道加上', 'No marker in the figure: add the marker lane in step 4 on the left');
+    else if (!visMk.length) msg = App.gelType().western
+      ? L('出图范围里没有 Marker：第 4 步加 Marker 泳道，或载入白光 Marker 图', 'No marker in the figure: add the marker lane in step 4, or load the white-light marker image')
+      : L('出图范围里没有 Marker：左侧第 4 步把 Marker 泳道加上', 'No marker in the figure: add the marker lane in step 4 on the left');
     else if (lowMk.length) msg = L(`孔 ${lowMk[0].lane + 1} 的 Marker 与所选 Ladder 吻合度低，<b>请核对型号</b>`, `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`);
-    else { msg = L('已可导出 —— 右上角<b>导出 PNG</b>；需要分组、箭头、+/− 时用左侧"标注"', 'Ready — <b>Export PNG</b> at the top right; add groups, arrows or +/− rows under "Annotations"'); ok = true; }
+    else if (App.isExample) { msg = L('这是合成示例 —— <b>拖入你自己的图片</b>即可开始', 'This is a synthetic example — <b>drop your own image</b> to start'); ok = true; }
+    else { msg = L('已可导出 —— 右上角<b>导出 PNG</b>；需要分组、箭头、分条、定量时用左侧"标注"和"定量分析"', 'Ready — <b>Export PNG</b> at the top right; add groups, arrows, strips or densitometry on the left'); ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
     $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);
@@ -551,13 +700,23 @@
 
   function syncControls() {
     const st = S(), y = st.style;
-    document.querySelectorAll('#polSeg button').forEach(b => b.classList.toggle('on', (b.dataset.inv === '1') === !!st.levels.invert));
+    const dark = App.darkBands();
+    document.querySelectorAll('#polSeg button').forEach(b => b.classList.toggle('on', (b.dataset.dark === '1') === dark));
+    // which of the two looks is the image as it came from the imager
+    document.querySelectorAll('#polSeg .pol-note').forEach(n => { n.textContent = (n.dataset.k === '1') === !st.bright ? L('原样', 'as imaged') : L('反色', 'inverted'); });
     $('lvBlack').value = toSlider(st.levels.black); $('lvWhite').value = toSlider(st.levels.white);
     $('lvBlackV').textContent = pct(st.levels.black); $('lvWhiteV').textContent = pct(st.levels.white);
     $('rot').value = st.rotation; $('rotNum').value = st.rotation; $('rotV').textContent = st.rotation + '°';
     $('rotAuto').textContent = App.autoRotation != null ? L(`自动检测 ${App.autoRotation}°`, `auto ${App.autoRotation}°`) : '';
-    $('invNote').textContent = App.invertInherited ? L(`黑白方向沿用了你上次的选择（${st.levels.invert ? '白底黑带' : '黑底白带'}），可在上方切换`,
-      `Polarity follows your last choice (${st.levels.invert ? 'inverted' : 'raw'}); switch it above`) : '';
+    $('invNote').textContent = App.invertInherited ? L(`条带明暗沿用了你上次在这类实验中的选择（${dark ? '白底暗带' : '黑底亮带'}），可在上方切换`,
+      `Band look follows your last choice for this experiment (${dark ? 'dark bands' : 'bright bands'}); switch it above`) : '';
+    $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;
+    syncTypeHints();
+    const hasMk = App.hasMarkerImage();
+    $('btnMarkerImgDel').classList.toggle('hidden', !hasMk); $('mkOverlayWrap').classList.toggle('hidden', !hasMk);
+    $('btnMarkerImg').textContent = hasMk ? L('更换 Marker 图…', 'Replace marker image…') : L('载入 Marker 图…', 'Load marker image…');
+    $('mkImageText').textContent = hasMk ? L(`Marker 条带取自：${st.markerImage.name}`, `Marker bands are read from: ${st.markerImage.name}`)
+      : L('化学发光图上看不到 Marker？载入同一位置拍的白光 / 比色图，只用来定位 Marker 条带，成图仍是印迹图本身。', 'Ladder invisible on the chemiluminescence image? Load the white-light / colorimetric image taken in the same position. It is used only to find the marker bands; the figure still shows the blot.');
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
     updateClipLine(); updateDpiLine(); updateEmptyBar();
@@ -568,7 +727,7 @@
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
     $('stLayout').textContent = `${App.gelWidthMm()} mm · ${y.fontPt} pt`;
-    $('imgChipName').textContent = st.file.name;
+    $('imgChipName').textContent = App.isExample ? L('示例：', 'Example: ') + App.gelType().name() : st.file.name;
     $('imgChip').title = `${App.src.w} × ${App.src.h} px · ${st.file.bits}-bit${st.file.dpi ? ' · ' + Math.round(st.file.dpi) + ' dpi' : ''}` + L('（点击更换图片）', ' (click to replace)');
     $('btnUndo').disabled = App.hist.length < 2; $('btnRedo').disabled = !App.future.length;
     drawHisto();
@@ -590,7 +749,8 @@
     }
     const { bins, mx } = histCache;
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#c3cad4';
+    const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    ctx.fillStyle = css('--hist') || '#c3cad4';
     for (let i = 0; i < 200; i++) { const h = bins[i] / mx * (H - 3); ctx.fillRect(i / 200 * W, H - h, W / 200 + 0.5, h); }
     const bx = Math.sqrt(st.levels.black) * W, wx = Math.sqrt(st.levels.white) * W;
     ctx.fillStyle = 'rgba(47,111,235,.16)'; ctx.fillRect(bx, 0, wx - bx, H);
@@ -640,9 +800,21 @@
   });
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
 
-  G.UI = { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures };
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load });
+  G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
-  offerDraft();
+  syncTypeHints();
+
+  /* first visit: open a worked example so the tool shows what it does; a saved draft is offered instead */
+  async function startup() {
+    const q = new URLSearchParams(location.search);
+    if (q.get('demo') === '1' || q.get('src') || q.get('blank') === '1') return;
+    if (q.get('example')) { loadExample(q.get('example')); return; }
+    const d = await App.peekDraft();
+    if (S()) return;
+    if (d) offerDraft(); else loadExample('western');
+  }
+  startup();
 
   /* ---------- development / self-test URL parameters ----------
    * ?demo=1 loads the synthetic gel; ?uitest=1 runs js/uitest.js; ?annot=1, ?names=, ?range=, ?groups=,
@@ -653,7 +825,7 @@
     if (qs.get('src')) {
       const src = qs.get('src'), buf = await (await fetch(src)).arrayBuffer();
       await App.load({ name: decodeURIComponent(src.split('/').pop()), buffer: buf });
-    } else await App.load(demoFile());
+    } else await App.load(demoFile(), 'dna-agarose');
     const st = S();
     if (qs.get('annot') === '1') {
       const names = ['M', 'WT', 'WT', 'KO-1', 'NTC', '*lacZ*-1', '*lacZ*-2', 'pUC19', 'pUC19', 'Clone A', 'Clone B'];

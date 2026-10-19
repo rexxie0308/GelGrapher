@@ -1,4 +1,5 @@
-/* Interaction self-test, loaded only with ?uitest=1. Results go to document.title as JSON. */
+/* Interaction self-test, loaded only with ?uitest=1. Results go to document.title as JSON.
+ * Sections 1-19 come from GelFigure; 20 onwards cover the GelGrapher additions. */
 (async function (G) {
   'use strict';
   const App = G.App, R = {};
@@ -152,10 +153,10 @@
       const hidAfterH = S().lanes[target].hidden;
       key(boxEl, 'h');
       const restored = !S().lanes[target].hidden;
-      const oldConfirm = window.confirm; window.confirm = () => false;
+      G.UI.autoConfirm = false;
       App.selLane = S().markers[0].lane; key(boxEl, 'h');
       const markerKept = !S().lanes[S().markers[0].lane].hidden;
-      window.confirm = oldConfirm; App.selLane = -1;
+      G.UI.autoConfirm = null; App.selLane = -1;
       R.empty = { emptyWells: empt.map(i => i + 1), barShown: !document.getElementById('emptyBar').classList.contains('hidden'), hOnLane: hidAfterH, hBack: restored, markerNeedsConfirm: markerKept };
     }
     document.title = 'UITEST-AT 11 ' + JSON.stringify(R);
@@ -260,6 +261,70 @@
       R.draft = { listed: !!d && d.name, restored: App.snapshot() === ref };
       await App.dropDraft();
       R.draftDropped = !(await App.peekDraft());
+    }
+    // ---------- GelGrapher additions ----------
+    document.title = 'UITEST-AT 20 ' + JSON.stringify(R);
+    // 20. experiment type: protein ladders and kDa labels, and back to DNA
+    {
+      await App.load(new File([G.Demo.encodeTiff16(G.Demo.makeGel())], 'demo_gel.tif'), 'dna-agarose');
+      App.setGelType('sds-page'); App.commit();
+      const svgP = App.buildFigure(false).svg, kinds = App.S.markers.map(m => G.Ladders.kindOf(m.ladderId));
+      App.setGelType('dna-agarose'); App.commit();
+      const svgD = App.buildFigure(false).svg;
+      R.gelType = { kinds, kDaHead: svgP.includes('(kDa)'), protein: { kDa: svgP.includes('(kDa)') && kinds.length > 0 && kinds.every(k => k === 'protein') },
+        back: { bp: svgD.includes('(bp)') && App.S.markers.every(m => G.Ladders.kindOf(m.ladderId) === 'dna') && App.S.markers.some(m => m.ladderId === 'gr1kbplus') } };
+    }
+    // 21. strips: only the chosen regions, stacked with a gap, disclosed in the legend
+    {
+      const st = App.S, c = st.crop, h0 = App.buildFigure(false).h;
+      st.strips = [{ y0: c.y + c.h * 0.1, y1: c.y + c.h * 0.3, label: 'top' }, { y0: c.y + c.h * 0.6, y1: c.y + c.h * 0.8, label: 'bottom' }];
+      App.commit();
+      const f = App.buildFigure(false), gel = App._lastGel;
+      const expectH = Math.round(c.h * 0.2) * 2 + gel.vgap;
+      R.strips = { ok: Math.abs(gel.canvas.height - expectH) <= 3 && f.h < h0 && f.svg.includes('>bottom<') && G.Export.legendHints(st).some(t => /2 panels/.test(t)), canvasH: gel.canvas.height, expectH };
+      st.strips = []; App.commit();
+    }
+    // 22. densitometry on the synthetic gel: three lanes carry the 1500 bp product at known amounts
+    {
+      const st = App.S, fl = G.UI.figLanes(), g = G.Demo.makeGel();
+      const box = G.Quant.bandBox(App, st.lanes[fl[1]].x, g.truth.yOf(1500));
+      st.quant.rows = [{ y0: box.y0, y1: box.y1, name: 'product' }]; st.quant.control = -1; st.quant.ref = fl[1]; App.commit();
+      const Rq = G.Quant.measure(App), j2 = Rq.lanes.indexOf(fl[2]), j3 = Rq.lanes.indexOf(fl[3]);
+      const truth = [0.6 / 0.55, 0.5 / 0.55], got = [Rq.rel[0][j2], Rq.rel[0][j3]];
+      const csv = G.Quant.quantCSV(App, Rq), chart = G.Quant.chartSVG(App, Rq);
+      R.quant = { truth: truth.map(v => +v.toFixed(3)), got: got.map(v => +v.toFixed(3)), maxErr: Math.max(...got.map((v, k) => Math.abs(v / truth[k] - 1))), csvLines: csv.trim().split('\n').length, chart: !!chart && chart.svg.startsWith('<svg') };
+      st.quant.rows = []; App.commit();
+    }
+    // 23. vector PDF: valid file, text kept (Greek letters via the Symbol font)
+    {
+      const st = App.S, fl = G.UI.figLanes(); st.lanes[fl[1]].name = 'β-actin'; App.commit();
+      const r = await G.PDF.fromSVG(App.buildFigure(false).svg, { title: 'test' });
+      const bytes = new Uint8Array(await r.blob.arrayBuffer()), text = new TextDecoder('latin1').decode(bytes);
+      R.pdf = { ok: text.startsWith('%PDF-1.4') && text.includes('/BaseFont /Symbol') && text.includes('/Subtype /Image') && /startxref\s+\d+\s+%%EOF\s*$/.test(text) && !r.missing.length, bytes: bytes.length, missing: r.missing };
+    }
+    // 24. ZIP round trip (how a Claude artifact hands over TIFF and project files)
+    {
+      const z = await G.Zip.make([{ name: 'gel.tif', data: new Uint8Array([1, 2, 3, 250]) }, { name: 'β.txt', data: 'ok' }]);
+      const back = await G.Zip.read(await z.arrayBuffer());
+      R.zip = { ok: back.length === 2 && back[0].name === 'gel.tif' && new Uint8Array(back[0].data)[3] === 250 && back[1].name === 'β.txt' };
+    }
+    // 25. Western marker image travels inside the project file
+    {
+      const g = G.Demo.makeGel(), buf = G.Demo.encodeTiff16(g);
+      App.setMarkerImage(await App.readInput({ name: 'marker.tif', buffer: buf })); App.matchMarkers(false); App.commit();
+      const before = App.snapshot();
+      await App.openProject(await (await App.projectBlob()).arrayBuffer());
+      R.markerProject = { ok: App.hasMarkerImage() && App.snapshot() === before && App.S.markers.length > 0 };
+      App.clearMarkerImage(); App.commit();
+    }
+    // 26. the worked examples: the right ladder lane, and densitometry matching the known amounts
+    {
+      await G.UI.loadExample('western');
+      const Rw = G.Quant.measure(App), truth = G.Demo.makeGel({ preset: 'western' }).truth.relative;
+      const err = Math.max(...Rw.rel[0].map((v, j) => Math.abs(v / truth[j] - 1)));
+      R.western = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && err < 0.03 && App.S.strips.length === 2, err: +err.toFixed(4), markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]) };
+      await G.UI.loadExample('sds');
+      R.sds = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && App.S.lanes[App.S.markers[0].lane].name === 'M', markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]) };
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
