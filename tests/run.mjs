@@ -55,7 +55,7 @@ const UI_CHECKS = [
   ['project file round trip', r => r.project.same],
   ['best exposure is picked', r => r.exposures.picked === 'exp_x0.7.tif'],
   ['switching exposure keeps annotations', r => r.exposures.switched.kept && r.exposures.nameKept === 'keepme' && r.exposures.stripItems === 3],
-  ['draft is saved and restored', r => r.draft && r.draft.restored && r.draftDropped],
+  ['draft is saved and restored', r => r.draft && r.draft.restored && r.draftDropped, ['draft', 'draftDropped']],
   // GelGrapher additions
   ['experiment type switches ladders and units', r => r.gelType.protein.kDa && r.gelType.back.bp],
   ['strips stack chosen regions and are disclosed', r => r.strips.ok],
@@ -97,10 +97,11 @@ async function runIn(name, base) {
       await page.goto(`${base}/index.html?demo=1&uitest=1&draft=1&lang=en`);
       await page.waitForFunction(() => document.title.startsWith('UITEST '), null, { timeout: 300000 });
       const r = JSON.parse((await page.title()).slice(7));
-      for (const [what, ok] of UI_CHECKS) {
+      // a third element names the result fields to print when the check fails
+      for (const [what, ok, keys] of UI_CHECKS) {
         let good = false;
         try { good = !!ok(r); } catch (e) { /* missing field = failure */ }
-        good ? pass(what) : fail(what, r.error ? r.error.split('\n')[0] : '');
+        good ? pass(what) : fail(what, r.error ? r.error.split('\n')[0] : keys ? JSON.stringify(Object.fromEntries(keys.map(k => [k, r[k]]))).slice(0, 400) : '');
       }
       if (errs.length) fail('interface page errors', errs.join(' | '));
       await page.close();

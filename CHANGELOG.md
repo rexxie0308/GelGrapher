@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- Discarding the autosaved draft could be undone by an autosave that was already due; the discard now cancels it.
+
 ## 1.0.0 (2026-10-19)
 
 First GelGrapher release, built on GelFigure 0.5.0 (MIT).

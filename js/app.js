@@ -1162,15 +1162,19 @@
     const db = await idb();
     return new Promise((res, rej) => { const tx = db.transaction(STORE, mode), st = tx.objectStore(STORE), r = fn(st); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); });
   }
-  let draftTimer = 0, draftSha = null, draftMarkerSha = null;
+  // draftGen changes when the draft is discarded: an autosave that was already due or under way
+  // must not write it back afterwards
+  let draftTimer = 0, draftSha = null, draftMarkerSha = null, draftGen = 0;
   App.saveDraftSoon = function () {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(App.saveDraft, 800);
   };
   App.saveDraft = async function () {
     if (!App.S || !App.srcBuffer) return;
+    const gen = draftGen;
     try {
       await idbDo('readwrite', st => {
+        if (gen !== draftGen) return;
         // the source bytes are written once per image, the state on every change
         if (draftSha !== App.S.file.sha256) { st.put(App.srcBuffer, 'src'); draftSha = App.S.file.sha256; }
         const mk = App.hasMarkerImage() ? App.S.markerImage : null;
@@ -1181,7 +1185,7 @@
     } catch (e) { /* private mode etc.: drafts are best-effort */ }
   };
   App.peekDraft = async function () { try { return await idbDo('readonly', st => st.get('meta')); } catch (e) { return null; } };
-  App.dropDraft = async function () { draftSha = draftMarkerSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); st.delete('msrc'); }); } catch (e) { /* ignore */ } };
+  App.dropDraft = async function () { clearTimeout(draftTimer); draftGen++; draftSha = draftMarkerSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); st.delete('msrc'); }); } catch (e) { /* ignore */ } };
   App.restoreDraft = async function () {
     const meta = await App.peekDraft(), buf = await idbDo('readonly', st => st.get('src'));
     if (!meta || !buf) throw new Error(L('没有可恢复的草稿', 'No draft to restore'));
