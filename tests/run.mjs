@@ -64,7 +64,9 @@ const UI_CHECKS = [
   ['ZIP round trip', r => r.zip.ok],
   ['project keeps the Western marker image', r => r.markerProject.ok],
   ['Western example: ladder, strips and densitometry', r => r.western.ok],
-  ['SDS-PAGE example: ladder lane found among lysates', r => r.sds.ok]
+  ['SDS-PAGE example: ladder lane found among lysates', r => r.sds.ok],
+  ['flips carry annotations and undo each other', r => r.flip.relFollowsV && r.flip.namesStay && r.flip.relH && r.flip.identity, ['flip']],
+  ['arrow labels on one side are spread apart', r => r.arrowSpread.ok, ['arrowSpread']]
 ];
 
 async function runIn(name, base) {

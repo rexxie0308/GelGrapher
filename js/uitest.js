@@ -326,6 +326,30 @@
       await G.UI.loadExample('sds');
       R.sds = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && App.S.lanes[App.S.markers[0].lane].name === 'M', markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]) };
     }
+    // 27. flips: annotations follow, a double flip is the identity, lane names stay with their lanes
+    {
+      await G.UI.loadExample('western');
+      const names0 = G.UI.figLanes().map(i => App.S.lanes[i].name), rel0 = G.Quant.measure(App).rel[0].map(v => +v.toFixed(3));
+      const lanes0 = App.S.lanes.map(l => l.x), bands0 = App.S.markers[0].bands.filter(b => b.matched).map(b => b.y), rot0 = App.S.rotation;
+      App.flip('v'); App.commit();
+      const relV = G.Quant.measure(App).rel[0].map(v => +v.toFixed(3)), namesV = G.UI.figLanes().map(i => App.S.lanes[i].name);
+      App.flip('h'); App.commit();
+      const namesH = G.UI.figLanes().map(i => App.S.lanes[i].name), relH = G.Quant.measure(App).rel[0].map(v => +v.toFixed(3));
+      App.flip('h'); App.flip('v'); App.commit();
+      const lanesBack = App.S.lanes.map(l => l.x), bandsBack = App.S.markers[0].bands.filter(b => b.matched).map(b => b.y);
+      const maxErr = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+      R.flip = { relFollowsV: maxErr(rel0, relV) < 0.02, namesStay: namesV.join() === names0.join() && namesH.join() === names0.slice().reverse().join(), relH: maxErr(rel0, relH.slice().reverse()) < 0.02,
+        identity: maxErr(lanes0, lanesBack) < 1.5 && maxErr(bands0, bandsBack) < 1.5 && App.S.rotation === rot0, flip: App.S.flip };
+    }
+    // 28. arrow labels on the same side never overlap
+    {
+      const st = App.S, b = st.markers[0].bands.find(x => x.bp === 55);
+      st.arrows = [{ y: b.y - 2, text: 'A', size: false, side: 'right' }, { y: b.y + 2, text: 'B', size: false, side: 'right' }, { y: b.y + 4, text: 'C', size: false, side: 'right' }];
+      App.commit();
+      const svg = App.buildFigure(false).svg, ys = ['A', 'B', 'C'].map(t => +svg.match(new RegExp(`y="([\\d.-]+)"[^>]*text-anchor="start">${t}<`))[1]).sort((p, q) => p - q);
+      R.arrowSpread = { ys, ok: ys.length === 3 && ys.every((y, i) => !i || y - ys[i - 1] >= st.style.fontPt * 1.1), leaders: (svg.match(/<line [^>]*stroke-width/g) || []).length };
+      st.arrows = []; App.commit();
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

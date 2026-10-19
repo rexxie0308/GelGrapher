@@ -26,7 +26,7 @@
     view.s = Math.min((r.width - 2 * pad) / rect.w, (r.height - 2 * pad) / rect.h);
     view.ox = (r.width - rect.w * view.s) / 2 - rect.x * view.s;
     view.oy = (r.height - rect.h * view.s) / 2 - rect.y * view.s;
-    draw();
+    draw(); refreshZoom();
   }
   function fitFull() { if (App.src) { const r = App.ensureRot(); fit({ x: 0, y: 0, w: r.w, h: r.h }); } }
   function fitCrop() { if (App.S) { const c = App.S.crop, m = Math.max(c.w, c.h) * 0.08; fit({ x: c.x - m, y: c.y - m * 2, w: c.w + 2 * m, h: c.h + 3 * m }); } }
@@ -134,7 +134,7 @@
       const nb = S.lanes.length > 1 ? Math.abs((S.lanes[i + 1] || S.lanes[i - 1]).x - l.x) * view.s : 999;
       let lab = String(i + 1);
       if (l.name) {
-        const full = lab + ' ' + trunc(l.name.replace(/\*/g, ''), 12);
+        const full = lab + ' · ' + trunc(l.name.replace(/\*/g, ''), 12);   // "2 · 0 h", never "2 0 h"
         if (sel || ctx.measureText(full).width + 12 < nb) lab = full;
       }
       const tw = ctx.measureText(lab).width + 12;
@@ -456,5 +456,6 @@
   });
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid };
+  // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg };
 })(window);

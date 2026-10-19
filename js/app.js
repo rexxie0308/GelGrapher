@@ -136,7 +136,8 @@
   // install a decoded image as the current source and run the automatic pipeline
   function startFrom(input, gelType) {
     const img = input.img;
-    App.src = { w: img.width, h: img.height, data: img.data };
+    App.src0 = App.src = { w: img.width, h: img.height, data: img.data };
+    App._flipKey = '';
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
     App.clearMarkerImage(true);
@@ -151,7 +152,7 @@
       lanes: [], laneHalfW: 10,
       markers: [],
       groups: [], conditions: [], arrows: [], strips: [],
-      quant: defaultQuant(), markerImage: null,
+      quant: defaultQuant(), markerImage: null, flip: { h: false, v: false },
       style: Object.assign(defaultStyle(), p.style || {}),
       saturatedInCrop: 0
     };
@@ -178,9 +179,15 @@
       App.emit('loaded');
     } catch (e) {
       console.error(e);
-      App.notify(L('读取失败：', 'Could not read the file: ') + e.message);
+      App.notify(readError(file, e));
     } finally { busy(false); }
   };
+  // why a file could not be opened, with what would work
+  function readError(file, e) {
+    const name = file && file.name ? `"${file.name}"` : L('这个文件', 'this file');
+    const formats = L('支持 TIFF（8 / 16 位）、PNG、JPG、BMP、.gelfig 项目文件和包含它们的 .zip。', 'Supported: TIFF (8 / 16-bit), PNG, JPG, BMP, .gelfig project files and a .zip containing them.');
+    return L(`无法读取 ${name}：${e.message}。`, `Could not read ${name}: ${e.message}. `) + formats;
+  }
 
   /* Several exposures of one gel: score each on a downsampled copy, open the best. Only the chosen
    * image is kept decoded; the others keep their file bytes and are decoded again when picked. */
@@ -211,7 +218,7 @@
       App.emit('loaded');
     } catch (e) {
       console.error(e);
-      App.notify(L('读取失败：', 'Could not read the file: ') + e.message);
+      App.notify(readError(files[0], e));
     } finally { busy(false); }
   };
 
@@ -234,7 +241,8 @@
       const S = App.S;
       App.expIdx = k;
       if (img.width === App.src.w && img.height === App.src.h) {
-        App.src = { w: img.width, h: img.height, data: img.data };
+        App.src0 = { w: img.width, h: img.height, data: img.data };
+        App._flipKey = null; App.applyFlip();
         App.srcBuffer = ex.buffer;
         App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null;
         S.file = { name: ex.name, bits: img.bits, dpi: img.dpi, actualMax: img.actualMax, sha256: ex.sha256, size: ex.buffer.byteLength };
@@ -262,7 +270,51 @@
   };
 
   // ---------- pipeline ----------
+  /* ---------- flips ----------
+   * A gel imaged with the wells at the bottom, or through the tray (mirrored), is put the right way
+   * round by flipping the SOURCE; App.src is always App.src0 flipped as S.flip says. Every annotation
+   * lives in the rotated frame, where a flip is a mirror and the rotation angle changes sign. */
+  function flipImg(img, h, v) {
+    if (!h && !v) return img;
+    const { w, data } = img, hh = img.h, out = new Float32Array(w * hh);
+    for (let y = 0; y < hh; y++) {
+      const sy = v ? hh - 1 - y : y, row = sy * w, orow = y * w;
+      if (h) for (let x = 0; x < w; x++) out[orow + x] = data[row + w - 1 - x];
+      else out.set(data.subarray(row, row + w), orow);
+    }
+    return { w, h: hh, data: out };
+  }
+  const flipKey = S => (S.flip && S.flip.h ? 'h' : '') + (S.flip && S.flip.v ? 'v' : '');
+  App.applyFlip = function () {
+    const S = App.S, k = flipKey(S);
+    if (App._flipKey === k && App.src) return;
+    App.src = flipImg(App.src0, S.flip.h, S.flip.v);
+    if (App.markerSrc0) { App.markerSrc = flipImg(App.markerSrc0, S.flip.h, S.flip.v); App.markerRot = null; App._markerDisplay = null; }
+    App._flipKey = k;
+    App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
+  };
+  App.flip = function (axis) {
+    const S = App.S, W = App.src.w, H = App.src.h, c = S.crop;
+    if (axis === 'h') {
+      S.lanes.forEach(l => { l.x = W - 1 - l.x; });
+      S.crop = { x: Math.round(Math.max(0, W - (c.x + c.w))), y: c.y, w: c.w, h: c.h };
+    } else {
+      S.markers.forEach(m => m.bands.forEach(b => { b.y = H - 1 - b.y; }));
+      S.arrows.forEach(a => { a.y = H - 1 - a.y; });
+      S.strips.concat(S.quant.rows).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
+      S.crop = { x: c.x, y: Math.round(Math.max(0, H - (c.y + c.h))), w: c.w, h: c.h };
+    }
+    S.flip[axis] = !S.flip[axis];
+    S.rotation = -S.rotation;
+    if (App.autoRotation != null) App.autoRotation = -App.autoRotation;
+    App.applyFlip();
+    App.sortLanesIfNeeded();
+    App.ensureRot();
+    App.afterRotation();
+  };
+
   App.ensureRot = function () {
+    App.applyFlip();
     if (!App.rot || App.rotFor !== App.S.rotation) {
       App.rot = E.rotate(App.src, App.S.rotation);
       App.rotFor = App.S.rotation;
@@ -284,7 +336,8 @@
       throw new Error(L(`Marker 图尺寸 ${img.width}×${img.height} 与胶图 ${App.src.w}×${App.src.h} 不一致；需要同一次拍摄、同一位置的白光图`,
         `The marker image is ${img.width}×${img.height} px but the blot is ${App.src.w}×${App.src.h} px; use the white-light image taken in the same position`));
     }
-    App.markerSrc = { w: img.width, h: img.height, data: img.data };
+    App.markerSrc0 = { w: img.width, h: img.height, data: img.data };
+    App.markerSrc = flipImg(App.markerSrc0, App.S.flip.h, App.S.flip.v);
     App.markerBuffer = input.buffer;
     App.markerBright = E.detectBright(App.markerSrc);
     App.markerRot = null; App._markerDisplay = null;
@@ -292,7 +345,7 @@
   };
   // quiet: only drop the pixels (a new main image is being loaded)
   App.clearMarkerImage = function (quiet) {
-    App.markerSrc = null; App.markerBuffer = null; App.markerRot = null; App._markerDisplay = null;
+    App.markerSrc = App.markerSrc0 = null; App.markerBuffer = null; App.markerRot = null; App._markerDisplay = null;
     if (!quiet && App.S) App.S.markerImage = null;
   };
   App.ensureMarkerRot = function () {
@@ -1120,15 +1173,17 @@
     S.strips = S.strips || [];
     S.quant = Object.assign(defaultQuant(), S.quant || {});
     if (S.markerImage === undefined) S.markerImage = null;
+    S.flip = Object.assign({ h: false, v: false }, S.flip || {});
     return S;
   }
   App.normalizeState = normalize;
   function restore(input, state, initial, autoRotation, marker) {
-    App.src = { w: input.img.width, h: input.img.height, data: input.img.data };
+    App.src0 = { w: input.img.width, h: input.img.height, data: input.img.data };
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
     App.exposures = null; App.isExample = false;
     App.S = normalize(state);
+    App._flipKey = null; App.applyFlip();
     App.clearMarkerImage(true);
     if (marker) { App.setMarkerImage(marker); } else App.S.markerImage = null;
     App.loadWarnings = input.img.warnings || [];
@@ -1170,7 +1225,8 @@
     draftTimer = setTimeout(App.saveDraft, 800);
   };
   App.saveDraft = async function () {
-    if (!App.S || !App.srcBuffer) return;
+    // the synthetic examples are not worth a draft: they are one click away, and a user's own draft stays
+    if (!App.S || !App.srcBuffer || App.isExample) return;
     const gen = draftGen;
     try {
       await idbDo('readwrite', st => {

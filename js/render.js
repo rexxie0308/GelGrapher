@@ -301,24 +301,39 @@
     // ---- arrows (expected product): free side preferred, otherwise outside the marker labels ----
     const arrows = (S.arrows || []).filter(a => a.y != null);
     const defSide = !extent.right ? 'right' : !extent.left ? 'left' : 'right';
-    arrows.forEach((a, k) => {
-      if (mapY(a.y) == null) return;
-      const y = mapY(a.y) * sc, side = a.side || defSide;
+    // labels of arrows on the same side that would overlap are spread apart (the arrowhead stays on
+    // its band; a label that had to move gets a short leader line)
+    const placed = arrows.map((a, k) => ({ a, k, y: mapY(a.y) == null ? null : mapY(a.y) * sc, side: a.side || defSide })).filter(o => o.y != null);
+    ['left', 'right'].forEach(side => {
+      const col = placed.filter(o => o.side === side).sort((p, q) => p.y - q.y), gap = pt * 1.15;
+      col.forEach(o => { o.ty = o.y; });
+      for (let i = 1; i < col.length; i++) if (col[i].ty - col[i - 1].ty < gap) col[i].ty = col[i - 1].ty + gap;
+      // centre the spread group back on its bands, but never above the first band's own row
+      if (col.length > 1) {
+        const shift = (col[col.length - 1].ty - col[col.length - 1].y) / 2;
+        col.forEach(o => { o.ty -= shift; });
+        for (let i = 1; i < col.length; i++) if (col[i].ty - col[i - 1].ty < gap) col[i].ty = col[i - 1].ty + gap;
+      }
+    });
+    placed.forEach(({ a, k, y, side, ty }) => {
       const s = pt * 0.75, label = a.label != null ? a.label : (a.text || '');
       const off = extent[side] ? extent[side] + 2 : 0;
       const attrs = `data-edit="arrow" data-k="${a.k != null ? a.k : k}"`;
+      const moved = Math.abs(ty - y) > 0.3;
       if (side === 'right') {
-        const x = W + 1.5 + off, tw = measure(label, pt);
-        const hit = P ? `<rect x="${f(x - 1)}" y="${f(y - pt * 0.8)}" width="${f(s * 1.3 + 4 + tw)}" height="${f(pt * 1.6)}" fill="transparent"/>` : '';
+        const x = W + 1.5 + off, tw = measure(label, pt), lx = x + s * 1.3 + 2;
+        const hit = P ? `<rect x="${f(x - 1)}" y="${f(Math.min(y, ty) - pt * 0.8)}" width="${f(s * 1.3 + 4 + tw)}" height="${f(Math.abs(ty - y) + pt * 1.6)}" fill="transparent"/>` : '';
         els.push(ed(attrs, hit + `<path d="M${f(x)},${f(y)} L${f(x + s * 1.3)},${f(y - s * 0.6)} L${f(x + s * 1.3)},${f(y + s * 0.6)} Z" fill="#000"/>` +
-          (label ? textEl(label, x + s * 1.3 + 2, y + pt * 0.35, pt, 'start') : '')));
-        grow(W, y - pt, x + s * 1.3 + 2 + tw, y + pt);
+          (label && moved ? `<line x1="${f(x + s * 1.3)}" y1="${f(y)}" x2="${f(lx - 0.5)}" y2="${f(ty)}" stroke="#000" stroke-width="${f(lw)}"/>` : '') +
+          (label ? textEl(label, lx, ty + pt * 0.35, pt, 'start') : '')));
+        grow(W, Math.min(y, ty) - pt, lx + tw, Math.max(y, ty) + pt);
       } else {
-        const x = -1.5 - off, tw = measure(label, pt);
-        const hit = P ? `<rect x="${f(x - s * 1.3 - 3 - tw)}" y="${f(y - pt * 0.8)}" width="${f(s * 1.3 + 4 + tw)}" height="${f(pt * 1.6)}" fill="transparent"/>` : '';
+        const x = -1.5 - off, tw = measure(label, pt), lx = x - s * 1.3 - 2;
+        const hit = P ? `<rect x="${f(x - s * 1.3 - 3 - tw)}" y="${f(Math.min(y, ty) - pt * 0.8)}" width="${f(s * 1.3 + 4 + tw)}" height="${f(Math.abs(ty - y) + pt * 1.6)}" fill="transparent"/>` : '';
         els.push(ed(attrs, hit + `<path d="M${f(x)},${f(y)} L${f(x - s * 1.3)},${f(y - s * 0.6)} L${f(x - s * 1.3)},${f(y + s * 0.6)} Z" fill="#000"/>` +
-          (label ? textEl(label, x - s * 1.3 - 2, y + pt * 0.35, pt, 'end') : '')));
-        grow(x - s * 1.3 - 2 - tw, y - pt, 0, y + pt);
+          (label && moved ? `<line x1="${f(x - s * 1.3)}" y1="${f(y)}" x2="${f(lx + 0.5)}" y2="${f(ty)}" stroke="#000" stroke-width="${f(lw)}"/>` : '') +
+          (label ? textEl(label, lx, ty + pt * 0.35, pt, 'end') : '')));
+        grow(lx - tw, Math.min(y, ty) - pt, 0, Math.max(y, ty) + pt);
       }
     });
 

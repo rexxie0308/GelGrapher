@@ -68,7 +68,8 @@ Added in GelGrapher:
 - **Band-size table**: every band in every lane sized against the ladder, as a table and CSV.
 - **Strips**: show only chosen regions of a blot (e.g. the target and the loading control), stacked with a gap, each labelled on the right.
 - **Western marker image**: load the white-light picture of the membrane to find a ladder that is invisible on the chemiluminescence image.
-- **Vector PDF** export besides PNG, TIFF and SVG.
+- **Vector PDF** export besides PNG, TIFF and SVG, and **Copy figure** for pasting into slides or a notebook.
+- **Flip** a gel imaged with the wells at the bottom or mirrored; annotations follow and the change is recorded.
 - **Claude artifact**: install it in Claude, export through Claude's save prompt, and draft the figure legend and methods text with Claude.
 - **Worked examples** (synthetic DNA gel, Coomassie SDS-PAGE, Western blot), dark theme, phone layout, touch and pen input with pinch zoom.
 
@@ -119,6 +120,7 @@ Densitometry values are only comparable within one image. For statistics, quanti
 | PNG | Rendered at 300 / 600 / 1200 dpi, with `pHYs`, `sRGB` and an embedded processing summary. |
 | TIFF | 8-bit grayscale, LZW, with resolution tags and the processing summary. |
 | PDF | Vector text and lines in the standard PDF fonts (Greek letters such as β via the Symbol font); the gel embedded pixel for pixel. |
+| Copy figure | The figure as a PNG on the clipboard, at the chosen dpi. |
 | SVG | Vector text and lines; edit in Illustrator or Inkscape. |
 | Uncropped image | Same rotation and contrast as the figure, with the crop box, strips, well numbers and removed lanes marked. |
 | Original data | The untouched source file (and marker image), byte-identical, with its SHA-256 in the file name. |

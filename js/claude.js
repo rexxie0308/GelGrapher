@@ -23,7 +23,7 @@
       arrows: S.arrows.map(a => ({ label: A.arrowLabel(a) })),
       strips: S.strips.map(t => t.label || null),
       imageProcessing: {
-        sourceBitDepth: S.file.bits, rotationDeg: S.rotation, contrast: 'linear, whole image', gamma: S.levels.gamma,
+        sourceBitDepth: S.file.bits, rotationDeg: S.rotation, orientation: G.Export.flipText(S) || 'as imaged', contrast: 'linear, whole image', gamma: S.levels.gamma,
         inverted: !!S.levels.invert, removedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
         cameraSaturatedFracInCrop: +k.sensorFrac.toFixed(5), effectiveGelDpi: Math.round(A.effectiveDpi()), figureWells: r ? [r[0] + 1, r[1] + 1] : null,
         markerFromWhiteLightImage: A.hasMarkerImage()

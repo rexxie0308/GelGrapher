@@ -270,6 +270,21 @@
   $('btnPNG').onclick = () => exportFigure('png');
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
+  // copy the figure as a PNG: the quickest way into a slide or a notebook entry
+  $('btnCopyFig').onclick = async () => {
+    if (needImage()) return;
+    App.busy(true, L('正在渲染…', 'Rendering…'));
+    try {
+      const f = App.buildFigure(false), dpi = S().style.dpi;
+      const c = await G.Export.svgToCanvas(f.svg, f.w, f.h, dpi);
+      const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      if (!navigator.clipboard || !window.ClipboardItem) throw new Error('no clipboard');
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast(L(`已复制 ${dpi} dpi PNG，可直接粘贴`, `Copied a ${dpi} dpi PNG; paste it anywhere`));
+    } catch (e) {
+      toast(L('此处无法写入剪贴板，请用"导出 PNG"', 'The clipboard is not available here; use Export PNG instead'), 3600);
+    } finally { App.busy(false); }
+  };
   $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(App.buildFigure(false).svg, baseName() + '_figure.svg'), L('已导出 SVG', 'Exported SVG')); };
   $('btnUncropped').onclick = async () => { if (needImage()) return; App.renderFull(); saved(await G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'), L('已导出未裁切图（与成图同处理）', 'Exported the uncropped image (same processing as the figure)')); };
   $('btnOriginal').onclick = async () => {
@@ -352,6 +367,12 @@
     }, 20);
   };
   $('btnResetRot').onclick = () => { if (!S()) return; App.resetRotation(); App.commit(); toast(L(`已回到自动角度 ${S().rotation}°`, `Back to the automatic angle ${S().rotation}°`)); };
+  const flipBtn = (id, axis) => { $(id).onclick = () => {
+    if (!S()) return;
+    App.busy(true, L('正在翻转…', 'Flipping…'));
+    setTimeout(() => { App.flip(axis); App.busy(false); App.commit(); G.Editor.fitCrop(); toast(L('已翻转，所有标注跟随（Ctrl+Z 可撤销）', 'Flipped; every annotation followed (Ctrl+Z to undo)')); }, 20);
+  }; };
+  flipBtn('btnFlipV', 'v'); flipBtn('btnFlipH', 'h');
   $('showGrid').addEventListener('change', e => { G.Editor.setGrid(e.target.checked); });
   $('btnResetLv').onclick = done(() => { App.resetLevels(); toast(L('对比度已重置（Ctrl+Z 可撤销）', 'Contrast reset (Ctrl+Z to undo)')); });
   $('btnAutoLv').onclick = done(() => App.autoLevels());
@@ -708,6 +729,9 @@
     $('lvBlackV').textContent = pct(st.levels.black); $('lvWhiteV').textContent = pct(st.levels.white);
     $('rot').value = st.rotation; $('rotNum').value = st.rotation; $('rotV').textContent = st.rotation + '°';
     $('rotAuto').textContent = App.autoRotation != null ? L(`自动检测 ${App.autoRotation}°`, `auto ${App.autoRotation}°`) : '';
+    const ft = G.Export.flipText(st);
+    $('flipNote').textContent = ft ? L({ 'rotated by 180°': '已旋转 180°', 'flipped horizontally': '已左右翻转', 'flipped vertically': '已上下翻转' }[ft], ft) : '';
+    $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? L(`条带明暗沿用了你上次在这类实验中的选择（${dark ? '白底暗带' : '黑底亮带'}），可在上方切换`,
       `Band look follows your last choice for this experiment (${dark ? 'dark bands' : 'bright bands'}); switch it above`) : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;

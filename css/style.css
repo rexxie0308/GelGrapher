@@ -89,6 +89,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--input-line); background: var(--input-bg); color: var(--text); cursor: pointer; white-space: nowrap; transition: .12s; }
 .btn:hover { border-color: var(--faint); background: var(--hover); }
 .btn:disabled { opacity: .45; cursor: default; }
+.btn.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent-dk); }
 .btn:focus-visible, .icon-btn:focus-visible, .tool:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -103,9 +104,10 @@ input[type=number], input[type=text], select, textarea { border: 1px solid var(-
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 input[type=range] { flex: 1; min-width: 80px; width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 3px; background: var(--line); outline: none; box-shadow: none; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: var(--panel); border: 1.5px solid var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.2); cursor: pointer; }
-input[type=number].num, .num { width: 64px; }
+input[type=number].num, input[type=text].num, .num { width: 64px; }
 textarea { resize: vertical; }
-.switch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.3px; cursor: pointer; user-select: none; }
+/* label.switch: stronger than `.field > label`, which would otherwise make these block-level */
+label.switch, .field > label.switch, .popover .field > label.switch { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.3px; cursor: pointer; user-select: none; margin: 0; }
 .switch input { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; cursor: pointer; }
 
 /* ---------- layout ---------- */
@@ -115,7 +117,7 @@ textarea { resize: vertical; }
 .pane-col { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--stage); }
 #figCol { flex: 1.15; }
 .col-head { flex: none; height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.col-title { font-weight: 700; font-size: 13px; }
+.col-title { font-weight: 700; font-size: 13px; white-space: nowrap; flex: none; }
 .col-sub { color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flex { flex: 1; }
 .zoomlabel { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }

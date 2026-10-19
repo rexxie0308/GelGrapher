@@ -43,6 +43,7 @@
         <button id="btnTIFF"><span data-en="TIFF (LZW, grayscale)">TIFF（LZW，灰度）</span><small data-en="For journals that only accept TIFF (e.g. PLOS)">PLOS 等只收 TIFF 的期刊</small></button>
         <button id="btnPDF"><span data-en="PDF (vector)">PDF（矢量）</span><small data-en="Text and lines stay vector; the gel is embedded pixel for pixel">文字和线条为矢量，胶图逐像素嵌入</small></button>
         <button id="btnSVG" data-en="SVG (vector, editable in Illustrator)">SVG（矢量，可在 AI 中编辑）</button>
+        <button id="btnCopyFig"><span data-en="Copy figure to clipboard">复制成图到剪贴板</span><small data-en="PNG at the chosen dpi, for pasting into slides or a lab notebook">按所选 dpi 的 PNG，可直接粘贴到幻灯片或实验记录</small></button>
         <div class="menu-sep"></div>
         <button id="btnUncropped"><span data-en="Uncropped image (same processing)">未裁切图（与成图同处理）</span><small data-en="For the supplement: same contrast and orientation, crop box and well numbers marked">补充材料用：同一对比度/方向，标出裁切框与孔号</small></button>
         <button id="btnOriginal"><span data-en="Original data (file + SHA-256)">原始数据（原文件 + SHA-256）</span><small data-en="The untouched source file, byte-identical">未经任何处理的原始文件，逐字节一致</small></button>
@@ -95,6 +96,11 @@
             <button class="btn sm" id="btnDeskew" data-en="Auto straighten">自动转正</button>
             <button class="btn sm ghost" id="btnResetRot" data-en="Back to auto angle">回到自动角度</button>
             <label class="switch"><input type="checkbox" id="showGrid"><span data-en="Grid">参考网格</span></label>
+          </div>
+          <div class="inline mt">
+            <button class="btn sm" id="btnFlipV" title="加样孔在下面？上下翻转" data-en-title="Wells at the bottom? Flip top to bottom" data-en="⇅ Flip vertical">⇅ 上下翻转</button>
+            <button class="btn sm" id="btnFlipH" title="图像是镜像的？左右翻转" data-en-title="Mirrored image? Flip left to right" data-en="⇄ Flip horizontal">⇄ 左右翻转</button>
+            <span class="h3-note" id="flipNote"></span>
           </div>
         </div>
         <div class="field"><label><span data-en="Black point">暗部</span> <b id="lvBlackV"></b></label><input type="range" id="lvBlack" min="0" max="1000"></div>
@@ -341,6 +347,8 @@
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
     <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
+    <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under Rotation. Annotations follow.</li>
+    <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
   </ul>
   <h3>Image integrity</h3>
   <ul>
@@ -370,6 +378,8 @@
     <li><b>目标条带箭头</b>：点"目标条带"，再点那条带；大小按 Marker 估算，超出 Marker 范围会标 ≈。</li>
     <li><b>+ / − 条件行</b>：加一行后，在成图上点格子即可在 + / − / 空 之间切换。</li>
     <li><b>Marker 条带不对</b>：在原图上上下拖那条黄线，其余条带会围绕它重新匹配。</li>
+    <li><b>加样孔在下面，或图像是镜像的</b>：用"旋转"下面的翻转按钮，标注会跟着翻转。</li>
+    <li><b>放进幻灯片或实验记录</b>：导出 ▾ → 复制成图到剪贴板。</li>
   </ul>
   <h3>图像规范</h3>
   <ul>

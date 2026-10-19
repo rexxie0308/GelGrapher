@@ -2,7 +2,17 @@
 
 ## Unreleased
 
+### Added
+- Flip vertical / horizontal (Image section): for gels imaged with the wells at the bottom or mirrored. Every annotation follows, the processing log and legend notes record the orientation change.
+- "Copy figure to clipboard" in the export menu: a PNG at the chosen dpi for slides and notebooks.
+- Arrow labels on the same side of the gel no longer overlap: close ones are spread apart with a short leader line.
+
 ### Fixed
+- Checkboxes placed directly in a field (saturated pixels, lane numbers, frame, auto width, gamma unlock) lost their layout.
+- Lane chips on the raw image read "2 0 h" for a lane named "0 h"; now "2 · 0 h".
+- The zoom percentage was empty until the first wheel zoom; the "Raw image" column title wrapped; the panel-letter box stretched across the panel.
+- The synthetic examples are no longer autosaved as drafts, so a later visit opens the app instead of offering an "unfinished" example.
+- Unreadable files say which file failed and which formats are supported.
 - Discarding the autosaved draft could be undone by an autosave that was already due; the discard now cancels it.
 
 ## 1.0.0 (2026-10-19)

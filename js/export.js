@@ -96,7 +96,7 @@
     const A = G.App, k = A.clipStats();
     return JSON.stringify({
       tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
-      rotationDeg: S.rotation, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
+      rotationDeg: S.rotation, flip: flipText(S), levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
       sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
       disclosure: legendHints(S).join(' ')
@@ -209,7 +209,7 @@
     ctx.fillText('Uncropped image (same processing as figure)', fs * 0.5, fs * 1.3);
     ctx.font = `${fs * 0.8}px Arial`;
     const lv = S.levels;
-    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}° · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
+    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}°${flipText(S) ? ' · ' + flipText(S) : ''} · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
     ctx.fillText(info, fs * 0.5, H + top + fs * 1.2, W - fs);
     const key = S.lanes.map((l, i) => `${l.hidden ? 'X' : i + 1}: ${l.name || '—'}`).join('   ');
     ctx.fillText(key, fs * 0.5, H + top + fs * 2.4, W - fs);
@@ -239,7 +239,7 @@
       environment: { userAgent: navigator.userAgent, figureFont: 'Arial, Helvetica, sans-serif (vector text)' },
       source: { file: S.file.name, sha256: S.file.sha256, bytes: S.file.size, width: A.src.w, height: A.src.h, bitDepth: S.file.bits, dpi: S.file.dpi || null },
       markerImage: A.hasMarkerImage() ? { file: S.markerImage.name, sha256: S.markerImage.sha256, use: 'marker band positions only; not shown in the figure' } : null,
-      rotationDeg: S.rotation, autoRotationDeg: A.autoRotation,
+      rotationDeg: S.rotation, autoRotationDeg: A.autoRotation, flip: Object.assign({ description: flipText(S) }, S.flip),
       crop: S.crop, figureWells: r ? [r[0] + 1, r[1] + 1] : null,
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
       levels: Object.assign({ note: 'linear whole-image stretch; values are fractions of full scale' }, S.levels),
@@ -277,6 +277,8 @@
     return log;
   }
 
+  // 'rotated by 180°' / 'flipped horizontally' / 'flipped vertically' / '' (as imaged)
+  function flipText(S) { const f = S.flip || {}; return f.h && f.v ? 'rotated by 180°' : f.h ? 'flipped horizontally' : f.v ? 'flipped vertically' : ''; }
   const KIND_LADDER = { dna: 'DNA ladders', rna: 'RNA ladders', protein: 'protein molecular-weight markers', native: 'native protein markers' };
   function legendHints(S) {
     const h = [], A = G.App;
@@ -285,6 +287,7 @@
     if (cut.length) h.push(`Lane${cut.length > 1 ? 's' : ''} ${cut.join(', ')} ${cut.length > 1 ? 'were' : 'was'} removed from the same ${what}; splice sites are indicated by ` + (S.style.spliceStyle === 'line' ? 'lines.' : 'white gaps.'));
     const strips = (S.strips || []).filter(t => Math.abs(t.y1 - t.y0) >= 2);
     if (strips.length > 1) h.push(`The ${strips.length} panels are regions of the same ${what} image${strips.some(t => t.label) ? ` (${strips.map(t => t.label || '–').join(', ')})` : ''}; intervening regions were omitted and are shown in the uncropped image.`);
+    if (flipText(S)) h.push(`The image was ${flipText(S)} (orientation only; lane order follows the figure).`);
     if (S.levels.invert) h.push('Image colours were inverted for display.');
     if (S.levels.gamma !== 1) h.push(`A non-linear gamma adjustment (γ = ${S.levels.gamma}) was applied to the whole image.`);
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
@@ -308,5 +311,5 @@
     return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
   }
 
-  G.Export = { download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, encodeTiffGray, pngDecorate };
+  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, encodeTiffGray, pngDecorate };
 })(window);
