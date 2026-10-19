@@ -140,7 +140,7 @@
     let lo = Infinity, hi = -Infinity; p.forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); });
     const pad = 6 * dpr, X = i => pad + i / (n - 1) * (W - 2 * pad), Y = v => H - pad - (v - lo) / Math.max(1e-9, hi - lo) * (H - 2 * pad);
     ctx.clearRect(0, 0, W, H);
-    const accent = cssVar('--accent', '#3346c8'), ok = cssVar('--q-box', '#1f9d55'), muted = cssVar('--faint', '#9aa2ad');
+    const accent = cssVar('--accent', '#176d7c'), ok = cssVar('--q-box', '#1f9d55'), muted = cssVar('--faint', '#9aa2ad');
     st.quant.rows.forEach((r, k) => {
       const a = Math.min(r.y0, r.y1) - ya, b = Math.max(r.y0, r.y1) - ya;
       ctx.fillStyle = k === st.quant.control ? 'rgba(122,139,0,.16)' : 'rgba(31,157,85,.16)';

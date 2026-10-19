@@ -7,7 +7,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="description" content="GelGrapher: publication-ready figures and densitometry for DNA / RNA gels, SDS-PAGE, Western, Southern and Northern blots, in the browser. Nothing is uploaded.">
 <title>GelGrapher</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111827'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='8' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='13' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='18' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='23' width='6' height='2.2' rx='1'/%3E%3Crect x='19' y='15' width='7' height='3' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23176D7C'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='8' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='13' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='18' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='23' width='6' height='2.2' rx='1'/%3E%3Crect x='19' y='15' width='7' height='3' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -83,6 +83,8 @@
           <button data-dark="0"><span>Bright bands, dark background</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span>Dark bands, light background</span><small class="pol-note" data-k="1"></small></button>
         </div>
         <p class="hint" id="invNote"></p>
+        <details class="adv" id="imgAdv">
+          <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
           <label><span>Rotation</span> <b id="rotV"></b> <span class="h3-note" id="rotAuto"></span></label>
           <div class="inline nowrap">
@@ -118,6 +120,7 @@
             <input type="number" id="gamma" min="0.2" max="5" step="0.05" value="1" class="num" disabled>
           </div>
         </details>
+        </details>
       </section>
 
       <!-- range -->
@@ -131,16 +134,18 @@
           <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
           <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
         </div>
-        <p class="hint">Changing the range never loses names. You can also drag the red box on the image (its sides snap to the gaps between lanes; hold Alt to move freely).</p>
-        <div class="crop-lanes">
-          <div class="cl-head"><span>Lanes detected wrongly?</span><span class="h3-note">Uses only the image inside the red box; lanes outside are untouched</span></div>
-          <div class="field inline">
-            <button class="btn sm" id="btnRedetectCrop">Re-detect in box</button>
-            <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
-            <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
+        <p class="hint">Or drag the red box on the image; its sides snap to the gaps between lanes (hold Alt to move freely). Names are never lost.</p>
+        <details class="adv" id="fixLanes">
+          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
+          <div class="crop-lanes">
+            <div class="field inline">
+              <button class="btn sm" id="btnRedetectCrop">Re-detect in box</button>
+              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
+              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
+            </div>
+            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”: this is almost always right. Only the image inside the box is used; names stay left to right.</p>
           </div>
-          <p class="hint">Tip: put the sides of the red box on the outer edges of the two outermost lanes, then click “Space evenly” — this is almost always right. Names are kept left to right.</p>
-        </div>
+        </details>
         <div class="suggest hidden" id="emptyBar">
           <div id="emptyText"></div>
           <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
@@ -152,18 +157,17 @@
             <label class="inline-label"><span>Splice gap</span> <input type="range" id="spliceGap" min="0" max="5" step="0.25" style="width:110px"> <b id="spliceGapV"></b></label>
             <select id="spliceStyle" style="width:auto"><option value="gap">White gap</option><option value="line">Divider line</option></select>
           </div>
-          <p class="hint">Select a lane on the image and press <code>H</code> to remove / restore it.</p>
+          <p class="hint">Untick “Show” (or select the lane on the image and press <code>H</code>) to leave a lane out; a splice gap marks the place. On the image: drag a lane line to move it, double-click empty space to add a lane, Delete removes the selected one.</p>
           <div class="field inline">
             <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
           </div>
-          <p class="hint">Unticking “Show” removes the lane from the figure (a splice gap is added). Drag lane lines left/right on the image; double-click empty space to add a lane; select one and press Delete to remove it.</p>
         </details>
       </section>
 
       <!-- names -->
       <section class="sec">
         <div class="sec-head"><span class="sec-n">3</span><span>Lane names</span><span class="sec-status" id="stNames"></span></div>
-        <p class="lead"><b>Click a lane name</b> on the figure to type it; Enter jumps to the next. Or paste a whole row of names here:</p>
+        <p class="lead"><b>Click a lane name</b> on the figure and type; Enter jumps to the next. Or paste a row of names:</p>
         <textarea id="laneBulk" rows="2" placeholder="M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
         <p class="hint">Filled into the lanes in the figure from left to right. <code>*lacZ*</code> becomes italic.</p>
       </section>
@@ -178,13 +182,13 @@
         </div>
         <div class="mk-image" id="mkImageBox">
           <div class="cl-head"><span>Marker image</span> <span class="h3-note">optional, for Westerns</span></div>
-          <p class="hint" id="mkImageText">Ladder invisible on the chemiluminescence image? Load the white-light / colorimetric image taken in the same position. It is used only to find the marker bands; the figure still shows the blot.</p>
+          <p class="hint" id="mkImageText">Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.</p>
           <div class="field inline"><button class="btn sm" id="btnMarkerImg">Load marker image…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel">Remove</button>
             <label class="switch hidden" id="mkOverlayWrap"><input type="checkbox" id="mkOverlay" checked><span>Overlay on image</span></label></div>
         </div>
         <details class="adv" id="favAdv">
           <summary><span>Favourite ladders ★</span><span class="h3-note" id="favNote"></span></summary>
-          <p class="hint" style="margin-top:2px">Click ★ on a marker card to make it a favourite. Detection prefers favourites but still switches (with a notice) when none fits.</p>
+          <p class="hint" style="margin-top:2px">★ on a marker card makes it a favourite; detection tries favourites first.</p>
           <div id="favList" class="list"></div>
           <label class="switch"><input type="checkbox" id="onlyFav"><span>Detect among favourites only (falls back to all if none fits)</span></label>
         </details>
@@ -350,7 +354,7 @@
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
     <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
-    <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under Rotation. Annotations follow.</li>
+    <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
     <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
     <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
   </ul>

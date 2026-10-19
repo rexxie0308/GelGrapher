@@ -31,7 +31,7 @@ Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in t
 - The interface, figures, legends, logs and exported files are English only; there is no translation layer.
 - No `alert` / `confirm` / `prompt` / `window.print` (inert in the artifact; `tools/build-artifact.mjs` fails the build on them). Use `G.UI.alert`, `G.UI.confirm` (async, in-page) and `G.Export.download` (resolves 'saved' | 'declined' | 'failed').
 - Image integrity: linear whole-image adjustments only by default; anything that changes how data looks or what is shown (inversion, gamma, removed lanes, strips, marker image, densitometry method) is reported in `G.Export.legendHints` and the processing log.
-- Colours in CSS are tokens on `:root` with dark values under `prefers-color-scheme` and `[data-theme]`; the figure itself is always black on white.
+- Colours in CSS are tokens on `:root` with dark values under `prefers-color-scheme` and `[data-theme]`; the values are the Paper Radar palette (teal accent, amber warn, green ok) so the owner's artifacts match. The figure itself is always black on white, and the overlay colours on the raw image (red crop, blue lanes, yellow marker, teal strips, green band boxes) are functional, not theme colours.
 - Ladder additions need a manufacturer datasheet (see CONTRIBUTING.md).
 - New behaviour gets a check in `js/uitest.js` (sections 20+) and an assertion in `tests/run.mjs`.
 

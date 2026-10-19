@@ -705,6 +705,8 @@
     set('stImage', (st.rotation ? `rotated ${st.rotation}° · ` : '')
       + (st.levels.invert ? 'inverted' : 'raw')
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
+    const p1 = v => (v * 100).toFixed(1);
+    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
     set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${fl.length} lanes` : ''));
     set('stNames', `${named}/${fl.length}`);
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
@@ -742,14 +744,14 @@
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
-    $('invNote').textContent = App.invertInherited ? `Band look follows your last choice for this experiment (${dark ? 'dark bands' : 'bright bands'}); switch it above` : '';
+    $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;
     syncTypeHints();
     const hasMk = App.hasMarkerImage();
     $('btnMarkerImgDel').classList.toggle('hidden', !hasMk); $('mkOverlayWrap').classList.toggle('hidden', !hasMk);
     $('btnMarkerImg').textContent = hasMk ? 'Replace marker image…' : 'Load marker image…';
     $('mkImageText').textContent = hasMk ? `Marker bands are read from: ${st.markerImage.name}`
-      : 'Ladder invisible on the chemiluminescence image? Load the white-light / colorimetric image taken in the same position. It is used only to find the marker bands; the figure still shows the blot.';
+      : 'Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.';
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
     updateClipLine(); updateDpiLine(); updateEmptyBar();
@@ -786,8 +788,8 @@
     ctx.fillStyle = css('--hist') || '#c3cad4';
     for (let i = 0; i < 200; i++) { const h = bins[i] / mx * (H - 3); ctx.fillRect(i / 200 * W, H - h, W / 200 + 0.5, h); }
     const bx = Math.sqrt(st.levels.black) * W, wx = Math.sqrt(st.levels.white) * W;
-    ctx.fillStyle = 'rgba(47,111,235,.16)'; ctx.fillRect(bx, 0, wx - bx, H);
-    ctx.fillStyle = '#2f6feb'; ctx.fillRect(bx - 1, 0, 2, H); ctx.fillRect(wx - 1, 0, 2, H);
+    ctx.fillStyle = css('--accent-bg') || '#e1f0f2'; ctx.fillRect(bx, 0, wx - bx, H);
+    ctx.fillStyle = css('--accent') || '#176d7c'; ctx.fillRect(bx - 1, 0, 2, H); ctx.fillRect(wx - 1, 0, 2, H);
   }
 
   /* ---------- preview ---------- */
@@ -825,13 +827,14 @@
 
   App.on(what => {
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('draftBox').classList.add('hidden'); $('sections').classList.remove('hidden'); histCache = null; renderExposures(); }
+    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('draftBox').classList.add('hidden'); $('sections').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
     syncControls(); renderPanel(); updateStatus(); updatePreview();
   });
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
+  $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
   Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load });
   G.UI = UI;

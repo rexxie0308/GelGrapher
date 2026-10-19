@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Changed
+- One palette with Paper Radar: cool mist ground, slate ink, teal for anything you can act on, amber only for warnings, green only for "fine"; a light top bar; the same tokens in dark mode. The figure stays black on white and the overlay colours on the raw image are unchanged.
+- The panel's first screen holds the daily steps (experiment, band look, lanes, names, marker): rotation, flips, contrast and gamma sit under "Straighten and contrast", which states what was set automatically, and the lane-fixing tools under "Lanes detected wrongly?". Hints are shorter.
 - English-only interface: the Chinese translation layer (`js/i18n.js`, `L()` calls, `data-en` attributes) and the language button are removed.
 
 ### Added
@@ -13,6 +15,7 @@
 - Arrow labels on the same side of the gel no longer overlap: close ones are spread apart with a short leader line.
 
 ### Fixed
+- The favourite-ladder list and the custom-ladder unit followed the experiment chosen at start-up, not the loaded gel's (DNA ladders listed on a Western).
 - The marker's band list closed after every tick; it now stays open, at the same scroll position, so several bands can be shown or hidden in a row.
 - Checkboxes placed directly in a field (saturated pixels, lane numbers, frame, auto width, gamma unlock) lost their layout.
 - Lane chips on the raw image read "2 0 h" for a lane named "0 h"; now "2 · 0 h".
