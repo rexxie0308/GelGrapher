@@ -67,7 +67,8 @@ const UI_CHECKS = [
   ['SDS-PAGE example: ladder lane found among lysates', r => r.sds.ok],
   ['flips carry annotations and undo each other', r => r.flip.relFollowsV && r.flip.namesStay && r.flip.relH && r.flip.identity, ['flip']],
   ['arrow labels on one side are spread apart', r => r.arrowSpread.ok, ['arrowSpread']],
-  ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']]
+  ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']],
+  ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']]
 ];
 
 async function runIn(name, base) {

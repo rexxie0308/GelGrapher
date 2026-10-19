@@ -13,6 +13,7 @@
 - Arrow labels on the same side of the gel no longer overlap: close ones are spread apart with a short leader line.
 
 ### Fixed
+- The marker's band list closed after every tick; it now stays open, at the same scroll position, so several bands can be shown or hidden in a row.
 - Checkboxes placed directly in a field (saturated pixels, lane numbers, frame, auto width, gamma unlock) lost their layout.
 - Lane chips on the raw image read "2 0 h" for a lane named "0 h"; now "2 · 0 h".
 - The zoom percentage was empty until the first wheel zoom; the "Raw image" column title wrapped; the panel-letter box stretched across the panel.

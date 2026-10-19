@@ -558,6 +558,12 @@
     const all = G.Ladders.ordered(kind);
     // a ladder of another kind still in use stays selectable (e.g. right after switching the type)
     st.markers.forEach(m => { const l = G.Ladders.get(m.ladderId); if (l && !all.includes(l)) all.push(l); });
+    // every commit rebuilds the cards; keep each open band list open, at the same scroll, so several bands can be ticked in a row
+    const wasOpen = {};
+    $('markerList').querySelectorAll('.mk-card').forEach(card => {
+      const d = card.querySelector('details'), lane = (st.markers[+card.dataset.mi] || {}).lane;
+      if (d && d.open && lane != null) wasOpen[lane] = card.querySelector('.list').scrollTop;
+    });
     $('markerList').innerHTML = st.markers.map((m, mi) => {
       const sc = m.score != null ? Math.round(m.score * 100) : null;
       const out = !r || m.lane < r[0] || m.lane > r[1];
@@ -572,7 +578,7 @@
           <select data-f="side"><option value="auto">${'Labels: auto side'}</option><option value="left">${'Labels left'}</option><option value="right">${'Labels right'}</option></select>
           <select data-f="unit">${G.Ladders.unitsFor(kind).concat(G.Ladders.unitsFor(kind).includes(m.unit) ? [] : [m.unit]).map(u => `<option value="${u}">${u === 'auto' ? 'bp/kb' : u}</option>`).join('')}</select>
         </div>
-        <details class="adv"><summary>${`Bands (${shown}/${m.bands.length} shown)`}</summary>
+        <details class="adv"${m.lane in wasOpen ? ' open' : ''}><summary>${`Bands (${shown}/${m.bands.length} shown)`}</summary>
           <div class="list">${m.bands.map((b, k) => `<div class="item"><label class="switch"><input type="checkbox" data-band="${k}" ${b.show ? 'checked' : ''}></label>
             <span style="flex:1">${b.bp} ${unit}${b.ref ? ' ★' : ''}</span><span class="tag ${b.manual ? 'man' : b.matched ? 'ok' : ''}">${b.manual ? 'manual' : b.matched ? 'matched' : 'predicted'}</span></div>`).join('')}</div>
           <div class="field inline"><button class="btn sm" data-f="thin">${'Thin labels'}</button><button class="btn sm ghost" data-f="match">${'Re-match'}</button></div>
@@ -585,6 +591,7 @@
     $('markerList').querySelectorAll('.mk-card').forEach(card => {
       const m = st.markers[+card.dataset.mi], q = f => card.querySelector(`[data-f="${f}"]`);
       q('side').value = m.side; q('unit').value = m.unit;
+      if (m.lane in wasOpen) card.querySelector('.list').scrollTop = wasOpen[m.lane];
       q('ladder').addEventListener('change', done(e => { m.ladderId = e.target.value; m.bands = []; App.prefLadder = m.ladderId; App.matchMarkers(false); }));
       q('side').addEventListener('change', done(e => { m.side = e.target.value; }));
       q('unit').addEventListener('change', done(e => { m.unit = e.target.value; App.prefUnit = m.unit; }));

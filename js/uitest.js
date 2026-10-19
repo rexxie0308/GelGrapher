@@ -365,6 +365,22 @@
       R.rows = { r0, r1, backNames: back.join(','), bottomKept: st.lanes[G.UI.figLanes()[1]].name === 'bottom',
         ok: r0.rows === 2 && r0.lanes >= 10 && r0.lanes <= 12 && r0.markers === 1 && r0.cropIn && r1.lanes === 8 && r1.markers === 1 && r1.cropIn && r1.names === 'M' && back[0] === 'top0' && back[back.length - 1] === 'top' + (back.length - 1) };
     }
+    // 30. the marker's band list stays open (and scrolled) while several bands are ticked one after another
+    {
+      const card = () => document.querySelector('#markerList .mk-card'), m = App.S.markers[0];
+      card().querySelector('details').open = true;
+      const list = card().querySelector('.list'); list.scrollTop = 40; const scroll0 = list.scrollTop;
+      const boxes = () => [...card().querySelectorAll('[data-band]')];
+      const before = m.bands.map(b => b.show);
+      boxes()[0].click();                                   // a real click: change event -> commit -> cards rebuilt
+      const openAfter1 = card().querySelector('details').open;
+      boxes()[1].click();
+      const openAfter2 = card().querySelector('details').open, scroll1 = card().querySelector('.list').scrollTop;
+      R.bandTicks = { openAfter1, openAfter2, scrollKept: scroll0 === 0 || scroll1 === scroll0, toggled: m.bands[0].show !== before[0] && m.bands[1].show !== before[1],
+        boxes: boxes().slice(0, 2).map(b => b.checked).join() === [m.bands[0].show, m.bands[1].show].join(),
+        ok: openAfter1 && openAfter2 && m.bands[0].show !== before[0] && m.bands[1].show !== before[1] };
+      boxes()[0].click(); boxes()[1].click();               // put them back
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);
