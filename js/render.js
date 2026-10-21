@@ -357,5 +357,25 @@
     return { svg, w: vw, h: vh, angle, warnings, overlaps, scale: sc, vx, vy, gelW: W, gelH: H };
   }
 
-  G.Render = { build, composeGel, measure, MM, laneBounds };
+  // the legend notes as a block of wrapped text under a built figure (for exports and printing when asked for)
+  function withNotes(fig, notes, pt) {
+    const text = String(notes || '').trim();
+    if (!text) return fig;
+    const m = /viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/.exec(fig.svg);
+    if (!m) return fig;
+    const [vx, vy, vw, vh] = m.slice(1).map(Number), size = Math.max(6, pt || 7), lh = size * 1.3, maxW = vw - 4;
+    const lines = [];
+    text.split(/\s+/).forEach(w => {
+      const last = lines[lines.length - 1];
+      if (last != null && measure(last + ' ' + w, size) <= maxW) lines[lines.length - 1] = last + ' ' + w; else lines.push(w);
+    });
+    const top = vy + vh + size * 0.6, nh = vh + size * 0.6 + lines.length * lh + 2;
+    const els = lines.map((l, k) => textEl(l, vx + 2, top + size + k * lh, size, 'start', ' fill="#000"')).join('');
+    const svg = fig.svg
+      .replace(/width="[-\d.]+mm" height="[-\d.]+mm" viewBox="[-\d. ]+"/, `width="${f(vw / MM)}mm" height="${f(nh / MM)}mm" viewBox="${f(vx)} ${f(vy)} ${f(vw)} ${f(nh)}"`)
+      .replace(/(<rect x="[-\d.]+" y="[-\d.]+" width="[-\d.]+" height=")[-\d.]+(" fill="#fff"\/>)/, `$1${f(nh)}$2`)
+      .replace(/<\/svg>$/, els + '</svg>');
+    return Object.assign({}, fig, { svg, h: nh, notes: lines.length });
+  }
+  G.Render = { build, composeGel, measure, MM, laneBounds, withNotes };
 })(window);

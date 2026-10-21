@@ -264,6 +264,10 @@
   /* ---------- export (with pre-flight) ---------- */
   $('preflightOn').checked = App.prefs().preflight !== false;
   $('preflightOn').addEventListener('change', e => App.setPref('preflight', e.target.checked));
+  // the legend notes under the figure, in exports and prints, only when asked for (off by default)
+  $('notesOn').checked = !!App.prefs().legendNotes;
+  $('notesOn').addEventListener('change', e => App.setPref('legendNotes', e.target.checked));
+  const figForExport = () => { const f = App.buildFigure(false); return App.prefs().legendNotes ? G.Render.withNotes(f, G.Export.legendHints(S()).join(' '), S().style.fontPt) : f; };
   // resolves true = go ahead, false = user went back to fix
   function preflight() {
     return new Promise(resolve => {
@@ -288,7 +292,7 @@
     if (!(await preflight())) return;
     App.busy(true, 'Exporting…');
     try {
-      const f = App.buildFigure(false), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi());
+      const f = figForExport(), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi());
       if (kind === 'pdf') {
         const r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
         if (r.missing.length) alertDlg(`The PDF uses the standard PDF fonts, which cannot show these characters (written as "?"): ${r.missing.join(' ')}. Use SVG or PNG for them.`);
@@ -307,17 +311,16 @@
    * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
    * saved as a vector PDF to print. */
   function printHtml() {
-    const f = App.buildFigure(false), wmm = f.w / G.Render.MM, shown = Math.min(180, Math.max(wmm, 120));
-    const notes = G.Export.legendHints(S()).join(' ');
+    const f = figForExport(), wmm = f.w / G.Render.MM, shown = Math.min(180, Math.max(wmm, 120));
     const gt = App.gelType(), cap = [baseName(), typeof gt.name === 'function' ? gt.name() : gt.name, new Date().toISOString().slice(0, 10), `figure ${wmm.toFixed(0)} mm wide at ${S().style.dpi} dpi`, `${App.NAME} ${App.VERSION}`];
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(baseName())}</title><style>@page{margin:15mm}body{margin:0;font:9pt -apple-system,Segoe UI,Arial,sans-serif;color:#000}img{display:block;width:${shown.toFixed(1)}mm;max-width:100%}p{margin:3mm 0 0;max-width:180mm}.n{color:#333}</style></head><body><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(f.svg)}"><p>${esc(cap.join(' · '))}</p>${notes ? `<p class="n">${esc(notes)}</p>` : ''}</body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(baseName())}</title><style>@page{margin:15mm}body{margin:0;font:9pt -apple-system,Segoe UI,Arial,sans-serif;color:#000}img{display:block;width:${shown.toFixed(1)}mm;max-width:100%}p{margin:3mm 0 0;max-width:180mm}</style></head><body><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(f.svg)}"><p>${esc(cap.join(' · '))}</p></body></html>`;
   }
   async function printFigure() {
     if (needImage()) return;
     if (G.Host.inClaude()) {
       App.busy(true, 'Preparing a PDF…');
       try {
-        const f = App.buildFigure(false), r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
+        const f = figForExport(), r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
         saved(r.status, 'Printing is not available inside Claude: the figure was saved as a PDF to print');
       } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
       return;
@@ -340,7 +343,7 @@
     if (needImage()) return;
     App.busy(true, 'Rendering…');
     try {
-      const f = App.buildFigure(false), dpi = S().style.dpi;
+      const f = figForExport(), dpi = S().style.dpi;
       const c = await G.Export.svgToCanvas(f.svg, f.w, f.h, dpi);
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
       if (!navigator.clipboard || !window.ClipboardItem) throw new Error('no clipboard');
@@ -350,7 +353,7 @@
       toast('The clipboard is not available here; use Export PNG instead', 3600);
     } finally { App.busy(false); }
   };
-  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(App.buildFigure(false).svg, baseName() + '_figure.svg'), 'Exported SVG'); };
+  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(figForExport().svg, baseName() + '_figure.svg'), 'Exported SVG'); };
   $('btnUncropped').onclick = async () => { if (needImage()) return; App.renderFull(); saved(await G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'), 'Exported the uncropped image (same processing as the figure)'); };
   $('btnOriginal').onclick = async () => {
     if (needImage()) return;

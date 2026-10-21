@@ -547,9 +547,14 @@
     // 37. print: a page with the figure at a readable size and a caption with the legend notes
     {
       const $ = id => document.getElementById(id);
-      const h = G.UI.printHtml(), notes = G.Export.legendHints(App.S).join(' ');
-      R.print = { btn: !!$('btnPrint') && !!$('btnPrintMenu'), svg: /data:image\/svg\+xml/.test(h), name: h.includes(G.UI.esc(App.S.file.name.replace(/\.[^.]+$/, ''))), mm: /width:1[2-8]\d\.\dmm/.test(h), notes: !notes || h.includes(G.UI.esc(notes).slice(0, 40)),
-        ok: !!$('btnPrint') && !!$('btnPrintMenu') && /data:image\/svg\+xml/.test(h) && /width:1[2-8]\d\.\dmm/.test(h) && (!notes || h.includes(G.UI.esc(notes).slice(0, 40))) };
+      const notes = G.Export.legendHints(App.S).join(' '), probe = notes.split(' ').slice(0, 3).join(' ');
+      App.setPref('legendNotes', false); const h0 = G.UI.printHtml(), svg0 = decodeURIComponent(h0.split('data:image/svg+xml;charset=utf-8,')[1].split('"')[0]);
+      App.setPref('legendNotes', true); const h1 = G.UI.printHtml(), svg1 = decodeURIComponent(h1.split('data:image/svg+xml;charset=utf-8,')[1].split('"')[0]);
+      const f = App.buildFigure(false), fn = G.Render.withNotes(f, notes, App.S.style.fontPt);
+      App.setPref('legendNotes', false);
+      R.print = { btn: !!$('btnPrint') && !!$('btnPrintMenu') && !!$('notesOn'), name: h0.includes(G.UI.esc(App.S.file.name.replace(/\.[^.]+$/, ''))), mm: /width:1[2-8]\d\.\dmm/.test(h0),
+        off: !!notes && !svg0.includes(probe), on: !!notes && svg1.includes(probe), taller: fn.h > f.h && fn.svg.includes(`height="`) && fn.notes >= 1,
+        ok: !!$('btnPrint') && !!$('btnPrintMenu') && !!$('notesOn') && /width:1[2-8]\d\.\dmm/.test(h0) && !!notes && !svg0.includes(probe) && svg1.includes(probe) && fn.h > f.h };
     }
     // 36. "all" / "none" picks: the band list and the lane list take every box at once
     {

@@ -127,7 +127,8 @@ Densitometry values are only comparable within one image. For statistics, quanti
 | TIFF | 8-bit grayscale, LZW, with resolution tags and the processing summary. |
 | PDF | Vector text and lines in the standard PDF fonts (Greek letters such as β via the Symbol font); the gel embedded pixel for pixel. |
 | Copy figure | The figure as a PNG on the clipboard, at the chosen dpi. |
-| Print (printer button, Ctrl+P) | The figure with a caption (file, experiment, date, legend notes) for a lab notebook; a PDF inside the Claude artifact. |
+| Print (printer button, Ctrl+P) | The figure with a caption (file, experiment, date) for a lab notebook; a PDF inside the Claude artifact. |
+| Include legend notes | Export-menu option, off by default: the legend notes are written under the figure in exports and prints. |
 | SVG | Vector text and lines; edit in Illustrator or Inkscape. |
 | Uncropped image | Same rotation and contrast as the figure, with the crop box, strips, well numbers and removed lanes marked. |
 | Original data | The untouched source file (and marker image), byte-identical, with its SHA-256 in the file name. |
