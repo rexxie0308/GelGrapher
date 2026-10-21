@@ -53,7 +53,7 @@
   App.onDropFile = null;   // set by the UI layer
 
   App.NAME = 'GelGrapher';
-  App.VERSION = '1.0.0';
+  App.VERSION = '1.1.0';
   App.prefs = prefs;
   App.setPref = function (k, v) { const p = prefs(); p[k] = v; writePrefs(p); };
   App.notify = function (msg) { if (G.UI && G.UI.alert) G.UI.alert(msg); else console.error(msg); };
