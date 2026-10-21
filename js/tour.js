@@ -108,8 +108,8 @@
     try { ok = !!s.done(base); } catch (e) { ok = false; }
     if (!ok) return;
     isDone = true; place();
-    if (s.after) { try { s.after(); } catch (e) { /* best effort */ } }
-    setTimeout(() => { if (mode === 'tutorial' && steps[i] === s && isDone) go(i + 1); }, 900);
+    // the hand-over runs a moment later, after whatever follows the action (an example applies its annotations after loading)
+    setTimeout(() => { if (mode !== 'tutorial' || steps[i] !== s || !isDone) return; if (s.after) { try { s.after(); } catch (e) { /* best effort */ } } go(i + 1); }, 900);
   }
   function start(which) {
     mode = which === 'tutorial' ? 'tutorial' : 'tour';
