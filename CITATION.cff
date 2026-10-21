@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use GelGrapher in your research, please cite it as below."
+title: "GelGrapher: publication-ready gel and blot figures and densitometry in the browser"
+type: software
+authors:
+  - alias: rexxie0308
+version: 1.0.0
+date-released: "2026-10-19"
+license: MIT
+repository-code: "https://github.com/rexxie0308/GelGrapher"
+url: "https://rexxie0308.github.io/GelGrapher/"
+keywords:
+  - gel electrophoresis
+  - SDS-PAGE
+  - Western blot
+  - densitometry
+  - scientific figures
+  - image integrity
+references:
+  - type: software
+    title: "GelFigure: publication-ready DNA gel figures in the browser"
+    authors:
+      - alias: poplarity
+    version: 0.5.0
+    license: MIT
+    repository-code: "https://github.com/poplarity/GelFigure"

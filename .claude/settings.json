@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm test -- --browser=chromium)",
+      "Bash(npm run check)",
+      "Bash(npm run build)",
+      "Bash(node tests/run.mjs:*)",
+      "Bash(node tools/check.mjs)",
+      "Bash(node tools/build-artifact.mjs:*)"
+    ]
+  }
+}

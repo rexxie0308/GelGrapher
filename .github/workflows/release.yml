@@ -1,0 +1,32 @@
+# Push a tag like v1.0.0 to publish a release with an offline copy (unzip, open index.html) and the
+# single-file Claude artifact build attached.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/build-artifact.mjs
+      - name: Package the offline app
+        run: |
+          mkdir -p GelGrapher
+          cp -r index.html css js LICENSE README.md GelGrapher/
+          rm GelGrapher/js/uitest.js
+          zip -r "GelGrapher-${GITHUB_REF_NAME}.zip" GelGrapher
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "GelGrapher-${GITHUB_REF_NAME}.zip" dist/gelgrapher-artifact.html \
+            --title "GelGrapher $GITHUB_REF_NAME" --notes "See CHANGELOG.md. Offline use: unzip and open index.html."

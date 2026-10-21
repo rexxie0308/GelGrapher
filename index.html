@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Everything runs locally. This policy forbids the page from contacting any server, so images can never leave the computer. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src 'self' file: data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="description" content="GelGrapher: publication-ready figures and densitometry for DNA / RNA gels, SDS-PAGE, Western, Southern and Northern blots, in the browser. Nothing is uploaded.">
+<title>GelGrapher</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23176D7C'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='8' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='13' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='18' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='23' width='6' height='2.2' rx='1'/%3E%3Crect x='19' y='15' width='7' height='3' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">GelGrapher</div>
+  <button class="chip" id="imgChip" title="Open / replace image"><span class="chip-dot"></span><span id="imgChipName">Open image</span></button>
+  <div class="coach" id="coach"><span class="coach-dot"></span><span id="coachText">Drop a gel image into the window to start</span></div>
+  <div class="topbar-right">
+    <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
+    <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
+    <div class="menu-wrap">
+      <button class="btn ghost" id="btnTplMenu">File ▾</button>
+      <div class="menu hidden" id="tplMenu">
+        <label><span>Open image…</span><small>Select several exposures of one gel to pick the best automatically</small><input type="file" id="fileInput3" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" multiple hidden></label>
+        <label><span>Open project…</span><small>.gelfig project file, or a .zip that contains one</small><input type="file" id="projInput" accept=".gelfig,.json,.zip" hidden></label>
+        <button id="btnSaveProj"><span>Save project…</span><small>Original image + every setting and annotation; continue on any computer</small></button>
+        <div class="menu-sep"></div>
+        <button id="btnSaveTpl"><span>Save style…</span><small>Lane names, markers, groups, layout — reuse for similar gels</small></button>
+        <label><span>Apply style…</span><input type="file" id="tplInput" accept=".json" hidden></label>
+        <div class="menu-sep"></div>
+        <button id="btnResetAll" class="danger">Reset everything (back to import)</button>
+      </div>
+    </div>
+    <button class="icon-btn" id="btnHelp" title="Help">?</button>
+    <span class="divider"></span>
+    <select id="dpiTop" title="Export resolution"><option value="300">300 dpi</option><option value="600" selected>600 dpi</option><option value="1200">1200 dpi</option></select>
+    <div class="menu-wrap">
+      <div class="split">
+        <button class="btn primary" id="btnPNG">Export PNG</button><button class="btn primary caret" id="btnExportMenu">▾</button>
+      </div>
+      <div class="menu hidden right" id="exportMenu">
+        <button id="btnTIFF"><span>TIFF (LZW, grayscale)</span><small>For journals that only accept TIFF (e.g. PLOS)</small></button>
+        <button id="btnPDF"><span>PDF (vector)</span><small>Text and lines stay vector; the gel is embedded pixel for pixel</small></button>
+        <button id="btnSVG">SVG (vector, editable in Illustrator)</button>
+        <button id="btnCopyFig"><span>Copy figure to clipboard</span><small>PNG at the chosen dpi, for pasting into slides or a lab notebook</small></button>
+        <div class="menu-sep"></div>
+        <button id="btnUncropped"><span>Uncropped image (same processing)</span><small>For the supplement: same contrast and orientation, crop box and well numbers marked</small></button>
+        <button id="btnOriginal"><span>Original data (file + SHA-256)</span><small>The untouched source file, byte-identical</small></button>
+        <button id="btnLog"><span>Processing log (JSON)</span><small>File fingerprint, all parameters, clipping, effective resolution</small></button>
+        <div class="menu-sep"></div>
+        <label class="menu-check"><input type="checkbox" id="preflightOn" checked> <span>Check before export</span></label>
+      </div>
+    </div>
+    <input type="file" id="fileInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden>
+    <input type="file" id="markerInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" hidden>
+  </div>
+</header>
+
+<div id="app">
+  <aside id="panel">
+    <div class="empty" id="emptyState">
+      <div class="empty-icon">▣</div>
+      <h2>Drop a gel or blot image here</h2>
+      <div class="field type-field"><label for="gelTypeStart">Experiment</label><select id="gelTypeStart"></select><p class="hint" id="gelTypeStartHint"></p></div>
+      <p>TIFF from iBright, ChemiDoc and other imagers (16 / 8-bit), PNG or JPG.<br>Straightening, cropping, lanes and marker sizes are automatic;<br>you type the lane names and export.</p>
+      <label class="btn primary big"><span>Choose file</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
+      <div class="examples"><span class="ex-label">Examples (synthetic)</span>
+        <button class="btn" id="btnDemo" data-example="dna">DNA gel</button><button class="btn" data-example="sds">SDS-PAGE</button><button class="btn" data-example="western">Western blot</button></div>
+      <div id="draftBox" class="draft hidden">
+        <div><span>Unfinished figure from last time:</span><b id="draftName"></b><br><span class="muted small" id="draftTime"></span></div>
+        <div class="inline"><button class="btn sm primary" id="btnDraftRestore">Restore</button><button class="btn sm ghost" id="btnDraftDrop">Discard</button></div>
+      </div>
+      <p class="hint">You can drop several exposures of the same gel at once; the best one is picked automatically.</p>
+      <p class="privacy">Images are processed only in this browser and never uploaded.</p>
+    </div>
+
+    <div id="sections" class="hidden">
+      <!-- image -->
+      <section class="sec">
+        <div class="sec-head"><span class="sec-n">1</span><span>Image</span><span class="sec-status" id="stImage"></span></div>
+        <div class="field type-field"><label for="gelType">Experiment</label><select id="gelType"></select><p class="hint" id="gelTypeHint"></p></div>
+        <div class="seg full" id="polSeg">
+          <button data-dark="0"><span>Bright bands, dark background</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span>Dark bands, light background</span><small class="pol-note" data-k="1"></small></button>
+        </div>
+        <p class="hint" id="invNote"></p>
+        <details class="adv" id="imgAdv">
+          <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
+        <div class="field">
+          <label><span>Rotation</span> <b id="rotV"></b> <span class="h3-note" id="rotAuto"></span></label>
+          <div class="inline nowrap">
+            <button class="btn sm ghost step-btn" id="rotMinus" title="−0.5°">−</button>
+            <input type="range" id="rot" min="-45" max="45" step="0.1" value="0">
+            <button class="btn sm ghost step-btn" id="rotPlus" title="+0.5°">+</button>
+            <input type="number" id="rotNum" step="0.1" min="-45" max="45" class="num" style="width:58px">
+          </div>
+          <div class="inline mt">
+            <button class="btn sm" id="btnDeskew">Auto straighten</button>
+            <button class="btn sm ghost" id="btnResetRot">Back to auto angle</button>
+            <label class="switch"><input type="checkbox" id="showGrid"><span>Grid</span></label>
+          </div>
+          <div class="inline mt">
+            <button class="btn sm" id="btnFlipV" title="Wells at the bottom? Flip top to bottom">⇅ Flip vertical</button>
+            <button class="btn sm" id="btnFlipH" title="Mirrored image? Flip left to right">⇄ Flip horizontal</button>
+            <span class="h3-note" id="flipNote"></span>
+          </div>
+        </div>
+        <div class="field"><label><span>Black point</span> <b id="lvBlackV"></b></label><input type="range" id="lvBlack" min="0" max="1000"></div>
+        <div class="field"><label><span>White point</span> <b id="lvWhiteV"></b></label><input type="range" id="lvWhite" min="0" max="1000"></div>
+        <canvas id="histo" height="40"></canvas>
+        <div class="clipline" id="clipLine"></div>
+        <div class="field inline">
+          <button class="btn sm" id="btnResetLv" title="Back to the automatic contrast from import; gamma 1; polarity unchanged">Reset contrast</button>
+          <button class="btn sm ghost" id="btnAutoLv">Auto for current crop</button>
+          <label class="switch"><input type="checkbox" id="showSat"><span>Show saturated pixels</span></label>
+        </div>
+        <details class="adv">
+          <summary>Gamma (non-linear, must be stated in the legend)</summary>
+          <div class="field inline">
+            <label class="switch"><input type="checkbox" id="gammaUnlock"><span>Unlock</span></label>
+            <input type="number" id="gamma" min="0.2" max="5" step="0.05" value="1" class="num" disabled>
+          </div>
+        </details>
+        </details>
+      </section>
+
+      <!-- range -->
+      <section class="sec">
+        <div class="sec-head"><span class="sec-n">2</span><span>Lanes in figure</span><span class="sec-status" id="stRange"></span></div>
+        <div class="rows hidden" id="rowBox">
+          <div class="cl-head">Rows of wells on this gel <span class="h3-note">one figure per row; names and annotations of each row are kept</span></div>
+          <div class="seg full" id="rowSeg"></div>
+        </div>
+        <div class="field inline range-row">
+          <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
+          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
+        </div>
+        <p class="hint">Or drag the red box on the image; its sides snap to the gaps between lanes (hold Alt to move freely). Names are never lost.</p>
+        <details class="adv" id="fixLanes">
+          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
+          <div class="crop-lanes">
+            <div class="field inline">
+              <button class="btn sm" id="btnRedetectCrop">Re-detect in box</button>
+              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
+              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
+            </div>
+            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”: this is almost always right. Only the image inside the box is used; names stay left to right.</p>
+          </div>
+        </details>
+        <div class="suggest hidden" id="emptyBar">
+          <div id="emptyText"></div>
+          <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
+        </div>
+        <details class="adv" id="laneAdv">
+          <summary><span>Individual lanes: remove / adjust</span><span class="h3-note" id="laneCountNote"></span></summary>
+          <div id="laneList" class="list"></div>
+          <div class="field inline">
+            <label class="inline-label"><span>Splice gap</span> <input type="range" id="spliceGap" min="0" max="5" step="0.25" style="width:110px"> <b id="spliceGapV"></b></label>
+            <select id="spliceStyle" style="width:auto"><option value="gap">White gap</option><option value="line">Divider line</option></select>
+          </div>
+          <p class="hint">Untick “Show” (or select the lane on the image and press <code>H</code>) to leave a lane out; a splice gap marks the place. On the image: drag a lane line to move it, double-click empty space to add a lane, Delete removes the selected one.</p>
+          <div class="field inline">
+            <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
+          </div>
+        </details>
+      </section>
+
+      <!-- names -->
+      <section class="sec">
+        <div class="sec-head"><span class="sec-n">3</span><span>Lane names</span><span class="sec-status" id="stNames"></span></div>
+        <p class="lead"><b>Click a lane name</b> on the figure and type; Enter jumps to the next. Or paste a row of names:</p>
+        <textarea id="laneBulk" rows="2" placeholder="M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
+        <p class="hint">Filled into the lanes in the figure from left to right. <code>*lacZ*</code> becomes italic.</p>
+      </section>
+
+      <!-- marker -->
+      <section class="sec">
+        <div class="sec-head"><span class="sec-n">4</span>Marker<span class="sec-status" id="stMarker"></span></div>
+        <div id="markerList"></div>
+        <div class="field inline">
+          <button class="btn sm" id="btnAddMarker">+ Add marker lane</button>
+          <button class="btn sm ghost" id="btnAutoMarkers">Re-detect</button>
+        </div>
+        <div class="mk-image" id="mkImageBox">
+          <div class="cl-head"><span>Marker image</span> <span class="h3-note">optional, for Westerns</span></div>
+          <p class="hint" id="mkImageText">Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.</p>
+          <div class="field inline"><button class="btn sm" id="btnMarkerImg">Load marker image…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel">Remove</button>
+            <label class="switch hidden" id="mkOverlayWrap"><input type="checkbox" id="mkOverlay" checked><span>Overlay on image</span></label></div>
+        </div>
+        <details class="adv" id="favAdv">
+          <summary><span>Favourite ladders ★</span><span class="h3-note" id="favNote"></span></summary>
+          <p class="hint" style="margin-top:2px">★ on a marker card makes it a favourite; detection tries favourites first.</p>
+          <div id="favList" class="list"></div>
+          <label class="switch"><input type="checkbox" id="onlyFav"><span>Detect among favourites only (falls back to all if none fits)</span></label>
+        </details>
+        <details class="adv">
+          <summary>Custom ladder</summary>
+          <div class="field"><input type="text" id="customName" placeholder="Name"></div>
+          <div class="field"><input type="text" id="customSizes" placeholder="Band sizes, comma separated"></div>
+          <button class="btn sm" id="btnSaveLadder">Save and use</button>
+          <div id="customList" class="list"></div>
+        </details>
+      </section>
+
+      <!-- annotations -->
+      <section class="sec">
+        <div class="sec-head"><span class="sec-n">5</span><span>Annotations</span> <span class="h3-note">optional</span></div>
+        <div class="tools">
+          <button class="tool" id="btnAddGroup"><span class="ti">⎴</span><span>Group line</span><small>Drag across lane names</small></button>
+          <button class="tool" id="btnAddArrow"><span class="ti">◀</span><span>Target band</span><small>Click a band; size estimated</small></button>
+          <button class="tool" id="btnAddCond"><span class="ti">±</span><span>Condition row</span><small>+ / − matrix</small></button>
+          <button class="tool" id="btnAddStrip"><span class="ti">☰</span><span>Strip</span><small>Chosen regions, stacked</small></button>
+        </div>
+        <div id="annoList" class="list"></div>
+      </section>
+
+      <!-- layout -->
+      <section class="sec">
+        <details class="adv flush">
+          <summary class="sec-head as-summary"><span class="sec-n">6</span><span>Layout</span> <span class="h3-note" id="stLayout"></span></summary>
+          <div class="field inline">
+            <label class="switch"><input type="checkbox" id="autoWidth" checked><span>Auto width</span></label>
+            <label class="inline-label"><span>Gel width</span> <input type="number" id="gelW" min="10" max="180" step="1" class="num"> mm</label>
+            <select id="widthPreset" style="width:auto" title="Journal column width (total figure width, labels included)"><option value="">Column…</option><option value="85">Single column 85 mm</option><option value="120">1.5 columns 120 mm</option><option value="180">Double column 180 mm</option></select>
+          </div>
+          <div class="dpiline" id="dpiLine"></div>
+          <div class="field inline">
+            <label class="inline-label"><span>Font</span> <input type="number" id="fontPt" min="4" max="14" step="0.5" class="num"> pt</label>
+            <label class="inline-label"><span>Line</span> <input type="number" id="lineW" min="0.25" max="2" step="0.25" class="num"> pt</label>
+          </div>
+          <div class="field inline">
+            <label class="inline-label">Label angle</label>
+            <select id="labelAngle" style="width:auto">
+              <option value="auto">Auto</option><option value="0">0°</option><option value="45">45°</option><option value="60">60°</option><option value="90">90°</option>
+            </select>
+            <span class="h3-note" id="angleInfo"></span>
+          </div>
+          <div class="field inline wrap">
+            <label class="switch"><input type="checkbox" id="unitHeader" checked><span>Unit header (kDa / bp)</span></label>
+            <label class="switch"><input type="checkbox" id="laneNumbers"><span>Lane numbers</span></label>
+            <label class="switch"><input type="checkbox" id="frame"><span>Frame</span></label>
+            <label class="switch"><input type="checkbox" id="groupTicks"><span>Group line ends</span></label>
+          </div>
+          <div class="field inline">
+            <label class="inline-label"><span>Numbering</span> <select id="laneNumberMode" style="width:auto"><option value="well">By well</option><option value="seq">In figure order</option></select></label>
+            <label class="inline-label"><span>Panel letter</span> <input type="text" id="panelLetter" maxlength="2" class="num" placeholder="a"></label>
+          </div>
+          <div class="field inline">
+            <label class="inline-label"><span>Gap between strips</span> <input type="number" id="stripGap" min="0" max="12" step="0.5" class="num"> pt</label>
+          </div>
+          <button class="btn sm ghost" id="btnResetLayout">Reset layout</button>
+        </details>
+      </section>
+
+      <!-- quantification -->
+      <section class="sec" id="quantSec">
+        <details class="adv flush" id="quantDetails">
+          <summary class="sec-head as-summary"><span class="sec-n">7</span><span>Quantify</span> <span class="h3-note" id="stQuant">densitometry, band sizes</span></summary>
+          <div class="seg full" id="quantTabs"><button data-tab="int" class="on">Band intensity</button><button data-tab="size">Band sizes</button></div>
+          <div id="quantInt">
+            <p class="lead">Add a <b>band box</b> per protein or product (e.g. target and loading control): click the band on the raw image, or drag across it.</p>
+            <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><span class="h3-note">tick = loading control</span></div>
+            <div id="boxList" class="list"></div>
+            <div class="field inline">
+              <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto"><option value="edge">Straight line at box edges</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
+            </div>
+            <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
+            <div class="field inline"><label class="inline-label"><span>Relative to lane</span> <select id="qRef" style="width:auto"></select></label></div>
+            <div id="quantTable" class="qtable"></div>
+            <div id="quantChart" class="qchart"></div>
+            <div class="field inline wrap" id="quantActions">
+              <button class="btn sm" id="btnQCopy">Copy table</button><button class="btn sm" id="btnQCSV">CSV</button>
+              <select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="svg">SVG</option><option value="pdf">PDF</option></select><button class="btn sm" id="btnQChart">Export chart</button>
+            </div>
+            <details class="adv"><summary>Lane profile</summary>
+              <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
+              <canvas id="qProfile" height="130"></canvas>
+              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
+            </details>
+            <p class="hint">Numbers come from the raw pixel values (only rotation is applied; the contrast setting has no effect). Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+          </div>
+          <div id="quantSize" class="hidden">
+            <p class="lead">Every band in every lane of the figure, sized against the marker.</p>
+            <div id="sizeTable" class="qtable"></div>
+            <div class="field inline"><button class="btn sm" id="btnSCopy">Copy table</button><button class="btn sm" id="btnSCSV">CSV</button></div>
+          </div>
+        </details>
+      </section>
+
+      <div class="legend-wrap">
+        <div id="legendHints" class="legend"></div>
+        <button class="btn sm claude-btn hidden" id="btnClaude">Draft legend and methods with Claude</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="stage">
+    <section class="pane-col" id="rawCol">
+      <div class="col-head">
+        <span class="col-title">Raw image</span>
+        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span>
+        <span class="flex"></span>
+        <button class="btn sm ghost" id="fitFull" title="Show the whole image">Full</button>
+        <button class="btn sm ghost" id="fitCrop" title="Zoom to the figure area">Crop</button>
+        <span class="zoomlabel" id="zoomLabel"></span>
+      </div>
+      <div id="expoStrip" class="expo hidden"></div>
+      <div id="editorBox" tabindex="0">
+        <canvas id="editor"></canvas>
+        <div id="dropHint">
+          <div class="dh-icon">▣</div>
+          <div class="dh-text">Drop the gel image here</div>
+          <div class="dh-sub">A .tif straight from the imager works</div>
+        </div>
+      </div>
+    </section>
+    <section class="pane-col" id="figCol">
+      <div class="col-head">
+        <span class="col-title">Figure</span>
+        <span class="col-sub" id="figSub">Click any text to edit it</span>
+        <span class="flex"></span>
+        <span class="zoomlabel" id="figSize"></span>
+      </div>
+      <div id="previewBox">
+        <div id="preview"></div>
+        <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="popover" class="popover hidden"></div>
+<input id="floatEd" class="float-ed hidden" type="text" autocomplete="off" spellcheck="false">
+<div id="warnings"></div>
+<div id="toasts"></div>
+
+<div id="helpDlg" class="dlg hidden"><div class="dlg-body">
+  <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
+  <div>
+  <h3>Fastest way to a figure</h3>
+  <ol>
+    <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
+    <li><b>Click a lane name</b> on the figure and type; Enter jumps to the next (or paste a whole row on the left).</li>
+    <li>Check the ladder on the left. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
+    <li>“Export PNG” at the top right (or PDF, TIFF, SVG). A pre-flight check points out problems first.</li>
+  </ol>
+  <h3>Common tasks</h3>
+  <ul>
+    <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
+    <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
+    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
+    <li><b>Densitometry</b>: step 7, “+ Band box”, click the band on the raw image. Tick the loading control; the table and chart are normalized to it.</li>
+    <li><b>Band sizes in every lane</b>: step 7, “Band sizes”.</li>
+    <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
+    <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
+    <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
+    <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
+    <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
+    <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
+    <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
+  </ul>
+  <h3>Image integrity</h3>
+  <ul>
+    <li>Only linear, whole-image adjustments; gamma is locked at 1 unless unlocked.</li>
+    <li>Camera saturation (re-image needed) and contrast clipping (fixable) are reported separately.</li>
+    <li>Removed lanes get a splice mark and strips a gap; never splice different gels into one panel.</li>
+    <li>Densitometry uses the raw pixel values, never the display contrast.</li>
+    <li>Also export the uncropped image and the original file for the supplement.</li>
+  </ul>
+  <p class='muted small'>Shortcuts: Ctrl+Z undo · Ctrl+Shift+Z redo · Space+drag pan · wheel zoom · H remove/restore lane · Esc cancel</p>
+  <p class='muted small'>GelGrapher is based on GelFigure by poplarity (MIT): <a href='https://github.com/poplarity/GelFigure' target='_blank' rel='noopener'>github.com/poplarity/GelFigure</a>. Source: <a href='https://github.com/rexxie0308/GelGrapher' target='_blank' rel='noopener'>github.com/rexxie0308/GelGrapher</a>.</p></div>
+</div></div>
+
+<div id="askDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body ask">
+  <div id="askText"></div>
+  <div class="pf-actions"><span class="flex"></span><button class="btn" id="askNo">Cancel</button><button class="btn primary" id="askYes">OK</button></div>
+</div></div>
+
+<div id="claudeDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body claude">
+  <button class="dlg-x" id="btnClaudeClose" aria-label="Close">×</button>
+  <h3>Legend and methods draft</h3>
+  <p class="hint">Only text is sent to Claude: lane names, sizes, settings and numbers. The image stays in this browser. Check every statement before you use it.</p>
+  <div id="claudeOut" class="claude-out" aria-live="polite"></div>
+  <div class="pf-actions"><span id="claudeNote" class="muted small"></span><span class="flex"></span>
+    <button class="btn" id="claudeStop">Stop</button><button class="btn" id="claudeAgain">Write again</button><button class="btn primary" id="claudeCopy">Copy</button></div>
+</div></div>
+
+<div id="preflightDlg" class="dlg hidden"><div class="dlg-body pf">
+  <h3>Pre-flight check</h3>
+  <div id="pfList"></div>
+  <div class="pf-actions">
+    <label class="switch"><input type="checkbox" id="pfOff"><span>Don’t check again</span></label>
+    <span class="flex"></span>
+    <button class="btn" id="pfBack">Go back and fix</button>
+    <button class="btn primary" id="pfGo">Export anyway</button>
+  </div>
+</div></div>
+
+<div id="busy" class="hidden"><div class="spinner"></div><div class="busy-text" id="busyText"></div></div>
+
+<script src="js/tiff.js"></script>
+<script src="js/ladders.js"></script>
+<script src="js/gels.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/render.js"></script>
+<script src="js/quant.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/host.js"></script>
+<script src="js/export.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/app.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/figedit.js"></script>
+<script src="js/quantui.js"></script>
+<script src="js/claude.js"></script>
+</body>
+</html>
