@@ -8,6 +8,7 @@
 - English-only interface: the Chinese translation layer (`js/i18n.js`, `L()` calls, `data-en` attributes) and the language button are removed.
 
 ### Added
+- Installable app: the web version registers a service worker (`sw.js`) that stores the app in the browser, so it opens offline; each deployment is stamped with its commit and the next online start offers "Reload" to switch to it. "Install as an app" in the File menu where the browser supports it; web app manifest and icons. Not part of the Claude artifact or of a locally opened file.
 - Gels with several rows of wells (two combs): the rows are found, one row is shown at a time with its own crop, lanes and ladder, and a row switcher under "Lanes in figure" keeps the names and annotations of every row.
 - Lane chips on the raw image thin out when many lanes are shown at a small zoom instead of piling up.
 - Flip vertical / horizontal (Image section): for gels imaged with the wells at the bottom or mirrored. Every annotation follows, the processing log and legend notes record the orientation change.

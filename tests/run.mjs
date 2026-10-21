@@ -17,12 +17,14 @@ const channel = arg('channel');   // e.g. msedge to use an installed Edge instea
 const ENGINES = { chromium, firefox, webkit };
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
+let swVersion = 'test1';   // what the served sw.js is stamped with; the PWA test bumps it to simulate a deployment
 function serve() {
   const server = http.createServer((req, res) => {
     const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
     if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    if (rel === '/sw.js') { res.end(fs.readFileSync(file, 'utf8').replace(/__VERSION__/g, swVersion)); return; }
     fs.createReadStream(file).pipe(res);
   });
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
@@ -110,6 +112,30 @@ async function runIn(name, base) {
       }
       if (errs.length) fail('interface page errors', errs.join(' | '));
       await page.close();
+    }
+    // installable app: the service worker stores the app, serves it offline, and a new deployment is offered as "Reload"
+    {
+      const pctx = await browser.newContext({ viewport: { width: 1200, height: 800 } }), page = await pctx.newPage();
+      try {
+        await page.goto(`${base}/index.html?pwa=1`);
+        await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 60000 });
+        const stored = await page.evaluate(async () => { const c = await caches.open((await caches.keys()).find(k => k.startsWith('gelgrapher-'))); return (await c.keys()).length; });
+        await pctx.setOffline(true);
+        await page.goto(`${base}/index.html?pwa=1&demo=1`);
+        await page.waitForFunction(() => window.App && window.App.S && window.App.S.lanes.length > 0, null, { timeout: 60000 });
+        const offline = await page.evaluate(() => ({ lanes: App.S.lanes.length, bar: document.getElementById('updateBar').classList.contains('hidden') }));
+        await pctx.setOffline(false);
+        swVersion = 'test2';                       // a new deployment
+        await page.goto(`${base}/index.html?pwa=1`);
+        await page.waitForSelector('#updateBar:not(.hidden)', { timeout: 60000 });
+        await Promise.all([page.waitForNavigation({ timeout: 60000 }), page.click('#updateReload')]);
+        await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 60000 });
+        const keys = await page.evaluate(() => caches.keys());
+        stored >= 24 ? pass('installable app stores the whole app') : fail('installable app stores the whole app', `${stored} files`);
+        offline.lanes > 0 && offline.bar ? pass('installable app opens offline') : fail('installable app opens offline', JSON.stringify(offline));
+        keys.includes('gelgrapher-test2') && !keys.includes('gelgrapher-test1') ? pass('installable app takes the new version on Reload') : fail('installable app takes the new version on Reload', keys.join());
+      } catch (e) { fail('installable app', e.message.split('\n')[0]); }
+      finally { swVersion = 'test1'; await pctx.close(); }
     }
     // privacy: the Content Security Policy must stop every request to another origin
     {

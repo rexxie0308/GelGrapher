@@ -16,7 +16,9 @@ Run `npm run check` and the Chromium tests before every push. CI (`.github/workf
 ## Architecture
 
 Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in this order by `index.html`:
-`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → editor → ui → figedit → quantui → claude`.
+`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → editor → ui → figedit → quantui → claude → pwa`.
+
+`pwa.js` (marked `data-artifact="no"`, so the artifact build leaves it out) registers `sw.js`, the service worker that stores the app shell for offline use and offers "Reload" when a deployment with a new stamp is found; it runs only over http(s) outside the artifact, and on localhost only with `?pwa=1`. `sw.js` lists every file of the shell (`tools/check.mjs` compares it with `index.html` and `manifest.webmanifest`); the Pages and release workflows replace `__VERSION__` in it. The offline and update behaviour is tested in `tests/run.mjs` (it needs a fresh browser context and `setOffline`), not in `js/uitest.js`.
 
 - `app.js` owns the state `App.S` (JSON-serialisable; undo history is snapshots of it). Coordinates of lanes, bands, arrows, strips and band boxes are in rotated-image pixels, so cropping never moves annotations. `App.src0` is the image as decoded and `App.src` is it flipped as `S.flip` says (`App.applyFlip`, called from `ensureRot`, so undo / redo / project loads re-derive it); `App.flip(axis)` mirrors every annotation in the rotated frame and negates the rotation. New state fields need a default in `startFrom` and in `normalize()` (old projects / GelFigure files lack them), must be carried in `setRotation` and mirrored in `App.flip`, and lane indices must be remapped in `replaceLanes` / `removeLane` / `reorderLanes` / `fixIndices`.
 - A gel with several rows of wells keeps `S.gelRows` (y ranges), `S.gelRow` (the row shown) and `S.rowStash` (the other rows' `ROW_KEYS` state); `App.setGelRow` swaps them. `setRotation` and `App.flip` carry the stash too; `E.autoCrop(img, bright, band)` restricts the crop to one row.

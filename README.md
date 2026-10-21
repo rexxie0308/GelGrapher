@@ -79,7 +79,9 @@ Added in GelGrapher:
 
 **In Claude:** open the [GelGrapher artifact](https://claude.ai/artifact/TaJkMEbS7d2Yf81LcVr2oj) (it is pinned in your claude.ai sidebar). The artifact is private to its owner until you share it from its *Share* menu; it adds "Draft legend and methods with Claude".
 
-**Offline:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed.
+**As an app:** on the web version, *File ▾ → Install as an app* (Chrome, Edge) or the browser's own *Add to Dock* / *Add to Home Screen* (Safari). The installed app has its own window and icon, opens without an internet connection, and whenever it starts online it fetches the newest version in the background and offers "Reload". This is the easiest way for a lab to stay on one, current version.
+
+**Offline, fixed version:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed; it never changes, which is what you want for the exact build cited in a paper.
 
 Then:
 
