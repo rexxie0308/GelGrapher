@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- Library: every gel you open is kept in the browser (IndexedDB) with its latest edits, a thumbnail and a name you can change; the next visit shows your gels and one click reopens one as you left it. The open gel is saved after every change; the gel can be removed from its card. Replaces the single autosaved draft (an existing draft is moved into the library).
+
+### Changed
+- The top-bar menu is "Open / Save" with grouped entries (Open: image, project file; Save to a file: project, style; This app: install, reset) instead of "File"; a "Library" button sits beside it.
+
 ## 1.1.0 (2026-10-21)
 
 ### Changed

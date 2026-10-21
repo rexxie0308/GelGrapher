@@ -29,6 +29,7 @@ Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in t
 - `render.js` builds the figure SVG in points (`composeGel` handles removed lanes and stacked strips; `mapY` maps crop rows to figure rows or null outside strips).
 - `quant.js` is densitometry on raw pixels (never the display levels) and the band-size table; `quantui.js` is its panel.
 - `host.js` is the only place that touches `window.claude` (Claude artifact runtime). Everything must work without it.
+- The library (`App.library` in `app.js`: `list` / `open` / `rename` / `remove` / `clear`) keeps every opened gel in IndexedDB: store `gels` has one small record per image (state snapshot, thumbnail, title, names; key = the image's SHA-256), store `blobs` the file bytes once per image and per marker image. `App.saveDraftSoon` (called by `commit` / `undo` / `redo`) saves 800 ms after a change; examples are never saved, and a gel removed while open stays out (`App._libSkip`) until it is loaded again. `ui.js` renders the cards on the start screen (`#libBox`) and in the Library dialog (`#libDlg`). Self-tests 19 and 32 need IndexedDB (`?draft=1`).
 
 ## Conventions
 

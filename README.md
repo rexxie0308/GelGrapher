@@ -58,7 +58,7 @@ From GelFigure:
 - **Several exposures at once**: the best one (least saturation, best signal-to-noise) is chosen.
 - **Lane removal with splice marks**, empty-lane suggestions, rotation that carries every annotation.
 - **Pre-flight check before export**: camera saturation, contrast clipping, effective resolution below 300 dpi, small fonts, extrapolated sizes.
-- **Reproducible**: project files with the original image and every setting, style templates, an autosaved draft.
+- **Reproducible**: a library in the browser that keeps every gel you opened with its latest edits (reopen it as you left it), project files with the original image and every setting, style templates.
 
 Added in GelGrapher:
 
@@ -80,6 +80,8 @@ Added in GelGrapher:
 **In Claude:** open the [GelGrapher artifact](https://claude.ai/artifact/TaJkMEbS7d2Yf81LcVr2oj) (it is pinned in your claude.ai sidebar). The artifact is private to its owner until you share it from its *Share* menu; it adds "Draft legend and methods with Claude".
 
 **As an app:** on the web version, *File ▾ → Install as an app* (Chrome, Edge) or the browser's own *Add to Dock* / *Add to Home Screen* (Safari). The installed app has its own window and icon, opens without an internet connection, and whenever it starts online it fetches the newest version in the background and offers "Reload". This is the easiest way for a lab to stay on one, current version.
+
+**Coming back to a gel:** every gel you open is kept in the browser's *Library* (top bar) with your latest edits, so the next visit shows your gels and one click reopens one exactly as you left it. The open gel is saved after every change. To move a gel to another computer or to archive it with a paper, save a project file (*Open / Save ▾ → Project…*).
 
 **Offline, fixed version:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed; it never changes, which is what you want for the exact build cited in a paper.
 
@@ -159,7 +161,7 @@ GelGrapher is a static page with no backend. Images are decoded and processed by
 
 - The web and offline versions carry a Content Security Policy that **forbids the page from connecting to any server**; the test suite checks this.
 - In the Claude artifact, files are saved only through Claude's own save prompt. **Draft legend and methods with Claude** sends a text summary (experiment type, lane names, ladder, sizes, settings, densitometry numbers) to Claude on your own account, only when you click it and after you allow it. The image is never sent.
-- Preferences, custom ladders and the autosaved draft stay in your browser's local storage.
+- Preferences and custom ladders stay in your browser's local storage; the library (the gels you opened, with their edits) is in the browser's IndexedDB. Neither leaves the computer; remove a gel from the library with the × on its card.
 
 ## Supported input
 

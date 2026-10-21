@@ -135,6 +135,7 @@
 
   // install a decoded image as the current source and run the automatic pipeline
   function startFrom(input, gelType) {
+    App._libSkip = null;
     const img = input.img;
     App.src0 = App.src = { w: img.width, h: img.height, data: img.data };
     App._flipKey = '';
@@ -1231,7 +1232,7 @@
     App.src0 = { w: input.img.width, h: input.img.height, data: input.img.data };
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
-    App.exposures = null; App.isExample = false;
+    App.exposures = null; App.isExample = false; App._libSkip = null;
     App.S = normalize(state);
     App._flipKey = null; App.applyFlip();
     App.clearMarkerImage(true);
@@ -1245,8 +1246,10 @@
     App.emit('change');
   }
 
-  // ---------- autosave draft (IndexedDB): survives refresh / crash ----------
-  const DB = 'gelgrapher', STORE = 'drafts';
+  // ---------- library (IndexedDB): every gel you open is kept with its latest state and reopens as you left it ----------
+  // 'gels' holds one small record per image (state, thumbnail, names), 'blobs' the file bytes once per image
+  // (and once per marker image), so a state save after each change never rewrites the image.
+  const DB = 'gelgrapher', META = 'gels', BLOBS = 'blobs', OLD = 'drafts';
   // some browsers never answer indexedDB.open for file:// pages; give up instead of hanging
   let dbP = null;
   function idb() {
@@ -1254,8 +1257,13 @@
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
       const t = setTimeout(() => rej(new Error('indexedDB timeout')), 3000);
       let rq;
-      try { rq = indexedDB.open(DB, 1); } catch (e) { clearTimeout(t); return rej(e); }
-      rq.onupgradeneeded = () => rq.result.createObjectStore(STORE);
+      try { rq = indexedDB.open(DB, 2); } catch (e) { clearTimeout(t); return rej(e); }
+      rq.onupgradeneeded = () => {
+        const db = rq.result;
+        if (!db.objectStoreNames.contains(OLD)) db.createObjectStore(OLD);
+        if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'sha256' });
+        if (!db.objectStoreNames.contains(BLOBS)) db.createObjectStore(BLOBS);
+      };
       rq.onsuccess = () => { clearTimeout(t); res(rq.result); };
       rq.onerror = () => { clearTimeout(t); rej(rq.error); };
       rq.onblocked = () => { clearTimeout(t); rej(new Error('indexedDB blocked')); };
@@ -1263,48 +1271,125 @@
     dbP.catch(() => { dbP = null; });
     return dbP;
   }
-  async function idbDo(mode, fn) {
+  // fn gets one object store per name and may return a request, whose result is resolved when the transaction completes
+  async function idbDo(stores, mode, fn) {
     const db = await idb();
-    return new Promise((res, rej) => { const tx = db.transaction(STORE, mode), st = tx.objectStore(STORE), r = fn(st); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); });
+    return new Promise((res, rej) => {
+      const tx = db.transaction(stores, mode), names = [].concat(stores);
+      const r = fn(...names.map(n => tx.objectStore(n)));
+      tx.oncomplete = () => res(r && typeof r === 'object' && 'result' in r ? r.result : r);
+      tx.onerror = () => rej(tx.error);
+    });
   }
-  // draftGen changes when the draft is discarded: an autosave that was already due or under way
-  // must not write it back afterwards
-  let draftTimer = 0, draftSha = null, draftMarkerSha = null, draftGen = 0;
+  // the one draft of earlier versions becomes a library entry on first use
+  let migrated = null;
+  function migrateOld() {
+    if (!migrated) migrated = (async () => {
+      try {
+        const meta = await idbDo(OLD, 'readonly', o => o.get('meta'));
+        if (!meta) return;
+        const src = await idbDo(OLD, 'readonly', o => o.get('src'));
+        const msrc = meta.marker ? await idbDo(OLD, 'readonly', o => o.get('msrc')) : null;
+        if (src) {
+          let gelType = null; try { gelType = JSON.parse(meta.state).gelType; } catch (e) { /* unknown */ }
+          await idbDo([META, BLOBS], 'readwrite', (g, b) => {
+            g.put({ sha256: meta.sha256, name: meta.name, title: '', gelType, state: meta.state, initial: meta.initial, autoRotation: meta.autoRotation,
+              savedAt: meta.savedAt, createdAt: meta.savedAt, marker: meta.marker || null, ladders: meta.ladders || [], size: src.byteLength + (msrc ? msrc.byteLength : 0), thumb: null });
+            b.put(src, meta.sha256);
+            if (msrc && meta.marker) b.put(msrc, meta.marker.sha256);
+          });
+        }
+        await idbDo(OLD, 'readwrite', o => { o.delete('meta'); o.delete('src'); o.delete('msrc'); });
+      } catch (e) { /* best effort */ }
+    })();
+    return migrated;
+  }
+  // a small picture of the crop as it is displayed now
+  function libThumb() {
+    try {
+      const S = App.S, c = App.cropImg(), sm = E.downsample({ w: c.w, h: c.h, data: c.data }, 200);
+      const cv = document.createElement('canvas'); cv.width = sm.w; cv.height = sm.h;
+      cv.getContext('2d').putImageData(E.toImageData(sm, { black: S.levels.black, white: S.levels.white, gamma: S.levels.gamma || 1, invert: !!S.levels.invert }), 0, 0);
+      return cv.toDataURL('image/jpeg', 0.8);
+    } catch (e) { return null; }
+  }
+  // libGen changes when the open gel is removed from the library or another one is opened: a save that
+  // was already due or under way must not write it back afterwards; _libSkip keeps a removed gel out until it is loaded again
+  let libTimer = 0, libGen = 0;
+  const savedBlobs = new Set();
   App.saveDraftSoon = function () {
-    clearTimeout(draftTimer);
-    draftTimer = setTimeout(App.saveDraft, 800);
+    clearTimeout(libTimer);
+    libTimer = setTimeout(App.saveDraft, 800);
   };
   App.saveDraft = async function () {
-    // the synthetic examples are not worth a draft: they are one click away, and a user's own draft stays
-    if (!App.S || !App.srcBuffer || App.isExample) return;
-    const gen = draftGen;
+    // the synthetic examples are not kept: they are one click away
+    if (!App.S || !App.srcBuffer || App.isExample || App._libSkip === App.S.file.sha256) return;
+    const gen = libGen, S = App.S, sha = S.file.sha256, mk = App.hasMarkerImage() ? S.markerImage : null;
+    const meta = { sha256: sha, name: S.file.name, gelType: S.gelType, lanes: S.lanes.length, w: App.src0.w, h: App.src0.h, bits: S.file.bits,
+      size: App.srcBuffer.byteLength + (mk && App.markerBuffer ? App.markerBuffer.byteLength : 0),
+      state: App.snapshot(), initial: App.initial, autoRotation: App.autoRotation, savedAt: Date.now(),
+      marker: mk && { name: mk.name, sha256: mk.sha256 }, ladders: G.Ladders.defsFor(S.markers.map(m => m.ladderId)), thumb: libThumb() };
     try {
-      await idbDo('readwrite', st => {
-        if (gen !== draftGen) return;
-        // the source bytes are written once per image, the state on every change
-        if (draftSha !== App.S.file.sha256) { st.put(App.srcBuffer, 'src'); draftSha = App.S.file.sha256; }
-        const mk = App.hasMarkerImage() ? App.S.markerImage : null;
-        if (mk && draftMarkerSha !== mk.sha256) { st.put(App.markerBuffer, 'msrc'); draftMarkerSha = mk.sha256; }
-        st.put({ state: App.snapshot(), initial: App.initial, autoRotation: App.autoRotation, name: App.S.file.name, sha256: App.S.file.sha256, savedAt: Date.now(),
-          marker: mk && { name: mk.name, sha256: mk.sha256 }, ladders: G.Ladders.defsFor(App.S.markers.map(m => m.ladderId)) }, 'meta');
+      await migrateOld();
+      await idbDo([META, BLOBS], 'readwrite', (gels, blobs) => {
+        if (gen !== libGen) return;
+        const prev = gels.get(sha);
+        prev.onsuccess = () => { const p = prev.result; meta.createdAt = (p && p.createdAt) || meta.savedAt; meta.title = (p && p.title) || ''; gels.put(meta); };
+        const need = [[sha, App.srcBuffer]].concat(mk && App.markerBuffer ? [[mk.sha256, App.markerBuffer]] : []);
+        need.forEach(([k, buf]) => {
+          if (savedBlobs.has(k)) return;
+          const c = blobs.count(k);
+          c.onsuccess = () => { if (!c.result) blobs.put(buf, k); savedBlobs.add(k); };
+        });
       });
-    } catch (e) { /* private mode etc.: drafts are best-effort */ }
+      if (navigator.storage && navigator.storage.persist && !App._persistAsked) { App._persistAsked = true; navigator.storage.persist().catch(() => {}); }
+      App.emit('library');
+    } catch (e) { /* private mode etc.: the library is best-effort */ }
   };
-  App.peekDraft = async function () { try { return await idbDo('readonly', st => st.get('meta')); } catch (e) { return null; } };
-  App.dropDraft = async function () { clearTimeout(draftTimer); draftGen++; draftSha = draftMarkerSha = null; try { await idbDo('readwrite', st => { st.delete('meta'); st.delete('src'); st.delete('msrc'); }); } catch (e) { /* ignore */ } };
-  App.restoreDraft = async function () {
-    const meta = await App.peekDraft(), buf = await idbDo('readonly', st => st.get('src'));
-    if (!meta || !buf) throw new Error('No draft to restore');
-    (meta.ladders || []).forEach(d => G.Ladders.importDef(d));
-    const input = { name: meta.name, buffer: buf, img: await G.TIFF.decodeBuffer(buf, meta.name), sha256: meta.sha256 };
-    let marker = null;
-    if (meta.marker) {
-      const mb = await idbDo('readonly', st => st.get('msrc'));
-      if (mb) { marker = { name: meta.marker.name, buffer: mb, img: await G.TIFF.decodeBuffer(mb, meta.marker.name), sha256: meta.marker.sha256 }; draftMarkerSha = meta.marker.sha256; }
+  App.library = {
+    // newest first
+    list: async () => { await migrateOld(); const all = await idbDo(META, 'readonly', g => g.getAll()); return (all || []).sort((a, b) => b.savedAt - a.savedAt); },
+    open: async sha => {
+      clearTimeout(libTimer); libGen++;
+      const meta = await idbDo(META, 'readonly', g => g.get(sha)), buf = await idbDo(BLOBS, 'readonly', b => b.get(sha));
+      if (!meta || !buf) throw new Error('This gel is no longer in the library');
+      (meta.ladders || []).forEach(d => G.Ladders.importDef(d));
+      const input = { name: meta.name, buffer: buf, img: await G.TIFF.decodeBuffer(buf, meta.name), sha256: sha };
+      let marker = null;
+      if (meta.marker) {
+        const mb = await idbDo(BLOBS, 'readonly', b => b.get(meta.marker.sha256));
+        if (mb) { marker = { name: meta.marker.name, buffer: mb, img: await G.TIFF.decodeBuffer(mb, meta.marker.name), sha256: meta.marker.sha256 }; savedBlobs.add(mb && meta.marker.sha256); }
+      }
+      savedBlobs.add(sha);
+      restore(input, JSON.parse(meta.state), meta.initial, meta.autoRotation, marker);
+    },
+    rename: async (sha, title) => {
+      await idbDo(META, 'readwrite', g => { const rq = g.get(sha); rq.onsuccess = () => { if (rq.result) { rq.result.title = title; g.put(rq.result); } }; });
+      App.emit('library');
+    },
+    remove: async sha => {
+      if (App.S && App.S.file.sha256 === sha) { clearTimeout(libTimer); libGen++; App._libSkip = sha; }
+      await idbDo([META, BLOBS], 'readwrite', (g, b) => {
+        const all = g.getAll();
+        all.onsuccess = () => {
+          const me = all.result.find(e => e.sha256 === sha);
+          g.delete(sha); b.delete(sha); savedBlobs.delete(sha);
+          // a marker image is shared by every gel that used it; its bytes go with the last of them
+          if (me && me.marker && !all.result.some(e => e.sha256 !== sha && e.marker && e.marker.sha256 === me.marker.sha256)) { b.delete(me.marker.sha256); savedBlobs.delete(me.marker.sha256); }
+        };
+      });
+      App.emit('library');
+    },
+    clear: async () => {
+      clearTimeout(libTimer); libGen++; if (App.S && App.S.file) App._libSkip = App.S.file.sha256;
+      await idbDo([META, BLOBS], 'readwrite', (g, b) => { g.clear(); b.clear(); }); savedBlobs.clear();
+      App.emit('library');
     }
-    draftSha = meta.sha256;
-    restore(input, JSON.parse(meta.state), meta.initial, meta.autoRotation, marker);
   };
+  // the single-draft calls of earlier versions, kept for the self-test: the most recently saved gel
+  App.peekDraft = async function () { try { return (await App.library.list())[0] || null; } catch (e) { return null; } };
+  App.restoreDraft = async function () { const l = await App.library.list(); if (!l.length) throw new Error('No draft to restore'); await App.library.open(l[0].sha256); };
+  App.dropDraft = async function () { if (App.S && App.S.file) await App.library.remove(App.S.file.sha256); };
   function predictY(bp, bands) {
     const B = bands.slice().sort((a, b) => b.bp - a.bp);
     for (let i = 0; i < B.length - 1; i++) if (bp <= B[i].bp && bp >= B[i + 1].bp) {
