@@ -210,7 +210,7 @@ npm run build                   # dist/gelgrapher-artifact.html
 
 **GitHub Pages.** `.github/workflows/pages.yml` deploys the app to https://rexxie0308.github.io/GelGrapher/ on every push to `main` (Pages is set to *Source: GitHub Actions*; a fork needs that switch once under *Settings → Pages*).
 
-**Releases.** Push a tag such as `v1.0.0`; `.github/workflows/release.yml` attaches an offline ZIP and the single-file build.
+**Releases.** Push a tag such as `v1.1.0`, or run the *Release* workflow from the Actions tab with the version number (it creates the tag); `.github/workflows/release.yml` attaches an offline ZIP and the single-file build.
 
 **Claude Code.** `CLAUDE.md` describes the code base and conventions, and `.claude/hooks/session-start.sh` installs the test runner in Claude Code cloud sessions.
 
