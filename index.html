@@ -22,18 +22,22 @@
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
     <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
+    <button class="btn" id="btnLibrary" title="Every gel you opened, with your latest edits">Library</button>
     <div class="menu-wrap">
-      <button class="btn" id="btnTplMenu">File ▾</button>
+      <button class="btn" id="btnTplMenu">Open / Save ▾</button>
       <div class="menu hidden" id="tplMenu">
-        <label><span>Open image…</span><small>Select several exposures of one gel to pick the best automatically</small><input type="file" id="fileInput3" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" multiple hidden></label>
-        <label><span>Open project…</span><small>.gelfig project file, or a .zip that contains one</small><input type="file" id="projInput" accept=".gelfig,.json,.zip" hidden></label>
-        <button id="btnSaveProj"><span>Save project…</span><small>Original image + every setting and annotation; continue on any computer</small></button>
+        <div class="menu-head">Open</div>
+        <label><span>Image…</span><small>A gel or blot image; select several exposures of one gel to pick the best automatically</small><input type="file" id="fileInput3" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" multiple hidden></label>
+        <label><span>Project file…</span><small>A .gelfig file saved below (or a .zip that contains one), from any computer</small><input type="file" id="projInput" accept=".gelfig,.json,.zip" hidden></label>
         <div class="menu-sep"></div>
-        <button id="btnSaveTpl"><span>Save style…</span><small>Lane names, markers, groups, layout — reuse for similar gels</small></button>
-        <label><span>Apply style…</span><input type="file" id="tplInput" accept=".json" hidden></label>
+        <div class="menu-head">Save to a file</div>
+        <button id="btnSaveProj"><span>Project…</span><small>Original image + every setting and annotation, to continue elsewhere or to archive</small></button>
+        <button id="btnSaveTpl"><span>Style…</span><small>Lane names, markers, groups, layout, without the image — reuse for similar gels</small></button>
+        <label><span>Apply a saved style…</span><input type="file" id="tplInput" accept=".json" hidden></label>
         <div class="menu-sep"></div>
+        <div class="menu-head">This app</div>
         <button id="btnInstall" class="hidden"><span>Install as an app</span><small>Its own window and icon; opens offline and updates itself when online</small></button>
-        <button id="btnResetAll" class="danger">Reset everything (back to import)</button>
+        <button id="btnResetAll" class="danger">Reset this gel (back to import)</button>
       </div>
     </div>
     <button class="icon-btn" id="btnHelp" title="Help">?</button>
@@ -71,9 +75,10 @@
       <label class="btn primary big"><span>Choose file</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
       <div class="examples"><span class="ex-label">Examples (synthetic)</span>
         <button class="btn" id="btnDemo" data-example="dna">DNA gel</button><button class="btn" data-example="sds">SDS-PAGE</button><button class="btn" data-example="western">Western blot</button></div>
-      <div id="draftBox" class="draft hidden">
-        <div><span>Unfinished figure from last time:</span><b id="draftName"></b><br><span class="muted small" id="draftTime"></span></div>
-        <div class="inline"><button class="btn sm primary" id="btnDraftRestore">Restore</button><button class="btn sm ghost" id="btnDraftDrop">Discard</button></div>
+      <div id="libBox" class="lib hidden">
+        <div class="lib-head"><span>Your gels</span><span class="h3-note" id="libNote"></span></div>
+        <div id="libGrid" class="lib-grid"></div>
+        <p class="hint">Every gel you open is kept in this browser with your latest edits. Click one to continue where you left off. Nothing is uploaded.</p>
       </div>
       <p class="hint">You can drop several exposures of the same gel at once; the best one is picked automatically.</p>
       <p class="privacy">Images are processed only in this browser and never uploaded.</p>
@@ -364,6 +369,7 @@
     <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
     <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
     <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
+    <li><b>Come back to a gel later</b>: every gel you open is kept in this browser's Library (top bar) with your latest edits; click it to continue. To take a gel to another computer, save a project file (Open / Save ▾).</li>
     <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
     <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the raw image and the figure; double-click one to reset. The sizes are remembered.</li>
     <li><b>Use it like a desktop app</b>: on the web version, File ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
@@ -378,6 +384,14 @@
   </ul>
   <p class='muted small'>Shortcuts: Ctrl+Z undo · Ctrl+Shift+Z redo · Space+drag pan · wheel zoom · H remove/restore lane · Esc cancel</p>
   <p class='muted small'>GelGrapher is based on GelFigure by poplarity (MIT): <a href='https://github.com/poplarity/GelFigure' target='_blank' rel='noopener'>github.com/poplarity/GelFigure</a>. Source: <a href='https://github.com/rexxie0308/GelGrapher' target='_blank' rel='noopener'>github.com/rexxie0308/GelGrapher</a>.</p></div>
+</div></div>
+
+<div id="libDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body libdlg">
+  <button class="dlg-x" id="btnLibClose" aria-label="Close">×</button>
+  <h3>Library</h3>
+  <p class="hint">Every gel you open is kept in this browser with its latest edits and reopens as you left it. The open gel is saved after every change. Click a gel to open it; click its name to rename it.</p>
+  <div class="lib-head"><span class="h3-note" id="libNote2"></span><span class="flex"></span><button class="btn sm ghost" id="btnLibClear">Remove all</button></div>
+  <div id="libGrid2" class="lib-grid"></div>
 </div></div>
 
 <div id="askDlg" class="dlg hidden" role="dialog" aria-modal="true"><div class="dlg-body ask">

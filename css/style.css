@@ -228,7 +228,26 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .clipline .ok, .dpiline .ok { color: var(--ok); }
 .suggest { margin-top: 10px; padding: 9px 11px; border-radius: var(--r); background: var(--warn-bg); border: 1px solid var(--warn-line); font-size: 12.3px; }
 .suggest .inline { margin-top: 6px; }
-.draft { margin: 12px 0; padding: 10px 12px; border-radius: var(--r); background: var(--accent-bg); text-align: left; font-size: 12.5px; display: flex; flex-direction: column; gap: 8px; }
+/* the library: one card per gel kept in the browser */
+.lib { margin: 14px 0 4px; text-align: left; }
+.lib-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.lib-card { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 7px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); cursor: pointer; text-align: left; transition: .12s; }
+.lib-card:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.lib-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.lib-card img, .lib-card .noimg { display: block; width: 100%; height: 84px; object-fit: cover; border-radius: var(--r-sm); background: var(--panel-2); }
+.lib-card .noimg { display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: 22px; }
+.lib-card .lib-title { width: 100%; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 4px; padding: 2px 4px; font-weight: 600; font-size: 12.3px; text-overflow: ellipsis; }
+.lib-card .lib-title:hover { border-color: var(--line); background: var(--input-bg); }
+.lib-card .lib-title:focus { border-color: var(--accent); background: var(--input-bg); box-shadow: none; }
+.lib-card .lib-meta { font-size: 11px; color: var(--faint); line-height: 1.35; padding: 0 4px; }
+.lib-card .lib-now { color: var(--accent); font-weight: 600; }
+.lib-card .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: none; border-radius: 50%; background: var(--panel); color: var(--faint); cursor: pointer; font-size: 15px; line-height: 1; box-shadow: var(--shadow-sm); opacity: 0; transition: .12s; }
+.lib-card:hover .x, .lib-card .x:focus-visible { opacity: 1; }
+.lib-card .x:hover { color: var(--danger); background: var(--danger-bg); }
+.libdlg { width: 760px; max-width: 100%; }
+.lib-empty { color: var(--faint); font-size: 12.5px; padding: 12px 0; }
+.menu-head { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .item .star { border: none; background: none; cursor: pointer; font-size: 15px; color: var(--star); padding: 0 3px; }
 .mk-card .star { border: none; background: none; cursor: pointer; font-size: 16px; color: var(--star); padding: 0 2px; line-height: 1; }
 .mk-card .star.off, .item .star.off { color: var(--hist); }
@@ -355,6 +374,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 
 /* ---------- narrower screens ---------- */
 @media (max-width: 1250px) { #panel { width: var(--panel-w, 284px); } .coach { display: none; } .col-sub { display: none; } }
+@media (max-width: 1100px) { #btnLibrary { display: none; } }
 /* middling widths (a half-screen window, a portrait monitor): raw image above the figure, panel stays */
 @media (max-width: 1180px) and (min-width: 861px) {
   #stage { flex-direction: column; }

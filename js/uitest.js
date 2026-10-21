@@ -260,7 +260,7 @@
       await App.restoreDraft();
       R.draft = { listed: !!d && d.name, restored: App.snapshot() === ref };
       await App.dropDraft();
-      R.draftDropped = !(await App.peekDraft());
+      R.draftDropped = !(await App.library.list()).some(e => e.sha256 === App.S.file.sha256);
     }
     // ---------- GelGrapher additions ----------
     document.title = 'UITEST-AT 20 ' + JSON.stringify(R);
@@ -404,6 +404,22 @@
       R.splitters = { w0, w1, w2, r0, r1, r2, savedW, savedS, stacked,
         ok: Math.abs(w1 - (w0 + 80)) < 2 && savedW === Math.round(w0 + 80) && (stacked || r1 < r0 - 50) && typeof savedS === 'number'
           && Math.abs(w2 - w0) < 2 && Math.abs(r2 - r0) < 2 && App.prefs().panelW == null && App.prefs().stageSplit == null };
+    }
+    // 32. the library: the open gel is listed with a thumbnail, renamed, reopened as left (names kept), removed
+    if (/[?&]draft=1/.test(location.search)) {
+      const sha = App.S.file.sha256;
+      App.S.lanes[G.UI.figLanes()[1]].name = 'kept-in-library'; App.commit();
+      await App.saveDraft();
+      let list = await App.library.list(), me = list.find(e => e.sha256 === sha);
+      await App.library.rename(sha, 'My blot');
+      await App.library.open(sha);
+      const reopened = App.S.lanes[G.UI.figLanes()[1]].name, title = (await App.library.list()).find(e => e.sha256 === sha).title;
+      await App.library.remove(sha);
+      const gone = !(await App.library.list()).some(e => e.sha256 === sha);
+      App.commit(); await App.saveDraft();          // a removed gel stays out until it is loaded again
+      const stillGone = !(await App.library.list()).some(e => e.sha256 === sha);
+      R.library = { listed: !!me, thumb: !!(me && me.thumb && me.thumb.startsWith('data:image')), lanes: me && me.lanes, title, reopened, gone, stillGone,
+        ok: !!me && !!(me.thumb) && title === 'My blot' && reopened === 'kept-in-library' && gone && stillGone };
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);

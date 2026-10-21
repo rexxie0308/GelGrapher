@@ -165,18 +165,54 @@
   });
 
   /* ---------- draft restore (offered on the start screen) ---------- */
-  async function offerDraft() {
-    const d = await App.peekDraft();
-    if (!d || S()) return;
-    $('draftName').textContent = d.name;
-    $('draftTime').textContent = 'Saved ' + new Date(d.savedAt).toLocaleString();
-    $('draftBox').classList.remove('hidden');
+  /* ---------- library: the gels kept in this browser ---------- */
+  const ago = t => { const m = (Date.now() - t) / 60000; if (m < 1) return 'just now'; if (m < 60) return `${Math.round(m)} min ago`; if (m < 36 * 60) return `${Math.round(m / 60)} h ago`; const d = new Date(t); return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : ''); };
+  const fmtMB = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' kB';
+  function libCard(e) {
+    const cur = S() && S().file && S().file.sha256 === e.sha256, type = G.Gels.get(e.gelType);
+    return `<div class="lib-card${cur ? ' on' : ''}" data-sha="${e.sha256}" role="button" tabindex="0" title="${cur ? 'Open now' : 'Open this gel as you left it'}">
+      ${e.thumb ? `<img src="${e.thumb}" alt="">` : '<div class="noimg">▣</div>'}
+      <input class="lib-title" value="${esc(e.title || '')}" placeholder="${esc(e.name)}" title="Click to rename" spellcheck="false">
+      <div class="lib-meta">${esc(type ? type.name() : '')}${e.lanes ? ` · ${e.lanes} wells` : ''}${e.size ? ` · ${fmtMB(e.size)}` : ''}</div>
+      <div class="lib-meta">${cur ? '<span class="lib-now">Open now</span> · saved ' : 'Edited '}${ago(e.savedAt)}</div>
+      <button class="x" title="Remove from the library">×</button></div>`;
   }
-  $('btnDraftRestore').onclick = async () => {
-    try { App.busy(true, 'Restoring…'); await App.restoreDraft(); toast('Restored your last session'); }
-    catch (e) { alertDlg('Could not restore: ' + e.message); } finally { App.busy(false); }
+  async function renderLibrary() {
+    let list = [];
+    try { list = await App.library.list(); } catch (e) { list = []; }
+    const total = list.reduce((a, e) => a + (e.size || 0), 0), note = list.length ? `${list.length} ${list.length === 1 ? 'gel' : 'gels'} · ${fmtMB(total)} in this browser` : '';
+    $('libNote').textContent = note; $('libNote2').textContent = note;
+    $('btnLibClear').classList.toggle('hidden', !list.length);
+    const html = list.length ? list.map(libCard).join('') : '<div class="lib-empty">No gels yet. Open an image and it is kept here with your edits.</div>';
+    $('libGrid').innerHTML = list.length ? list.map(libCard).join('') : ''; $('libGrid2').innerHTML = html;
+    $('libBox').classList.toggle('hidden', !list.length || !!S());
+    for (const grid of [$('libGrid'), $('libGrid2')]) grid.querySelectorAll('.lib-card').forEach(card => {
+      const sha = card.dataset.sha, title = card.querySelector('.lib-title');
+      const open = async () => {
+        if (S() && S().file && S().file.sha256 === sha) { $('libDlg').classList.add('hidden'); return; }
+        try { App.busy(true, 'Opening…'); await App.library.open(sha); $('libDlg').classList.add('hidden'); toast('Opened as you left it'); }
+        catch (e) { alertDlg('Could not open: ' + e.message); } finally { App.busy(false); }
+      };
+      card.addEventListener('click', e => { if (e.target === title || e.target.classList.contains('x')) return; open(); });
+      card.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === card) { e.preventDefault(); open(); } });
+      title.addEventListener('change', () => App.library.rename(sha, title.value.trim()));
+      title.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); title.blur(); } e.stopPropagation(); });
+      card.querySelector('.x').onclick = async e => {
+        e.stopPropagation();
+        if (!(await confirmDlg(`Remove “${title.value.trim() || card.querySelector('.lib-title').placeholder}” from the library? The image and its edits are deleted from this browser (a saved project file is not affected).`, 'Remove', true))) return;
+        await App.library.remove(sha); renderLibrary();
+      };
+    });
+  }
+  $('btnLibrary').onclick = async () => { await renderLibrary(); $('libDlg').classList.remove('hidden'); };
+  $('btnLibClose').onclick = () => $('libDlg').classList.add('hidden');
+  $('libDlg').addEventListener('click', e => { if (e.target === $('libDlg')) $('libDlg').classList.add('hidden'); });
+  $('btnLibClear').onclick = async () => {
+    if (!(await confirmDlg('Remove every gel from the library? Their images and edits are deleted from this browser. Saved project files are not affected.', 'Remove all', true))) return;
+    await App.library.clear(); renderLibrary();
   };
-  $('btnDraftDrop').onclick = async () => { await App.dropDraft(); $('draftBox').classList.add('hidden'); };
+  let libRenderTimer = 0;
+  App.on(what => { if (what === 'library' && !$('libDlg').classList.contains('hidden')) { clearTimeout(libRenderTimer); libRenderTimer = setTimeout(renderLibrary, 300); } });
 
   /* ---------- exposures strip ---------- */
   function renderExposures() {
@@ -214,7 +250,7 @@
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? App.redo() : App.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); App.redo(); }
-    if (e.key === 'Escape') $('helpDlg').classList.add('hidden');
+    if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); }
   });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
   $('dpiTop').addEventListener('change', done(e => { S().style.dpi = +e.target.value; }));
@@ -827,7 +863,7 @@
 
   App.on(what => {
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('draftBox').classList.add('hidden'); $('sections').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
@@ -841,14 +877,15 @@
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();
 
-  /* first visit: open a worked example so the tool shows what it does; a saved draft is offered instead */
+  /* first visit: open a worked example so the tool shows what it does; later, the library is shown instead */
   async function startup() {
     const q = new URLSearchParams(location.search);
     if (q.get('demo') === '1' || q.get('src') || q.get('blank') === '1') return;
     if (q.get('example')) { loadExample(q.get('example')); return; }
-    const d = await App.peekDraft();
+    let list = [];
+    try { list = await App.library.list(); } catch (e) { list = []; }
     if (S()) return;
-    if (d) offerDraft(); else loadExample('western');
+    if (list.length) renderLibrary(); else loadExample('western');
   }
   startup();
 
