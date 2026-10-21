@@ -1321,6 +1321,18 @@
     clearTimeout(libTimer);
     libTimer = setTimeout(App.saveDraft, 800);
   };
+  // close the open gel: the workspace returns to the start screen; the gel stays in the library with its last state
+  App.close = async function () {
+    if (!App.S) return;
+    clearTimeout(libTimer);
+    if (!App.isExample && App._libSkip !== App.S.file.sha256 && App.srcBuffer) await App.saveDraft();   // a save that was due runs now
+    libGen++;
+    App.S = null; App.src0 = App.src = null; App.srcBuffer = null; App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
+    App.exposures = null; App.isExample = false; App._libSkip = null; App.initial = null; App.hist = []; App.future = [];
+    App.selLane = -1; App.selArrow = -1; App.mode = null;
+    App.clearMarkerImage(true);
+    App.emit('closed');
+  };
   App.saveDraft = async function () {
     // the synthetic examples are not kept: they are one click away
     if (!App.S || !App.srcBuffer || App.isExample || App._libSkip === App.S.file.sha256) return;
@@ -1368,7 +1380,8 @@
       App.emit('library');
     },
     remove: async sha => {
-      if (App.S && App.S.file.sha256 === sha) { clearTimeout(libTimer); libGen++; App._libSkip = sha; }
+      const open = !!(App.S && App.S.file.sha256 === sha);
+      if (open) { clearTimeout(libTimer); libGen++; App._libSkip = sha; }
       await idbDo([META, BLOBS], 'readwrite', (g, b) => {
         const all = g.getAll();
         all.onsuccess = () => {
@@ -1378,11 +1391,13 @@
           if (me && me.marker && !all.result.some(e => e.sha256 !== sha && e.marker && e.marker.sha256 === me.marker.sha256)) { b.delete(me.marker.sha256); savedBlobs.delete(me.marker.sha256); }
         };
       });
+      if (open) await App.close();   // a gel removed from the library leaves the workspace too
       App.emit('library');
     },
     clear: async () => {
       clearTimeout(libTimer); libGen++; if (App.S && App.S.file) App._libSkip = App.S.file.sha256;
       await idbDo([META, BLOBS], 'readwrite', (g, b) => { g.clear(); b.clear(); }); savedBlobs.clear();
+      if (App.S && !App.isExample) await App.close();
       App.emit('library');
     }
   };
