@@ -327,6 +327,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 /* during the tutorial the notices wait for the contrast step, where they belong */
 body.tutoring:not(.tut-warn) #warnings { display: none; }
 .tour-status.ok { color: var(--ok); font-weight: 600; }
+.tour-status a { color: var(--accent); }
 #tourSpot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px var(--overlay), 0 0 0 2px var(--accent); transition: left .25s, top .25s, width .25s, height .25s; pointer-events: none; }
 #tourCard { position: fixed; width: 360px; max-width: calc(100vw - 24px); padding: 14px 16px 12px; background: var(--panel); color: var(--text); border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid var(--line); transition: left .25s, top .25s; }
 .tour-top { display: flex; align-items: baseline; gap: 10px; }

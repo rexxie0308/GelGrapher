@@ -449,45 +449,60 @@
       R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
     }
-    // 35. the hands-on tutorial: a part waits for the real action, continues when the state shows it, optional steps can be skipped
-    {
+    // 35. the hands-on tutorial: every part waits for the real action and continues when the state shows it
+    if (/[?&]draft=1/.test(location.search) || true) {
       const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
-      const at = () => [G.Tour.step(), G.Tour.part()].join('.');
-      const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < (ms || 4000)) await wait(100); return f(); };
+      const at = () => $('tourTitle').textContent + '·' + G.Tour.part();
+      const until = async (want, ms) => { const t0 = Date.now(); while (at() !== want && Date.now() - t0 < (ms || 5000)) await wait(100); return at(); };
       const warnsHidden = () => getComputedStyle($('warnings')).display === 'none';
+      const log = [];
       App.setPref('tutorialSeen', null);
       G.Tour.start('tutorial');
       await wait(80);
-      const m0 = G.Tour.mode(), a0 = at();                         // a gel is open, so "open a practice gel" is skipped: 1.0
-      G.Tour.next(); G.Tour.next();                                // the two review parts
-      const a1 = at(), waiting = $('tourNext').disabled, clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden();
-      App.S.crop.h -= 5; App.commit();                             // the asked-for action: the box changed
-      const a2 = await until(() => at() === '3.0') && at(), warnShown = !warnsHidden();
-      G.Tour.next();                                               // contrast: the intro part is read, the next asks to open the group
+      log.push(at());                                              // a gel is open: "The three areas"
+      const clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden();
+      G.Tour.next(); G.Tour.next(); G.Tour.next();
+      log.push(at());                                              // band look: switch
+      App.S.levels.invert = !App.S.levels.invert; App.commit(); log.push(await until('Band look: bright or dark·1'));
+      App.S.levels.invert = !App.S.levels.invert; App.commit(); log.push(await until('Straighten the image·0'));
+      $('imgAdv').open = true; log.push(await until('Straighten the image·1'));
       const keys = $('tourText').querySelectorAll('.tour-key').length;
-      $('imgAdv').open = true;
-      const a3 = await until(() => at() === '3.2') && at();
-      App.S.levels.white -= 0.01; App.commit();
-      const a4 = await until(() => at() === '4.0') && at();
+      App.setRotation(App.S.rotation + 0.5); App.commit(); log.push(await until('Straighten the image·2'));
+      App.setRotation(App.autoRotation); App.commit(); log.push(await until('Set the contrast·0'));
+      const warnShown = !warnsHidden();
+      App.S.levels.white -= 0.01; App.commit(); log.push(await until('Set the contrast·1'));
+      App.S.levels.white += 0.01; App.commit(); log.push(await until('The figure area·0'));
+      App.S.crop.h -= 5; App.commit(); log.push(await until('Check the lanes·0'));
+      G.Tour.next(); $('fixLanes').open = true; log.push(await until('Check the lanes·2'));
+      $('btnEvenCrop').dispatchEvent(new MouseEvent('click', { bubbles: true })); log.push(await until('Check the lanes·3'));
+      $('laneAdv').open = true; log.push(await until('Check the lanes·4'));
+      const fl0 = G.UI.figLanes(), spare = App.emptyLanes().filter(i => fl0.includes(i))[0] ?? fl0[fl0.length - 1]; App.S.lanes[spare].hidden = true; App.commit(); log.push(await until('Name the lanes·0'));
       const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
-      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit();
-      const a5 = await until(() => at() === '5.0') && at();
-      G.Tour.next();                                               // the intro part of the optional ladder step
-      const optionalNext = !$('tourNext').disabled;                // its action part: Next reads "Skip step"
+      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit(); log.push(await until('Check the ladder·0'));
+      G.Tour.next(); document.querySelector('#markerList .mk-card details').open = true; log.push(await until('Check the ladder·2'));
+      App.S.markers[0].bands[0].show = !App.S.markers[0].bands[0].show; App.commit(); log.push(await until('Group line·0'));
+      App.mode = 'group'; App.emit('change'); log.push(await until('Group line·1'));
+      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit(); log.push(await until('Target band arrow·0'));
+      const skipLink = !!$('tourSkipPart');
+      G.Tour.skipStep(); log.push(at());                           // condition row
+      App.S.conditions.push({ name: '', values: App.S.lanes.map(() => '') }); App.commit(); log.push(await until('Condition row·1'));
+      App.S.conditions[0].values[fl[0]] = '+'; App.S.conditions[0].values[fl[1]] = '-'; App.commit(); log.push(await until('Condition row·2'));
+      App.S.conditions[0].name = 'EcoRI'; App.commit(); log.push(await until('Strips·0'));
+      G.Tour.skipStep(); log.push(at());                           // densitometry intro
+      G.Tour.next(); App.mode = 'quant'; App.emit('change'); log.push(await until('Densitometry·2'));
+      App.mode = null; const r0 = App.S.markers[0].bands[3], r1 = App.S.markers[0].bands[6];
+      App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await until('Densitometry·3'));
+      App.S.quant.rows.push({ y0: r1.y - 6, y1: r1.y + 6, name: 'b' }); App.S.quant.control = 1; App.commit(); log.push(await until('Densitometry·5'));
+      G.Tour.next(); log.push(at()); G.QuantUI.setView('figure'); log.push(await until('Export the figure·0'));
+      G.Tour.next(); const exportWaits = $('tourNext').disabled; G.Tour.skipStep(); log.push(at()); const last = $('tourNext').textContent;
       G.Tour.next();
-      const a6 = at();                                             // group line: the button part
-      App.mode = 'group'; App.emit('change');
-      const a7 = await until(() => at() === '6.1') && at();
-      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit();
-      const a8 = await until(() => at() === '7.0') && at();
-      G.Tour.skipStep(); G.Tour.skipStep();                        // arrow and band box are optional
-      const a9 = at(), exportWaits = $('tourNext').disabled;
-      G.Tour.skipStep(); const a10 = at(), last = $('tourNext').textContent;
-      G.Tour.next();
-      R.tutorial = { m0, a0, a1, waiting, clickable, warnHidden, a2, warnShown, keys, a3, a4, a5, optionalNext, a6, a7, a8, a9, exportWaits, a10, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
-        ok: m0 === 'tutorial' && a0 === '1.0' && a1 === '2.0' && waiting && clickable && warnHidden && a2 === '3.0' && warnShown && keys === 1 && a3 === '3.2' && a4 === '4.0' && a5 === '5.0' && optionalNext
-          && a6 === '6.0' && a7 === '6.1' && a8 === '7.0' && a9 === '9.0' && exportWaits && a10 === '10.0' && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
-      App.S.groups.pop(); App.commit();
+      const expect = ['The three areas·0', 'Band look: bright or dark·0', 'Band look: bright or dark·1', 'Straighten the image·0', 'Straighten the image·1', 'Straighten the image·2', 'Set the contrast·0', 'Set the contrast·1', 'The figure area·0',
+        'Check the lanes·0', 'Check the lanes·2', 'Check the lanes·3', 'Check the lanes·4', 'Name the lanes·0', 'Check the ladder·0', 'Check the ladder·2', 'Group line·0', 'Group line·1', 'Target band arrow·0', 'Condition row·0', 'Condition row·1', 'Condition row·2',
+        'Strips·0', 'Densitometry·0', 'Densitometry·2', 'Densitometry·3', 'Densitometry·5', 'Densitometry·6', 'Export the figure·0', 'Done·0'];
+      const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
+      R.tutorial = { bad, clickable, warnHidden, warnShown, keys, skipLink, exportWaits, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
+        ok: !bad.length && clickable && warnHidden && warnShown && keys === 1 && skipLink && exportWaits && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
+      App.S.groups.pop(); App.S.conditions.pop(); App.S.quant.rows = []; App.S.quant.control = -1; App.S.lanes[spare].hidden = false; App.commit();
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
