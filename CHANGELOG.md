@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 (2026-10-21)
+
 ### Changed
 - Dependencies: Playwright 1.64.1; GitHub Actions checkout v7, setup-node v7, configure-pages v6, upload-pages-artifact v5, deploy-pages v5. The test runner falls back to a preinstalled Chromium when the bundled one is missing.
 - One palette with Paper Radar: cool mist ground, slate ink, teal for anything you can act on, amber only for warnings, green only for "fine"; a light top bar; the same tokens in dark mode. The figure stays black on white and the overlay colours on the raw image are unchanged.
