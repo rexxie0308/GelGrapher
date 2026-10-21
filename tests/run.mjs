@@ -115,7 +115,9 @@ async function runIn(name, base) {
       await page.close();
     }
     // installable app: the service worker stores the app, serves it offline, and a new deployment is offered as "Reload"
-    {
+    // (Playwright's WebKit build has no service workers, so an offline navigation crashes it; Safari itself does)
+    if (name === 'webkit') pass('installable app: skipped, no service workers in Playwright WebKit');
+    else {
       const pctx = await browser.newContext({ viewport: { width: 1200, height: 800 } }), page = await pctx.newPage();
       try {
         await page.goto(`${base}/index.html?pwa=1`);
