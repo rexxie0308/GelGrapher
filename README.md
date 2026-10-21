@@ -81,6 +81,8 @@ Added in GelGrapher:
 
 **As an app:** on the web version, *File ▾ → Install as an app* (Chrome, Edge) or the browser's own *Add to Dock* / *Add to Home Screen* (Safari). The installed app has its own window and icon, opens without an internet connection, and whenever it starts online it fetches the newest version in the background and offers "Reload". This is the easiest way for a lab to stay on one, current version.
 
+**First time?** The app opens on an empty workspace with a hands-on tutorial that makes a figure with you, one real action at a time (open a practice gel, adjust the figure box, name lanes, group, mark a band, export). It runs once by itself; "Guide me" in the top bar runs it again on any gel, your own included, and the ? button also has a two-minute overview tour.
+
 **Coming back to a gel:** every gel you open is kept in the browser's *Library* (top bar) with your latest edits, so the next visit shows your gels and one click reopens one exactly as you left it. The open gel is saved after every change. To move a gel to another computer or to archive it with a paper, save a project file (*Open / Save ▾ → Project…*).
 
 **Offline, fixed version:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed; it never changes, which is what you want for the exact build cited in a paper.

@@ -318,6 +318,12 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 
 /* ---------- guided tour ---------- */
 #tour { position: fixed; inset: 0; z-index: 88; outline: none; }
+/* the hands-on tutorial lets every click through: only its card takes the pointer, and the dim is lighter */
+#tour.hands-on { pointer-events: none; }
+#tour.hands-on #tourCard { pointer-events: auto; }
+#tour.hands-on #tourSpot { box-shadow: 0 0 0 9999px rgba(21,34,41,.18), 0 0 0 2px var(--accent); }
+.tour-status { font-size: 12px; color: var(--faint); margin: -6px 0 10px; min-height: 14px; }
+.tour-status.ok { color: var(--ok); font-weight: 600; }
 #tourSpot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px var(--overlay), 0 0 0 2px var(--accent); transition: left .25s, top .25s, width .25s, height .25s; pointer-events: none; }
 #tourCard { position: fixed; width: 360px; max-width: calc(100vw - 24px); padding: 14px 16px 12px; background: var(--panel); color: var(--text); border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid var(--line); transition: left .25s, top .25s; }
 .tour-top { display: flex; align-items: baseline; gap: 10px; }
@@ -404,7 +410,7 @@ body.touring #app, body.touring .topbar { user-select: none; }
 
 /* ---------- narrower screens ---------- */
 @media (max-width: 1250px) { #panel { width: var(--panel-w, 284px); } .coach { display: none; } .col-sub { display: none; } }
-@media (max-width: 1100px) { #btnLibrary { display: none; } }
+@media (max-width: 1100px) { #btnLibrary, #btnGuide { display: none; } }
 /* middling widths (a half-screen window, a portrait monitor): raw image above the figure, panel stays */
 @media (max-width: 1180px) and (min-width: 861px) {
   #stage { flex-direction: column; }

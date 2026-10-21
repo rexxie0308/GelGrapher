@@ -239,7 +239,9 @@
   $('btnUndo').onclick = () => App.undo();
   $('btnRedo').onclick = () => App.redo();
   $('btnHelp').onclick = () => $('helpDlg').classList.remove('hidden');
-  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start(); };
+  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tour'); };
+  $('btnTutorial').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tutorial'); };
+  $('btnGuide').onclick = () => G.Tour.start('tutorial');
   $('btnHelpClose').onclick = () => $('helpDlg').classList.add('hidden');
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
@@ -878,7 +880,7 @@
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();
 
-  /* first visit: open a worked example so the tool shows what it does; later, the library is shown instead */
+  /* the app opens on the empty workspace (with the library, if any); the first visit starts the hands-on tutorial */
   async function startup() {
     const q = new URLSearchParams(location.search);
     if (q.get('demo') === '1' || q.get('src') || q.get('blank') === '1') return;
@@ -887,11 +889,7 @@
     try { list = await App.library.list(); } catch (e) { list = []; }
     if (S()) return;
     if (list.length) renderLibrary();
-    else {
-      await loadExample('western');
-      // the first visit gets the tour once the example is on screen
-      if (!App.prefs().tourSeen && S()) setTimeout(() => { if (S() && !App.prefs().tourSeen) G.Tour.start(); }, 700);
-    }
+    else if (!App.prefs().tutorialSeen) setTimeout(() => { if (!S() && !App.prefs().tutorialSeen) G.Tour.start('tutorial'); }, 500);
   }
   startup();
 

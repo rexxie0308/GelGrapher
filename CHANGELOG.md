@@ -3,7 +3,11 @@
 ## Unreleased
 
 ### Added
-- Guided tour: on the first visit a short spotlight tour walks through the screen; replay it from ? → "Take the guided tour".
+- Hands-on tutorial: on the first visit the app opens on the empty workspace and a tutorial asks for one real action at a time (open a practice gel, adjust the figure box, name lanes, check the ladder, group lanes, mark a band, measure, export) and continues when the app shows it was done; optional steps can be skipped. Replay it on any gel, your own included, with "Guide me" in the top bar or ? → "Hands-on tutorial".
+- Overview tour: a two-minute spotlight tour of the screen, offered at the end of the tutorial and under ? → "Overview tour".
+
+### Changed
+- The app no longer opens a worked example by itself: it starts on the empty workspace, or on your library when it has gels. The examples stay one click away on the start screen.
 
 ### Changed
 - Densitometry results (chart, table, lane profile, band sizes) moved out of the settings panel into a **Densitometry** view beside "Figure" in the figure column; adding a band box opens it, "Show results" in step 7 and the view switch bring it back. Step 7 keeps only the controls, and the checkbox is now "Loading control" with an explanation of the normalization; the reference lane is labelled "= 1.00".

@@ -425,7 +425,7 @@
     {
       const $ = id => document.getElementById(id);
       App.setPref('tourSeen', null);
-      G.Tour.start();
+      G.Tour.start('tour');
       await new Promise(r => setTimeout(r, 80));
       const shown = !$('tour').classList.contains('hidden'), s0 = G.Tour.step(), t0 = $('tourTitle').textContent;
       G.Tour.next(); const s1 = G.Tour.step(), spot = $('tourSpot').getBoundingClientRect();
@@ -448,6 +448,31 @@
       st.quant.rows.pop(); App.commit();
       R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
+    }
+    // 35. the hands-on tutorial: a step waits for the real action, continues when the state shows it, optional steps can be skipped
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      App.setPref('tutorialSeen', null);
+      G.Tour.start('tutorial');
+      await wait(80);
+      const m0 = G.Tour.mode(), s0 = G.Tour.step();              // a gel is open, so "open a practice gel" is skipped
+      G.Tour.next();                                               // the review step
+      const s1 = G.Tour.step(), waiting = $('tourNext').disabled, clickable = getComputedStyle($('tour')).pointerEvents === 'none';
+      App.S.crop.h -= 5; App.commit(); await wait(1100);          // the asked-for action: the box changed
+      const s2 = G.Tour.step();
+      const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
+      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit(); await wait(1100);
+      const s3 = G.Tour.step(), optionalNext = !$('tourNext').disabled;   // the ladder step is optional: Next works as Skip
+      G.Tour.next(); const s4 = G.Tour.step();
+      App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit(); await wait(1100);
+      const s5 = G.Tour.step();
+      G.Tour.skipStep(); G.Tour.skipStep();                        // arrow and band box are optional
+      const s6 = G.Tour.step(), exportWaits = $('tourNext').disabled;
+      G.Tour.skipStep(); const s7 = G.Tour.step(), last = $('tourNext').textContent;
+      G.Tour.next();
+      R.tutorial = { m0, s0, s1, waiting, clickable, s2, s3, optionalNext, s4, s5, s6, exportWaits, s7, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
+        ok: m0 === 'tutorial' && s0 === 1 && s1 === 2 && waiting && clickable && s2 === 3 && s3 === 4 && optionalNext && s4 === 5 && s5 === 6 && s6 === 8 && exportWaits && s7 === 9 && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
+      App.S.groups.pop(); App.commit();
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);

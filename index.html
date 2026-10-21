@@ -22,6 +22,7 @@
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
     <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
+    <button class="btn" id="btnGuide" title="Hands-on tutorial on this gel: one step at a time, you do the clicks">Guide me</button>
     <button class="btn" id="btnLibrary" title="Every gel you opened, with your latest edits">Library</button>
     <div class="menu-wrap">
       <button class="btn" id="btnTplMenu">Open / Save ▾</button>
@@ -365,14 +366,16 @@
   <div id="tourCard">
     <div class="tour-top"><b id="tourTitle"></b><span class="h3-note" id="tourStep"></span></div>
     <p id="tourText"></p>
-    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Skip tour</button><span class="flex"></span><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
+    <div class="tour-status" id="tourStatus"></div>
+    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Exit</button><span class="flex"></span><button class="btn sm hidden" id="tourTourBtn">Overview tour</button><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
   </div>
 </div>
 
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
   <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
   <div>
-  <p class="inline"><button class="btn sm primary" id="btnTour">Take the guided tour</button><span class="h3-note">two minutes, on this screen</span></p>
+  <p class="inline"><button class="btn sm primary" id="btnTutorial">Hands-on tutorial</button><span class="h3-note">make a figure step by step, about ten minutes</span></p>
+  <p class="inline"><button class="btn sm" id="btnTour">Overview tour</button><span class="h3-note">two minutes: where everything is</span></p>
   <h3>Fastest way to a figure</h3>
   <ol>
     <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>

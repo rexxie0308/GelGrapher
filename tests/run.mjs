@@ -74,7 +74,8 @@ const UI_CHECKS = [
   ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']],
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
   ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']],
-  ['guided tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
+  ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
+  ['hands-on tutorial waits for each real action and continues', r => r.tutorial.ok, ['tutorial']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
