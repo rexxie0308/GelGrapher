@@ -11,7 +11,7 @@
   const defaultStyle = () => ({
     gelWidthMm: 45, autoWidth: true, mmPerLane: 5.5, fontPt: 7, lineWidthPt: 0.5, labelAngle: 'auto', laneNumbers: false, frame: false,
     panelLetter: '', panelPt: 8, spliceStyle: 'gap', spliceGapPt: 1.5, tickLenPt: 2.5, labelGapPt: 2.5,
-    unitHeader: true, groupTicks: false, dpi: 600, laneNumberMode: 'well', stripGapPt: 3
+    unitHeader: true, groupTicks: false, groupSplit: false, dpi: 600, laneNumberMode: 'well', stripGapPt: 3
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
   const defaultQuant = () => ({ rows: [], bg: 'edge', wFrac: 0.7, control: -1, ref: -1 });

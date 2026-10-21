@@ -712,7 +712,7 @@
   $('fontPt').addEventListener('change', done(e => { S().style.fontPt = E.clamp(+e.target.value || 7, 4, 14); }));
   $('lineW').addEventListener('change', done(e => { S().style.lineWidthPt = E.clamp(+e.target.value || 0.5, 0.25, 2); }));
   $('labelAngle').addEventListener('change', done(e => { S().style.labelAngle = e.target.value; }));
-  ['unitHeader', 'laneNumbers', 'frame', 'groupTicks'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
+  ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
   $('stripGap').addEventListener('change', done(e => { S().style.stripGapPt = E.clamp(+e.target.value || 0, 0, 12); }));
@@ -807,7 +807,7 @@
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
     $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle);
-    ['unitHeader', 'laneNumbers', 'frame', 'groupTicks'].forEach(id => { $(id).checked = !!y[id]; });
+    ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
     $('stLayout').textContent = `${App.gelWidthMm()} mm · ${y.fontPt} pt`;

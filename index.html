@@ -250,6 +250,7 @@
             <label class="switch"><input type="checkbox" id="laneNumbers"><span>Lane numbers</span></label>
             <label class="switch"><input type="checkbox" id="frame"><span>Frame</span></label>
             <label class="switch"><input type="checkbox" id="groupTicks"><span>Group line ends</span></label>
+            <label class="switch" title="A group line normally runs on across a splice gap (the gap itself shows that a lane was removed); tick to break it there instead"><input type="checkbox" id="groupSplit"><span>Group lines break at splice gaps</span></label>
           </div>
           <div class="field inline">
             <label class="inline-label"><span>Numbering</span> <select id="laneNumberMode" style="width:auto"><option value="well">By well</option><option value="seq">In figure order</option></select></label>
@@ -310,7 +311,7 @@
     <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <section class="pane-col" id="figCol">
       <div class="col-head">
-        <div class="seg view-seg" id="viewSeg"><button data-view="figure" class="on">Figure</button><button data-view="quant">Densitometry <span class="badge hidden" id="quantBadge"></span></button></div>
+        <div class="seg view-seg" id="viewSeg"><button data-view="figure" class="on">Figure</button><button data-view="quant">Densitometry</button></div>
         <span class="col-sub" id="figSub">Click any text to edit it</span>
         <span class="flex"></span>
         <span class="zoomlabel" id="figSize"></span>

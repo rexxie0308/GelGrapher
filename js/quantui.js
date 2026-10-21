@@ -188,7 +188,6 @@
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
     $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${'Well'} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'band intensities, band sizes';
-    $('quantBadge').textContent = q.rows.length || ''; $('quantBadge').classList.toggle('hidden', !q.rows.length);
     $('btnShowQuant').classList.toggle('hidden', view === 'quant');
     renderBoxes();
     if (view !== 'quant') return;
@@ -210,7 +209,7 @@
     if (what === 'change' && App.boxAdded) { App.boxAdded = false; if (view !== 'quant') { setView('quant'); return; } }
     render(what === 'refresh');
   });
-  // a loaded gel (example, project, library) opens on its figure; boxes it already has show as a badge
+  // a loaded gel (example, project, library) opens on its figure
   App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; if (view !== 'figure') setView('figure'); if (S().quant.rows.length) $('quantDetails').open = true; } });
   G.QuantUI = { render, setView, view: () => view };
 })(window);

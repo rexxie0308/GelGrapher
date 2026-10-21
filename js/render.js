@@ -217,13 +217,15 @@
         const a = Math.min(g.from, g.to), b = Math.max(g.from, g.to);
         const half = Math.min(pitch, W) * 0.42;
         const y = base - tiers[k] * tierH;
-        // one line piece per spliced segment: a group line must never bridge a splice gap
+        // one line over the whole group (the splice gap itself shows that a lane was removed), or, with
+        // "Group lines break at splice gaps", one line piece per spliced segment
         const runs = [];
         gel.segs.forEach(sg => {
           const ins = (sg.lanes || []).filter(i => i >= a && i <= b && !S.lanes[i].hidden);
           if (ins.length) runs.push([X(ins[0]) - half, X(ins[ins.length - 1]) + half]);
         });
         if (!runs.length) runs.push([X(a) - half, X(b) + half]);
+        if (!st.groupSplit && runs.length > 1) runs.splice(0, runs.length, [runs[0][0], runs[runs.length - 1][1]]);
         const x0 = runs[0][0], x1 = runs[runs.length - 1][1];
         runs.forEach(([r0, r1]) => {
           els.push(`<line x1="${f(r0)}" y1="${f(y)}" x2="${f(r1)}" y2="${f(y)}" stroke="#000" stroke-width="${f(lw)}"/>`);

@@ -160,15 +160,17 @@
       R.empty = { emptyWells: empt.map(i => i + 1), barShown: !document.getElementById('emptyBar').classList.contains('hidden'), hOnLane: hidAfterH, hBack: restored, markerNeedsConfirm: markerKept };
     }
     document.title = 'UITEST-AT 11 ' + JSON.stringify(R);
-    // 11. group line splits at a splice gap
+    // 11. a group line runs on across a splice gap; "Group lines break at splice gaps" splits it
     {
       const f0 = fig(); const snap = App.snapshot();
-      S().groups = [{ from: f0[1], to: f0[3], text: 'G' }]; S().style.spliceStyle = 'gap';
+      S().groups = [{ from: f0[1], to: f0[3], text: 'G' }]; S().style.spliceStyle = 'gap'; S().style.groupSplit = false;
       const count = () => (App.buildFigure(false).svg.match(/<line /g) || []).length;
       const n1 = count();
       App.setLaneHidden(f0[2], true, 'test');
       const n2 = count();
-      R.groupSplit = { extraLines: n2 - n1, expected: 1 + (S().style.groupTicks ? 2 : 0) };
+      S().style.groupSplit = true;
+      const n3 = count();
+      R.groupSplit = { bridged: n2 - n1, extraLines: n3 - n1, expected: 1 + (S().style.groupTicks ? 2 : 0) };
       App.S = JSON.parse(snap);
     }
     document.title = 'UITEST-AT 12 ' + JSON.stringify(R);
@@ -438,7 +440,7 @@
     {
       const $ = id => document.getElementById(id);
       await G.UI.loadExample('western');
-      const st = App.S, v0 = G.QuantUI.view(), badge = $('quantBadge').textContent;
+      const st = App.S, v0 = G.QuantUI.view();
       const r = st.quant.rows[0], box = { name: 'extra', y0: r.y0 + 2, y1: r.y1 + 2 }; st.quant.rows.push(box); App.boxAdded = true; App.commit();
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
@@ -446,8 +448,8 @@
       G.QuantUI.setView('figure');
       const v2 = G.QuantUI.view(), figShown = !$('previewBox').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
-      R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
-        ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
+      R.quantView = { v0, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
+        ok: v0 === 'figure' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
     }
     // 35. the hands-on tutorial: every part waits for the real action, for typing to end and for dialogs to close, then for Next
     if (/[?&]draft=1/.test(location.search) || true) {

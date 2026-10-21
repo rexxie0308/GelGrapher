@@ -46,7 +46,7 @@ const UI_CHECKS = [
   ['carried bands agree with a fresh match', r => r.rotationCarry.every(x => x.bandVsScratchMatch < 3)],
   ['H removes and restores a lane; marker lane asks first', r => r.empty.hOnLane && r.empty.hBack && r.empty.markerNeedsConfirm],
   ['empty lane is suggested', r => r.empty.emptyWells.length > 0 && r.empty.barShown],
-  ['group line splits at a splice', r => r.groupSplit.extraLines === r.groupSplit.expected],
+  ['group line runs on across a splice; the option breaks it', r => r.groupSplit.bridged === 0 && r.groupSplit.extraLines === r.groupSplit.expected],
   ['extrapolated size marked ≈', r => r.extrap.outside.startsWith('≈') && !r.extrap.inside.startsWith('≈') && r.extrap.info === true],
   ['reset everything returns to the import state', r => r.resetAll.equalsInitial && r.resetAll.hist === 1],
   ['custom ladder travels with the template', r => r.templateLadder.carried === 1 && r.templateLadder.present && r.templateLadder.markerUses],
