@@ -9,6 +9,7 @@
 - The text box for a strip label opens to the right of the gel and the one for a condition name to the left of it, and the target-band window opens beside the figure, so none of them covers the gel image.
 - On the raw image, a named lane shows its name in a light pill above the well-number chip instead of "2 · name" in one chip.
 - "Group lines break at splice gaps" (step 6, Layout). Off by default: a group line now runs on across a splice gap, since the gap itself shows that a lane was removed; tick it to break the line there as before.
+- Close the open gel: the × next to the image name in the top bar, or Open / Save → "Close this gel", returns to the start screen; the gel stays in the Library with its last state. Removing the open gel from the Library (or "Remove all") closes it as well.
 - Print: a printer button next to "Export PNG" (also "Print…" in the export menu and Ctrl+P) prints the figure at a readable size with a caption (file, experiment, date, size) for a lab notebook. Inside the Claude artifact, where printing is not possible, it saves a PDF to print instead.
 - "Include legend notes under the figure" in the export menu (off by default): the legend notes (inversion, removed lanes, ladder) are written under the figure in every export and print.
 - "All" / "none" links above the ladder's band list and "show all" / "hide the empty wells" above the lane list, so several boxes need not be ticked one by one.

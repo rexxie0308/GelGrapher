@@ -18,6 +18,7 @@
 <header class="topbar">
   <div class="brand">GelGrapher</div>
   <button class="chip" id="imgChip" title="Open / replace image"><span class="chip-dot"></span><span id="imgChipName">Open image</span></button>
+  <button class="icon-btn round hidden" id="btnClose" title="Close this gel (it stays in the Library with your edits)" aria-label="Close this gel">×</button>
   <div class="coach" id="coach"><span class="coach-dot"></span><span id="coachText">Drop a gel image into the window to start</span></div>
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
@@ -38,6 +39,7 @@
         <div class="menu-sep"></div>
         <div class="menu-head">This app</div>
         <button id="btnInstall" class="hidden"><span>Install as an app</span><small>Its own window and icon; opens offline and updates itself when online</small></button>
+        <button id="btnClose2"><span>Close this gel</span><small>Back to the start screen; the gel stays in the Library with your edits</small></button>
         <button id="btnResetAll" class="danger">Reset this gel (back to import)</button>
       </div>
     </div>

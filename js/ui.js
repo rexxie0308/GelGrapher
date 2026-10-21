@@ -379,6 +379,20 @@
       toast('Style applied' + (r.importedLadders.length ? `; imported custom ladders: ${list(r.importedLadders)}` : ''));
     } catch (err) { alertDlg('Could not apply the style: ' + err.message); }
   });
+  // close: back to the start screen (the library, or the empty workspace)
+  async function closeWorkspace() {
+    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden');
+    $('imgChipName').textContent = 'Open image'; $('coachText').textContent = 'Drop a gel image into the window to start';
+    $('preview').innerHTML = ''; showWarnings([]); dismissed.clear();
+    $('floatEd').classList.add('hidden'); $('popover').classList.add('hidden'); $('modeBanner').classList.add('hidden');
+    $('btnUndo').disabled = $('btnRedo').disabled = true;
+    G.Editor.draw(); $('dropHint').classList.remove('hidden');
+    if (G.QuantUI) G.QuantUI.setView('figure');
+    await renderLibrary();
+  }
+  const closeGel = () => { if (!needImage()) App.close(); };
+  $('btnClose').onclick = closeGel;
+  $('btnClose2').onclick = closeGel;
   $('btnResetAll').onclick = async () => {
     if (needImage()) return;
     if (!(await confirmDlg('Reset everything: rotation, crop, lanes, markers, names, groups, arrows, strips, band boxes and layout go back to how they were right after import.\nThis clears the undo history.', 'Reset', true))) return;
@@ -910,8 +924,9 @@
   function renderPanel() { renderRows(); renderLanes(); renderMarkers(); renderAnno(); }
 
   App.on(what => {
+    if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
