@@ -458,8 +458,7 @@
       const log = [];
       App.setPref('tutorialSeen', null);
       G.Tour.start('tutorial');
-      await wait(80);
-      log.push(at());                                              // a gel is open: "The three areas"
+      log.push(await until('The three areas·0'));                  // a gel is open, so the practice-gel step is skipped
       const clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden();
       G.Tour.next(); G.Tour.next(); G.Tour.next();
       log.push(at());                                              // band look: switch

@@ -266,7 +266,8 @@
     box().classList.remove('hidden'); box().classList.toggle('hands-on', mode === 'tutorial');
     document.body.classList.add('touring'); document.body.classList.toggle('tutoring', mode === 'tutorial');
     clearInterval(timer); timer = setInterval(() => { check(); if (si >= 0) place(); }, 500);
-    requestAnimationFrame(forward);
+    forward();                                   // at once, so the first step is there when start() returns
+    requestAnimationFrame(() => { if (si >= 0) place(); });   // and placed again once the overlay has painted
   }
   function finish() {
     if (box().classList.contains('hidden')) return;
