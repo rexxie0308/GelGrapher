@@ -246,7 +246,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .lib-card:hover .x, .lib-card .x:focus-visible { opacity: 1; }
 .lib-card .x:hover { color: var(--danger); background: var(--danger-bg); }
 .libdlg { width: 760px; max-width: 100%; }
-.lib-empty { color: var(--faint); font-size: 12.5px; padding: 12px 0; }
+.lib-empty { grid-column: 1 / -1; color: var(--faint); font-size: 12.3px; padding: 14px 12px; text-align: center; border: 1px dashed var(--input-line); border-radius: var(--r); }
 .menu-head { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
 .item .star { border: none; background: none; cursor: pointer; font-size: 15px; color: var(--star); padding: 0 3px; }
 .mk-card .star { border: none; background: none; cursor: pointer; font-size: 16px; color: var(--star); padding: 0 2px; line-height: 1; }
