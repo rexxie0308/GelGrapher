@@ -75,9 +75,9 @@ Added in GelGrapher:
 
 ## Quick start
 
-**In Claude:** open the [GelGrapher artifact](https://claude.ai/artifact/TaJkMEbS7d2Yf81LcVr2oj) (it is pinned in your claude.ai sidebar). The artifact is private to its owner until you share it from its *Share* menu.
+**On the web:** open **https://rexxie0308.github.io/GelGrapher/** in any browser. No account and no installation; the page is redeployed from this repository on every change. Images stay in your browser.
 
-**On the web:** open https://rexxie0308.github.io/GelGrapher/ (available once GitHub Pages is enabled, see [Development](#development)).
+**In Claude:** open the [GelGrapher artifact](https://claude.ai/artifact/TaJkMEbS7d2Yf81LcVr2oj) (it is pinned in your claude.ai sidebar). The artifact is private to its owner until you share it from its *Share* menu; it adds "Draft legend and methods with Claude".
 
 **Offline:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed.
 
@@ -206,7 +206,7 @@ npm run build                   # dist/gelgrapher-artifact.html
 
 **Claude artifact.** `npm run build` writes `dist/gelgrapher-artifact.html`: the page with the stylesheet and all scripts inlined and the offline CSP left out (the artifact host sets its own). It is published at https://claude.ai/artifact/TaJkMEbS7d2Yf81LcVr2oj with the `downloads` and `sample` capabilities. To update it, ask Claude Code to rebuild and republish that URL; see [CLAUDE.md](CLAUDE.md).
 
-**GitHub Pages.** `.github/workflows/pages.yml` deploys the app on every push to `main`. Enable it once: *Settings → Pages → Build and deployment → Source: GitHub Actions*.
+**GitHub Pages.** `.github/workflows/pages.yml` deploys the app to https://rexxie0308.github.io/GelGrapher/ on every push to `main` (Pages is set to *Source: GitHub Actions*; a fork needs that switch once under *Settings → Pages*).
 
 **Releases.** Push a tag such as `v1.0.0`; `.github/workflows/release.yml` attaches an offline ZIP and the single-file build.
 
