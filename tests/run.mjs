@@ -75,11 +75,24 @@ const UI_CHECKS = [
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']]
 ];
 
+// Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in
+// Claude Code cloud sessions, which preinstall one Chromium and skip downloads) falls back to that browser
+async function launch(name) {
+  const opts = channel && name === 'chromium' ? { channel } : {};
+  try { return await ENGINES[name].launch(opts); }
+  catch (e) {
+    const exe = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || path.join(process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers', 'chromium');
+    if (name !== 'chromium' || channel || !fs.existsSync(exe)) throw e;
+    console.log(`  (bundled Chromium missing; using ${exe})`);
+    return ENGINES[name].launch({ executablePath: exe });
+  }
+}
+
 async function runIn(name, base) {
   const out = { browser: name, results: [], ok: true };
   const fail = (what, detail) => { out.ok = false; out.results.push(['FAIL', what, detail]); };
   const pass = what => out.results.push(['ok', what]);
-  const browser = await ENGINES[name].launch(channel && name === 'chromium' ? { channel } : {});
+  const browser = await launch(name);
   try {
     const ctx = await browser.newContext({ viewport: { width: 1600, height: 960 } });
     const watch = page => {
