@@ -62,9 +62,9 @@
   }
 
   /* A step = one task; its parts introduce the area, then point at the control. A part with `done`
-   * waits for the action (the predicate gets the value `enter` returned when the part began) and never
-   * hands over while a text box, a window or a dialog is open; a part without `done` is read and
-   * confirmed with Next. `panel` opens the folds around the target and scrolls it into view once;
+   * waits for the action (the predicate gets the value `enter` returned when the part began), is never
+   * done while a text box, a window or a dialog is open, and then still waits for Next (nothing moves
+   * on by itself); a part without `done` is read and confirmed with Next. `panel` opens the folds around the target and scrolls it into view once;
    * `top` scrolls the panel to its top. `watch` = areas kept lit (the result shows there), `avoid` = an
    * area the card must not cover. `text` may be a function (worded for the gel that is open).
    * Written for someone who has never seen the app: every part names the thing to click. */
@@ -146,7 +146,8 @@
       { el: '#btnAddBox', panel: true, text: 'Click [+ Band box].', done: () => App.mode === 'quant' },
       { rect: cropRect, watch: ['#editorBox', '#figCol'], avoid: '#editorBox', text: 'Click a band on the raw image, inside the red box (or drag from just above the band to just below it). A green box fits itself to the band and the Densitometry view opens on the right with one bar per lane. Give the box a name in the list on the left (for example Product).',
         enter: () => S().quant.rows.length, done: b => S().quant.rows.length > b, after: () => G.QuantUI.setView('quant') },
-      { el: '#btnAddBox', panel: true, text: 'A second box is normally the loading control, the band that shows how much was loaded in each lane (GAPDH, actin, tubulin). Click [+ Band box] again, then click a band in another row of the raw image.',
+      { el: '#btnAddBox', panel: true, text: 'A second box is normally the loading control, the band that shows how much was loaded in each lane (GAPDH, actin, tubulin). Click [+ Band box] again.', done: () => App.mode === 'quant' },
+      { rect: cropRect, watch: ['#editorBox', '#figCol'], avoid: '#editorBox', text: 'Now click a band in another row of the raw image: the second box.',
         enter: () => S().quant.rows.length, done: b => S().quant.rows.length > b, after: () => G.QuantUI.setView('quant') },
       { el: '#boxList', panel: true, watch: '#figCol', text: 'In the list of boxes, make sure [Loading control] is ticked on the second box (the app suggests it). The first box is then divided by it in every lane, which corrects for unequal loading; values are given relative to the reference lane, which reads 1.00.',
         done: () => S().quant.control >= 0 },
@@ -176,7 +177,7 @@
     { el: '#btnHelp', title: 'Help', text: 'Shortcuts, common tasks, the hands-on tutorial and this overview live under the ? button.' }
   ];
 
-  let mode = null, steps = [], si = -1, pi = 0, base = null, isDone = false, timer = 0, hold = 0, scrollT = 0;
+  let mode = null, steps = [], si = -1, pi = 0, base = null, isDone = false, afterRan = false, timer = 0, hold = 0, scrollT = 0;
   const box = () => $('tour'), spot = () => $('tourSpot'), card = () => $('tourCard');
   const part = () => (steps[si] && steps[si].parts ? steps[si].parts[pi] : steps[si]);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -211,7 +212,7 @@
     const waits = mode === 'tutorial' && !!p.done && !isDone, optional = !!s.optional;
     $('tourNext').textContent = p.last || (si === steps.length - 1 && !s.parts) ? 'Done' : waits ? (optional ? 'Skip step' : 'Waiting…') : 'Next';
     $('tourNext').disabled = waits && !optional;
-    $('tourStatus').innerHTML = mode === 'tutorial' && p.done ? (isDone ? '✓ Done' : (optional ? 'Optional step' : 'Do it on the page to continue') + ' · <a href="#" id="tourSkipPart">skip this step</a>') : '';
+    $('tourStatus').innerHTML = mode === 'tutorial' && p.done ? (isDone ? '✓ Done · click ' + fmt('[Next]') : (optional ? 'Optional step' : 'Do it on the page to continue') + ' · <a href="#" id="tourSkipPart">skip this step</a>') : '';
     $('tourStatus').classList.toggle('ok', isDone);
     const sk = $('tourSkipPart'); if (sk) sk.onclick = e => { e.preventDefault(); skipStep(); };
     $('tourTourBtn').classList.toggle('hidden', !(mode === 'tutorial' && p.last));
@@ -260,7 +261,7 @@
     el.scrollIntoView({ block: 'center' });
   }
   function enterPart() {
-    isDone = false; clearTimeout(hold);
+    isDone = false; afterRan = false; clearTimeout(hold);
     const p = part();
     base = p && p.enter ? safe(() => p.enter(), null) : null;
     reveal(p);
@@ -294,6 +295,8 @@
   function skipStep() { si++; pi = -1; forward(); }
   // the tutorial watches the page: when the asked-for action shows in the state (and nothing is being typed), the part is done
   const satisfied = p => !typing() && !dialogOpen() && safe(() => !!p.done(base), false);
+  // what follows the action (an example's annotations are stripped, the Densitometry view opens), once per part
+  const runAfter = p => { if (afterRan) return; afterRan = true; if (p.after) safe(() => p.after()); };
   function check() {
     if (mode !== 'tutorial' || si < 0) return;
     const p = part();
@@ -302,14 +305,13 @@
     if (ok === isDone) return;
     if (!ok) { isDone = false; clearTimeout(hold); place(); return; }   // undone again (a window opened, the change was reverted)
     isDone = true; place();
-    // the hand-over runs a moment later, after whatever follows the action (an example applies its annotations
-    // after loading, a window opens on a new arrow), and only if the action still holds then
+    // nothing moves on by itself: the card shows "Done" and waits for Next. The follow-up runs a moment later,
+    // after whatever follows the action (an example applies its annotations after loading), if the action still holds
     clearTimeout(hold);
     hold = setTimeout(() => {
       if (mode !== 'tutorial' || part() !== p || !isDone) return;
       if (!satisfied(p)) { isDone = false; place(); return; }
-      if (p.after) safe(() => p.after());
-      forward();
+      runAfter(p);
     }, 900);
   }
   function start(which) {
@@ -331,7 +333,10 @@
   $('tourNext').onclick = () => {
     const s = steps[si], p = part(); if (!p) return;
     if (p.last || (si === steps.length - 1 && !s.parts)) { finish(); return; }
-    if (mode === 'tutorial' && p.done && !isDone && s.optional) { skipStep(); return; }
+    if (mode === 'tutorial' && p.done) {
+      if (!isDone) { if (s.optional) skipStep(); return; }
+      runAfter(p);
+    }
     forward();
   };
   $('tourBack').onclick = backward;
@@ -344,6 +349,7 @@
     e.stopPropagation();
   });
   window.addEventListener('resize', () => { if (si >= 0) place(); });
+  document.addEventListener('toggle', () => { if (si >= 0) place(); }, true);   // a fold opened or closed moves what is below it
   // the spotlight follows the target when the panel or the page scrolls (without the slide animation)
   window.addEventListener('scroll', () => {
     if (si < 0) return;

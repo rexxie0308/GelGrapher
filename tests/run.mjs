@@ -75,7 +75,7 @@ const UI_CHECKS = [
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
   ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']],
   ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
-  ['hands-on tutorial waits for each real action, for typing and for dialogs, lights the areas to watch', r => r.tutorial.ok, ['tutorial']],
+  ['hands-on tutorial waits for each real action, for typing, for dialogs and for Next; lights the areas to watch', r => r.tutorial.ok, ['tutorial']],
   ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];

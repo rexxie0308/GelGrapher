@@ -10,7 +10,7 @@
   --top-bg: #FFFFFF; --top-fg: #152229; --top-muted: #43535B; --top-line: #C2CDD2; --top-fill: #E9EFF1; --top-hover: #DCE4E7;
   --stage: #EEF2F4; --canvas-bg: #E9EFF1; --grid: rgba(21,34,41,.045); --input-bg: #FFFFFF; --input-line: #C2CDD2; --hover: #F1F4F6;
   --marker-bg: #FFF1C2; --marker-fg: #6E5200; --q-box: #1f9d55; --strip: #0e8f8f; --toast-bg: #152229; --toast-fg: #FFFFFF;
-  --scroll: #C2CDD2; --hist: #B8C4CA; --overlay: rgba(21,34,41,.42); --busy: rgba(238,242,244,.72);
+  --scroll: #C2CDD2; --hist: #B8C4CA; --overlay: rgba(21,34,41,.42); --tour-dim: rgba(21,34,41,.55); --accent-soft: rgba(23,109,124,.28); --busy: rgba(238,242,244,.72);
   --r: 10px; --r-sm: 7px; --shadow: 0 1px 2px rgba(21,34,41,.05), 0 8px 24px -12px rgba(21,34,41,.14); --shadow-sm: 0 1px 2px rgba(21,34,41,.10); --shadow-lg: 0 2px 4px rgba(21,34,41,.08), 0 16px 40px -12px rgba(21,34,41,.35);
   --font: "Instrument Sans", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans", sans-serif;
   --mono: "DM Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -24,7 +24,7 @@
     --top-bg: #171F23; --top-fg: #E7EDEF; --top-muted: #B0BCC2; --top-line: #3A474E; --top-fill: #263036; --top-hover: #2F3B42;
     --stage: #0E1417; --canvas-bg: #0F1619; --grid: rgba(255,255,255,.04); --input-bg: #0F1619; --input-line: #3A474E; --hover: #1E272C;
     --marker-bg: #3a3112; --marker-fg: #f2d27a; --q-box: #4cc985; --strip: #3cc4c4; --toast-bg: #E7EDEF; --toast-fg: #0E1417;
-    --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --busy: rgba(14,20,23,.72);
+    --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --tour-dim: rgba(0,0,0,.74); --accent-soft: rgba(86,190,204,.32); --busy: rgba(14,20,23,.72);
     --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px -12px rgba(0,0,0,.6); --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 16px 40px -8px rgba(0,0,0,.7);
     color-scheme: dark;
   }
@@ -37,7 +37,7 @@
   --top-bg: #171F23; --top-fg: #E7EDEF; --top-muted: #B0BCC2; --top-line: #3A474E; --top-fill: #263036; --top-hover: #2F3B42;
   --stage: #0E1417; --canvas-bg: #0F1619; --grid: rgba(255,255,255,.04); --input-bg: #0F1619; --input-line: #3A474E; --hover: #1E272C;
   --marker-bg: #3a3112; --marker-fg: #f2d27a; --q-box: #4cc985; --strip: #3cc4c4; --toast-bg: #E7EDEF; --toast-fg: #0E1417;
-  --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --busy: rgba(14,20,23,.72);
+  --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --tour-dim: rgba(0,0,0,.74); --accent-soft: rgba(86,190,204,.32); --busy: rgba(14,20,23,.72);
   --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px -12px rgba(0,0,0,.6); --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 16px 40px -8px rgba(0,0,0,.7);
   color-scheme: dark;
 }
@@ -324,6 +324,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 /* the dim is an SVG with a hole for every lit area (the target, the areas to watch, an open text box) */
 #tourDim { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 #tourDim .dim { fill: var(--overlay); }
+#tour.hands-on #tourDim .dim { fill: var(--tour-dim); }
 #tourDim #tourHoles rect { fill: #000; }
 /* the hands-on tutorial lets every click through: only its card takes the pointer */
 #tour.hands-on { pointer-events: none; }
@@ -337,7 +338,7 @@ body.tutoring .float-ed, body.tutoring .popover { z-index: 89; }
 body.tutoring:not(.tut-warn) #warnings { display: none; }
 .tour-status.ok { color: var(--ok); font-weight: 600; }
 .tour-status a { color: var(--accent); }
-#tourSpot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 2px var(--accent); transition: left .25s, top .25s, width .25s, height .25s; pointer-events: none; }
+#tourSpot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px var(--accent-soft), 0 0 22px 4px var(--accent-soft); transition: left .25s, top .25s, width .25s, height .25s; pointer-events: none; }
 #tourCard { position: fixed; width: 360px; max-width: calc(100vw - 24px); padding: 14px 16px 12px; background: var(--panel); color: var(--text); border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid var(--line); transition: left .25s, top .25s; }
 .tour-top { display: flex; align-items: baseline; gap: 10px; }
 .tour-top b { font-size: 14px; flex: 1; }
@@ -345,6 +346,10 @@ body.tutoring:not(.tut-warn) #warnings { display: none; }
 .tour-actions { display: flex; align-items: center; gap: 6px; }
 body.touring #app, body.touring .topbar { user-select: none; }
 @media (max-width: 860px) { #tourSpot, #tourDim { display: none !important; } #tourCard { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto !important; } }
+
+/* the dashed guide on the figure while a target band is being placed: where the arrow will go */
+#arrowGuide { position: fixed; height: 0; border-top: 1.5px dashed #c026d3; pointer-events: none; z-index: 69; }
+#arrowGuide span { position: absolute; right: 0; top: -17px; font: 600 11px/1.3 var(--font); color: #c026d3; background: rgba(255,255,255,.85); padding: 0 4px; border-radius: 3px; }
 
 /* ---------- floating editor / popover ---------- */
 .float-ed { position: fixed; z-index: 70; width: 140px; padding: 4px 8px !important; border: 1.5px solid var(--accent) !important; border-radius: 6px;

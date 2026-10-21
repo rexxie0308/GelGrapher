@@ -163,6 +163,7 @@
       const c = conds[k];
       vis.forEach(o => {
         const v = c.values[o.i], src = o.l.src != null ? o.l.src : o.i;
+        if ((S.markers || []).some(m => m.lane === src)) return;   // a ladder lane has no condition
         // a wide invisible hit area makes each cell easy to click in the preview
         const hit = P ? `<rect x="${f(X(o.i) - Math.min(pitch, 20) * 0.45)}" y="${f(yTop - pt)}" width="${f(Math.min(pitch, 20) * 0.9)}" height="${f(pt * 1.25)}" fill="transparent"/>` : '';
         if (v) els.push(ed(`data-edit="cond" data-r="${c.r}" data-src="${src}"`, hit + textEl(v, X(o.i), yTop, pt, 'middle')));

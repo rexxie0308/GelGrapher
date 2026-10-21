@@ -7,7 +7,7 @@
   const S = () => App.S;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  const fed = $('floatEd'), pop = $('popover'), prev = $('preview');
+  const fed = $('floatEd'), pop = $('popover'), prev = $('preview'), guide = $('arrowGuide');
   const composing = e => e.isComposing || e.keyCode === 229;
 
   /* ---------- modes ---------- */
@@ -23,6 +23,7 @@
     $('btnAddStrip').classList.toggle('on', m === 'strip');
     $('btnAddBox').classList.toggle('on', m === 'quant');
     prev.classList.toggle('arming', m === 'arrow');
+    if (m !== 'arrow') guide.classList.add('hidden');
     G.Editor.draw();
   }
   $('modeCancel').onclick = () => setMode(null);
@@ -87,7 +88,10 @@
     fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
     const w = Math.max(120, Math.min(240, r.width + 50));
     fed.style.width = w + 'px';
-    fed.style.left = clamp(r.left + r.width / 2 - w / 2, 4, innerWidth - w - 4) + 'px';
+    // where the text will be: over a lane name or group label (above the gel); a strip label grows to the right of
+    // the gel, a condition name to the left of it, so the box never covers the gel image
+    const left = kind === 'strip' ? r.left : kind === 'condname' ? r.right - w : r.left + r.width / 2 - w / 2;
+    fed.style.left = clamp(left, 4, innerWidth - w - 4) + 'px';
     fed.style.top = clamp(r.top + r.height / 2 - 15, 56, innerHeight - 40) + 'px';
     fed.classList.remove('hidden');
     fed.focus(); fed.select();
@@ -146,10 +150,12 @@
         <span class="hint" style="margin:0">${'Drag the magenta line on the image to move it'}</span></div>
       <div class="actions"><button class="btn sm danger" id="pDel">${'Delete'}</button><button class="btn sm primary" id="pOk">${'Done'}</button></div>`;
     pop.querySelector('#pSide').value = a.side || '';
-    const r = (anchor || prev).getBoundingClientRect();
+    const r = (anchor || prev).getBoundingClientRect(), svg = prev.querySelector('svg'), sr = svg ? svg.getBoundingClientRect() : r;
     pop.classList.remove('hidden');
     const pw = 250, ph = pop.offsetHeight;
-    pop.style.left = clamp(r.right + 10 + pw > innerWidth ? r.left - pw - 10 : r.right + 10, 6, innerWidth - pw - 6) + 'px';
+    // beside the figure (never over it), at the arrow's height; beside the arrow itself only when neither side has room
+    const left = sr.right + 10 + pw <= innerWidth - 6 ? sr.right + 10 : sr.left - pw - 10 >= 6 ? sr.left - pw - 10 : (r.right + 10 + pw > innerWidth ? r.left - pw - 10 : r.right + 10);
+    pop.style.left = clamp(left, 6, innerWidth - pw - 6) + 'px';
     pop.style.top = clamp(r.top - 20, 58, innerHeight - ph - 8) + 'px';
     const upd = () => App.refresh();
     pop.querySelector('#pName').addEventListener('input', e => { a.text = e.target.value; upd(); });
@@ -209,15 +215,28 @@
       c.values[i] = cyc[c.values[i] || ''] != null ? cyc[c.values[i] || ''] : '';
       App.commit();
     } else if (kind === 'arrow') arrowPopover(+g.dataset.k, g);
-    else if (kind === 'gel' && App.mode === 'arrow') {
-      // map the click on the composed gel image back to raw-image coordinates
-      const rect = g.getBoundingClientRect(), gel = App._lastGel, c = S().crop;
-      const fx = (e.clientX - rect.left) / rect.width, fy = (e.clientY - rect.top) / rect.height;
-      const px = fx * gel.canvas.width;
-      const seg = gel.segs.find(s => px >= s.off && px <= s.off + (s.px1 - s.px0)) || gel.segs[0];
-      App.placeArrow(c.x + seg.px0 + (px - seg.off), c.y + fy * c.h);
-    }
+    else if (kind === 'gel' && App.mode === 'arrow') { const p = gelToRaw(e, g); App.placeArrow(p.x, p.y); }
   });
+  // a point on the composed gel image, back in raw-image coordinates (removed lanes are skipped by the segments)
+  function gelToRaw(e, g) {
+    const rect = g.getBoundingClientRect(), gel = App._lastGel, c = S().crop;
+    const fx = (e.clientX - rect.left) / rect.width, fy = (e.clientY - rect.top) / rect.height;
+    const px = fx * gel.canvas.width;
+    const seg = gel.segs.find(s => px >= s.off && px <= s.off + (s.px1 - s.px0)) || gel.segs[0];
+    return { x: c.x + seg.px0 + (px - seg.off), y: c.y + fy * c.h, rect };
+  }
+  // while a target band is being placed, a dashed line on the figure shows where the arrow will go (snapped to the band)
+  prev.addEventListener('pointermove', e => {
+    const g = App.mode === 'arrow' && S() && App._lastGel ? e.target.closest('[data-edit="gel"]') : null;
+    if (!g) { guide.classList.add('hidden'); return; }
+    const p = gelToRaw(e, g), c = S().crop, sy = App.snapBandY(p.x, p.y) ?? p.y, info = App.estimateInfo(sy);
+    guide.style.left = p.rect.left + 'px'; guide.style.width = p.rect.width + 'px';
+    guide.style.top = (p.rect.top + (sy - c.y) / c.h * p.rect.height) + 'px';
+    guide.querySelector('span').textContent = info && info.bp ? (info.extrap ? '≈' : '') + App.fmtSize(info.bp) : '';
+    guide.classList.remove('hidden');
+  });
+  prev.addEventListener('pointerleave', () => guide.classList.add('hidden'));
+  App.on(() => { if (App.mode !== 'arrow') guide.classList.add('hidden'); });
 
   window.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
