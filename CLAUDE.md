@@ -11,7 +11,7 @@ npm test -- --browser=chromium  # engine self-test (test/test.html) + interface 
 npm run build                   # dist/gelgrapher-artifact.html (single file for the Claude artifact)
 ```
 
-Run `npm run check` and the Chromium tests before every push. CI (`.github/workflows/ci.yml`) also runs Firefox and WebKit. In cloud sessions do not run `playwright install`; Chromium is preinstalled under `$PLAYWRIGHT_BROWSERS_PATH`.
+Run `npm run check` and the Chromium tests before every push. CI (`.github/workflows/ci.yml`) also runs Firefox and WebKit. In cloud sessions do not run `playwright install`; Chromium is preinstalled under `$PLAYWRIGHT_BROWSERS_PATH`, and when the pinned Playwright is newer than that browser, `tests/run.mjs` falls back to `$PLAYWRIGHT_BROWSERS_PATH/chromium` (or `$PLAYWRIGHT_CHROMIUM_EXECUTABLE`).
 
 ## Architecture
 

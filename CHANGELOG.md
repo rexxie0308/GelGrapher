@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Dependencies: Playwright 1.64.1; GitHub Actions checkout v7, setup-node v7, configure-pages v6, upload-pages-artifact v5, deploy-pages v5. The test runner falls back to a preinstalled Chromium when the bundled one is missing.
 - One palette with Paper Radar: cool mist ground, slate ink, teal for anything you can act on, amber only for warnings, green only for "fine"; a light top bar; the same tokens in dark mode. The figure stays black on white and the overlay colours on the raw image are unchanged.
 - The panel's first screen holds the daily steps (experiment, band look, lanes, names, marker): rotation, flips, contrast and gamma sit under "Straighten and contrast", which states what was set automatically, and the lane-fixing tools under "Lanes detected wrongly?". Hints are shorter.
 - English-only interface: the Chinese translation layer (`js/i18n.js`, `L()` calls, `data-en` attributes) and the language button are removed.
