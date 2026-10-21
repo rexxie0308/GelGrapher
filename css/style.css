@@ -10,7 +10,7 @@
   --top-bg: #FFFFFF; --top-fg: #152229; --top-muted: #43535B; --top-line: #C2CDD2; --top-fill: #E9EFF1; --top-hover: #DCE4E7;
   --stage: #EEF2F4; --canvas-bg: #E9EFF1; --grid: rgba(21,34,41,.045); --input-bg: #FFFFFF; --input-line: #C2CDD2; --hover: #F1F4F6;
   --marker-bg: #FFF1C2; --marker-fg: #6E5200; --q-box: #1f9d55; --strip: #0e8f8f; --toast-bg: #152229; --toast-fg: #FFFFFF;
-  --scroll: #C2CDD2; --hist: #B8C4CA; --overlay: rgba(21,34,41,.42); --busy: rgba(238,242,244,.72);
+  --scroll: #C2CDD2; --hist: #B8C4CA; --overlay: rgba(21,34,41,.42); --tour-dim: rgba(21,34,41,.55); --accent-soft: rgba(23,109,124,.28); --busy: rgba(238,242,244,.72);
   --r: 10px; --r-sm: 7px; --shadow: 0 1px 2px rgba(21,34,41,.05), 0 8px 24px -12px rgba(21,34,41,.14); --shadow-sm: 0 1px 2px rgba(21,34,41,.10); --shadow-lg: 0 2px 4px rgba(21,34,41,.08), 0 16px 40px -12px rgba(21,34,41,.35);
   --font: "Instrument Sans", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans", sans-serif;
   --mono: "DM Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
@@ -24,7 +24,7 @@
     --top-bg: #171F23; --top-fg: #E7EDEF; --top-muted: #B0BCC2; --top-line: #3A474E; --top-fill: #263036; --top-hover: #2F3B42;
     --stage: #0E1417; --canvas-bg: #0F1619; --grid: rgba(255,255,255,.04); --input-bg: #0F1619; --input-line: #3A474E; --hover: #1E272C;
     --marker-bg: #3a3112; --marker-fg: #f2d27a; --q-box: #4cc985; --strip: #3cc4c4; --toast-bg: #E7EDEF; --toast-fg: #0E1417;
-    --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --busy: rgba(14,20,23,.72);
+    --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --tour-dim: rgba(0,0,0,.74); --accent-soft: rgba(86,190,204,.32); --busy: rgba(14,20,23,.72);
     --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px -12px rgba(0,0,0,.6); --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 16px 40px -8px rgba(0,0,0,.7);
     color-scheme: dark;
   }
@@ -37,7 +37,7 @@
   --top-bg: #171F23; --top-fg: #E7EDEF; --top-muted: #B0BCC2; --top-line: #3A474E; --top-fill: #263036; --top-hover: #2F3B42;
   --stage: #0E1417; --canvas-bg: #0F1619; --grid: rgba(255,255,255,.04); --input-bg: #0F1619; --input-line: #3A474E; --hover: #1E272C;
   --marker-bg: #3a3112; --marker-fg: #f2d27a; --q-box: #4cc985; --strip: #3cc4c4; --toast-bg: #E7EDEF; --toast-fg: #0E1417;
-  --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --busy: rgba(14,20,23,.72);
+  --scroll: #3A474E; --hist: #3A474E; --overlay: rgba(0,0,0,.6); --tour-dim: rgba(0,0,0,.74); --accent-soft: rgba(86,190,204,.32); --busy: rgba(14,20,23,.72);
   --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px -12px rgba(0,0,0,.6); --shadow-sm: 0 1px 2px rgba(0,0,0,.4); --shadow-lg: 0 16px 40px -8px rgba(0,0,0,.7);
   color-scheme: dark;
 }
@@ -70,6 +70,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .icon-btn { width: 30px; height: 30px; border-radius: var(--r-sm); border: 1px solid var(--top-line); background: var(--top-fill);
   color: var(--top-fg); cursor: pointer; font-size: 14px; line-height: 1; }
 .icon-btn:hover { background: var(--top-hover); }
+.icon-btn.round { border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-left: 2px; }
 .icon-btn:disabled { opacity: .35; cursor: default; }
 .dlg-body a { color: var(--accent); }
 #dpiTop { width: auto; background: var(--top-fill); border: 1px solid var(--top-line); color: var(--top-fg); border-radius: var(--r-sm); padding: 5px 6px; }
@@ -215,6 +216,9 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .mk-card .row2 { display: flex; gap: 6px; margin-top: 6px; }
 .mk-card .row2 select { margin: 0; flex: 1; }
 .mk-card .list { max-height: 150px; }
+.pick { font-size: 12px; color: var(--faint); margin: 2px 0 4px; }
+.pick a { color: var(--accent); text-decoration: none; }
+.pick a:hover { text-decoration: underline; }
 
 .menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 .menu .danger { color: var(--danger); }
@@ -297,6 +301,57 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .legend:empty { display: none; }
 .legend b { color: var(--text); display: block; margin-bottom: 2px; }
 
+/* ---------- densitometry view (figure column) ---------- */
+.view-seg { padding: 2px; }
+.view-seg button { padding: 4px 10px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+.badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+#quantView { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
+.qv-head { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.qv-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; }
+.qv-body .qchart { max-width: 620px; margin: 0 0 16px; padding: 10px; background: #fff; border-radius: var(--r); box-shadow: var(--shadow); }
+.qv-body .qchart:empty { display: none; }
+.qv-body .qtable { max-width: 980px; margin: 0; }
+.qv-body .qtable table { font-size: 12.3px; }
+.qv-body .qtable th, .qv-body .qtable td { padding: 5px 9px; }
+.qv-body .tscroll { background: var(--panel); }
+.qv-empty { max-width: 520px; margin: 48px auto; padding: 22px 24px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; background: var(--panel); border: 1px dashed var(--input-line); border-radius: var(--r); }
+.qv-empty b { color: var(--text); }
+.qv-empty .btn { margin-top: 12px; }
+#profAdv { max-width: 760px; margin-top: 16px; }
+#quantNote { max-width: 760px; }
+
+/* ---------- guided tour ---------- */
+#tour { position: fixed; inset: 0; z-index: 88; outline: none; }
+/* the dim is an SVG with a hole for every lit area (the target, the areas to watch, an open text box) */
+#tourDim { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#tourDim .dim { fill: var(--overlay); }
+#tour.hands-on #tourDim .dim { fill: var(--tour-dim); }
+#tourDim #tourHoles rect { fill: #000; }
+/* the hands-on tutorial lets every click through: only its card takes the pointer */
+#tour.hands-on { pointer-events: none; }
+#tour.hands-on #tourCard { pointer-events: auto; }
+#tour.scrolling #tourSpot, #tour.scrolling #tourCard { transition: none; }
+/* text boxes and windows opened on the figure sit above the dim and the card while the tutorial runs */
+body.tutoring .float-ed, body.tutoring .popover { z-index: 89; }
+.tour-status { font-size: 12px; color: var(--faint); margin: -6px 0 10px; min-height: 14px; }
+.tour-key { display: inline-block; padding: 0 6px; border: 1px solid var(--input-line); border-bottom-width: 2px; border-radius: 5px; background: var(--input-bg); color: var(--text); font: 600 11.5px/1.6 var(--font); white-space: nowrap; vertical-align: 1px; }
+/* during the tutorial the notices wait for the contrast step, where they belong */
+body.tutoring:not(.tut-warn) #warnings { display: none; }
+.tour-status.ok { color: var(--ok); font-weight: 600; }
+.tour-status a { color: var(--accent); }
+#tourSpot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 2px var(--accent), 0 0 0 6px var(--accent-soft), 0 0 22px 4px var(--accent-soft); transition: left .25s, top .25s, width .25s, height .25s; pointer-events: none; }
+#tourCard { position: fixed; width: 360px; max-width: calc(100vw - 24px); padding: 14px 16px 12px; background: var(--panel); color: var(--text); border-radius: 12px; box-shadow: var(--shadow-lg); border: 1px solid var(--line); transition: left .25s, top .25s; }
+.tour-top { display: flex; align-items: baseline; gap: 10px; }
+.tour-top b { font-size: 14px; flex: 1; }
+#tourText { margin: 6px 0 12px; font-size: 12.8px; line-height: 1.55; color: var(--muted); }
+.tour-actions { display: flex; align-items: center; gap: 6px; }
+body.touring #app, body.touring .topbar { user-select: none; }
+@media (max-width: 860px) { #tourSpot, #tourDim { display: none !important; } #tourCard { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto !important; } }
+
+/* the dashed guide on the figure while a target band is being placed: where the arrow will go */
+#arrowGuide { position: fixed; height: 0; border-top: 1.5px dashed #c026d3; pointer-events: none; z-index: 69; }
+#arrowGuide span { position: absolute; right: 0; top: -17px; font: 600 11px/1.3 var(--font); color: #c026d3; background: rgba(255,255,255,.85); padding: 0 4px; border-radius: 3px; }
+
 /* ---------- floating editor / popover ---------- */
 .float-ed { position: fixed; z-index: 70; width: 140px; padding: 4px 8px !important; border: 1.5px solid var(--accent) !important; border-radius: 6px;
   box-shadow: var(--shadow-lg) !important; font-size: 13px; background: var(--input-bg); color: var(--text); }
@@ -315,7 +370,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 #warnings div { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); border-radius: 10px; padding: 7px 12px; font-size: 12px; box-shadow: var(--shadow); display: flex; gap: 8px; align-items: flex-start; }
 #warnings div button { border: none; background: none; color: inherit; cursor: pointer; opacity: .6; font-size: 14px; line-height: 1; padding: 0; }
 /* a newer version of the app has been stored by the service worker (js/pwa.js) */
-.update-bar { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 85; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px);
+.update-bar { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 89; display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px);
   padding: 8px 10px 8px 16px; border-radius: 999px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--ok); box-shadow: var(--shadow-lg); font-size: 12.5px; }
 #toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
 .toast { background: var(--toast-bg); color: var(--toast-fg); max-width: calc(100vw - 32px); border-radius: 999px; padding: 8px 18px; font-size: 12.5px; box-shadow: var(--shadow-lg); animation: toastIn .22s ease; }
@@ -358,7 +413,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .qtable td.relv { font-weight: 600; }
 .qtable .extrap { color: var(--warn); }
 #sizeTable td:last-child { text-align: left; white-space: normal; }
-.qchart { margin-top: 8px; border-radius: var(--r-sm); overflow: hidden; }
+.qchart { border-radius: var(--r-sm); overflow: hidden; }
 .qchart:empty { display: none; }
 #qProfile { width: 100%; height: 130px; display: block; border-radius: var(--r-sm); background: var(--panel-2); }
 .inline.wrap { flex-wrap: wrap; }
@@ -374,7 +429,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 
 /* ---------- narrower screens ---------- */
 @media (max-width: 1250px) { #panel { width: var(--panel-w, 284px); } .coach { display: none; } .col-sub { display: none; } }
-@media (max-width: 1100px) { #btnLibrary { display: none; } }
+@media (max-width: 1100px) { #btnLibrary, #btnGuide { display: none; } }
 /* middling widths (a half-screen window, a portrait monitor): raw image above the figure, panel stays */
 @media (max-width: 1180px) and (min-width: 861px) {
   #stage { flex-direction: column; }

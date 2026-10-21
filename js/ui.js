@@ -119,7 +119,8 @@
   async function loadExample(kind) {
     App.busy(true, 'Building the example…');
     await new Promise(r => setTimeout(r, 30));
-    const g = G.Demo.makeGel({ preset: kind });
+    // the tutorial's practice gel has no saturated band, so the figure made in it passes the pre-flight check
+    const g = G.Demo.makeGel({ preset: kind, clean: !!(G.Tour && G.Tour.mode() === 'tutorial') });
     await App.load({ name: EXAMPLE_NAMES[kind], buffer: G.Demo.encodeTiff16(g) }, g.truth.gelType);
     if (!S()) return;
     App.isExample = kind;
@@ -239,6 +240,9 @@
   $('btnUndo').onclick = () => App.undo();
   $('btnRedo').onclick = () => App.redo();
   $('btnHelp').onclick = () => $('helpDlg').classList.remove('hidden');
+  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tour'); };
+  $('btnTutorial').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tutorial'); };
+  $('btnGuide').onclick = () => G.Tour.start('tutorial');
   $('btnHelpClose').onclick = () => $('helpDlg').classList.add('hidden');
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
@@ -250,6 +254,7 @@
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? App.redo() : App.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); App.redo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && S()) { e.preventDefault(); printFigure(); }
     if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); }
   });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
@@ -259,6 +264,10 @@
   /* ---------- export (with pre-flight) ---------- */
   $('preflightOn').checked = App.prefs().preflight !== false;
   $('preflightOn').addEventListener('change', e => App.setPref('preflight', e.target.checked));
+  // the legend notes under the figure, in exports and prints, only when asked for (off by default)
+  $('notesOn').checked = !!App.prefs().legendNotes;
+  $('notesOn').addEventListener('change', e => App.setPref('legendNotes', e.target.checked));
+  const figForExport = () => { const f = App.buildFigure(false); return App.prefs().legendNotes ? G.Render.withNotes(f, G.Export.legendHints(S()).join(' '), S().style.fontPt) : f; };
   // resolves true = go ahead, false = user went back to fix
   function preflight() {
     return new Promise(resolve => {
@@ -283,7 +292,7 @@
     if (!(await preflight())) return;
     App.busy(true, 'Exporting…');
     try {
-      const f = App.buildFigure(false), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi());
+      const f = figForExport(), dpi = S().style.dpi, eff = Math.round(App.effectiveDpi());
       if (kind === 'pdf') {
         const r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
         if (r.missing.length) alertDlg(`The PDF uses the standard PDF fonts, which cannot show these characters (written as "?"): ${r.missing.join(' ')}. Use SVG or PNG for them.`);
@@ -297,6 +306,36 @@
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
   $('btnPNG').onclick = () => exportFigure('png');
+  /* ---------- print (for a lab notebook) ----------
+   * A page with the figure at a readable size and a caption: file, experiment, date, the legend notes. Printed from a
+   * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
+   * saved as a vector PDF to print. */
+  function printHtml() {
+    const f = figForExport(), wmm = f.w / G.Render.MM, shown = Math.min(180, Math.max(wmm, 120));
+    const gt = App.gelType(), cap = [baseName(), typeof gt.name === 'function' ? gt.name() : gt.name, new Date().toISOString().slice(0, 10), `figure ${wmm.toFixed(0)} mm wide at ${S().style.dpi} dpi`, `${App.NAME} ${App.VERSION}`];
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(baseName())}</title><style>@page{margin:15mm}body{margin:0;font:9pt -apple-system,Segoe UI,Arial,sans-serif;color:#000}img{display:block;width:${shown.toFixed(1)}mm;max-width:100%}p{margin:3mm 0 0;max-width:180mm}</style></head><body><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(f.svg)}"><p>${esc(cap.join(' · '))}</p></body></html>`;
+  }
+  async function printFigure() {
+    if (needImage()) return;
+    if (G.Host.inClaude()) {
+      App.busy(true, 'Preparing a PDF…');
+      try {
+        const f = figForExport(), r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
+        saved(r.status, 'Printing is not available inside Claude: the figure was saved as a PDF to print');
+      } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
+      return;
+    }
+    const fr = document.createElement('iframe');
+    fr.setAttribute('aria-hidden', 'true'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(fr);
+    const d = fr.contentDocument; d.open(); d.write(printHtml()); d.close();
+    const img = d.querySelector('img');
+    await new Promise(r => { if (img.complete) r(); else { img.onload = r; img.onerror = r; } });
+    const w = fr.contentWindow; w.focus(); w.print();   // the page's own window cannot print inside the artifact; this frame is used only outside it
+    setTimeout(() => fr.remove(), 60000);
+  }
+  $('btnPrint').onclick = printFigure;
+  $('btnPrintMenu').onclick = printFigure;
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
@@ -304,7 +343,7 @@
     if (needImage()) return;
     App.busy(true, 'Rendering…');
     try {
-      const f = App.buildFigure(false), dpi = S().style.dpi;
+      const f = figForExport(), dpi = S().style.dpi;
       const c = await G.Export.svgToCanvas(f.svg, f.w, f.h, dpi);
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
       if (!navigator.clipboard || !window.ClipboardItem) throw new Error('no clipboard');
@@ -314,7 +353,7 @@
       toast('The clipboard is not available here; use Export PNG instead', 3600);
     } finally { App.busy(false); }
   };
-  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(App.buildFigure(false).svg, baseName() + '_figure.svg'), 'Exported SVG'); };
+  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(figForExport().svg, baseName() + '_figure.svg'), 'Exported SVG'); };
   $('btnUncropped').onclick = async () => { if (needImage()) return; App.renderFull(); saved(await G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'), 'Exported the uncropped image (same processing as the figure)'); };
   $('btnOriginal').onclick = async () => {
     if (needImage()) return;
@@ -615,6 +654,7 @@
           <select data-f="unit">${G.Ladders.unitsFor(kind).concat(G.Ladders.unitsFor(kind).includes(m.unit) ? [] : [m.unit]).map(u => `<option value="${u}">${u === 'auto' ? 'bp/kb' : u}</option>`).join('')}</select>
         </div>
         <details class="adv"${m.lane in wasOpen ? ' open' : ''}><summary>${`Bands (${shown}/${m.bands.length} shown)`}</summary>
+          <div class="pick">${'Labels:'} <a href="#" data-pickb="all">${'all'}</a> · <a href="#" data-pickb="none">${'none'}</a></div>
           <div class="list">${m.bands.map((b, k) => `<div class="item"><label class="switch"><input type="checkbox" data-band="${k}" ${b.show ? 'checked' : ''}></label>
             <span style="flex:1">${b.bp} ${unit}${b.ref ? ' ★' : ''}</span><span class="tag ${b.manual ? 'man' : b.matched ? 'ok' : ''}">${b.manual ? 'manual' : b.matched ? 'matched' : 'predicted'}</span></div>`).join('')}</div>
           <div class="field inline"><button class="btn sm" data-f="thin">${'Thin labels'}</button><button class="btn sm ghost" data-f="match">${'Re-match'}</button></div>
@@ -636,13 +676,15 @@
       q('thin').onclick = done(() => { m.bands.forEach(b => { b.show = true; }); App.thinMarkerLabels(m, false); });
       q('match').onclick = done(() => { m.bands = []; App.matchMarkers(false); });
       card.querySelectorAll('[data-band]').forEach(inp => inp.addEventListener('change', done(e => { m.bands[+inp.dataset.band].show = e.target.checked; })));
+      card.querySelectorAll('[data-pickb]').forEach(a => a.onclick = e => { e.preventDefault(); m.bands.forEach(b => { b.show = a.dataset.pickb === 'all'; }); App.commit(); });
     });
   }
 
   /* ---------- lane list (advanced) ---------- */
   function renderLanes() {
     const st = S(), r = range(), empty = new Set(App.emptyLanes());
-    $('laneList').innerHTML = st.lanes.map((l, i) => {
+    const emptyShown = st.lanes.some((l, i) => empty.has(i) && !l.hidden && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]);
+    $('laneList').innerHTML = `<div class="pick">${'Show:'} <a href="#" data-pick="all">${'all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the empty wells'}</a>` : ''}</div>` + st.lanes.map((l, i) => {
       const out = !r || i < r[0] || i > r[1];
       return `<div class="item${i === App.selLane ? ' sel' : ''}${out ? ' out' : ''}">
         <span class="idx">${i + 1}</span>
@@ -661,6 +703,12 @@
       if (await toggleLaneHidden(+inp.dataset.h, !e.target.checked)) App.commit(); else e.target.checked = true;
     }));
     $('laneList').querySelectorAll('[data-del]').forEach(b => b.onclick = done(() => { App.removeLane(+b.dataset.del); App.selLane = -1; toast('Lane deleted (Ctrl+Z to undo)'); }));
+    $('laneList').querySelectorAll('[data-pick]').forEach(a => a.onclick = e => {
+      e.preventDefault();
+      if (a.dataset.pick === 'all') st.lanes.forEach(l => { l.hidden = false; });
+      else st.lanes.forEach((l, i) => { if (empty.has(i) && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]) l.hidden = true; });
+      App.commit();
+    });
     $('laneCountNote').textContent = `${st.lanes.length} wells`;
     if (document.activeElement !== $('cropLaneN')) $('cropLaneN').value = r ? r[1] - r[0] + 1 : '';
     // range selects
@@ -699,7 +747,7 @@
   $('fontPt').addEventListener('change', done(e => { S().style.fontPt = E.clamp(+e.target.value || 7, 4, 14); }));
   $('lineW').addEventListener('change', done(e => { S().style.lineWidthPt = E.clamp(+e.target.value || 0.5, 0.25, 2); }));
   $('labelAngle').addEventListener('change', done(e => { S().style.labelAngle = e.target.value; }));
-  ['unitHeader', 'laneNumbers', 'frame', 'groupTicks'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
+  ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
   $('stripGap').addEventListener('change', done(e => { S().style.stripGapPt = E.clamp(+e.target.value || 0, 0, 12); }));
@@ -794,7 +842,7 @@
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
     $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle);
-    ['unitHeader', 'laneNumbers', 'frame', 'groupTicks'].forEach(id => { $(id).checked = !!y[id]; });
+    ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
     $('stLayout').textContent = `${App.gelWidthMm()} mm · ${y.fontPt} pt`;
@@ -872,12 +920,12 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();
 
-  /* first visit: open a worked example so the tool shows what it does; later, the library is shown instead */
+  /* the app opens on the empty workspace (with the library, if any); the first visit starts the hands-on tutorial */
   async function startup() {
     const q = new URLSearchParams(location.search);
     if (q.get('demo') === '1' || q.get('src') || q.get('blank') === '1') return;
@@ -885,7 +933,8 @@
     let list = [];
     try { list = await App.library.list(); } catch (e) { list = []; }
     if (S()) return;
-    if (list.length) renderLibrary(); else loadExample('western');
+    if (list.length) renderLibrary();
+    else if (!App.prefs().tutorialSeen) setTimeout(() => { if (!S() && !App.prefs().tutorialSeen) G.Tour.start('tutorial'); }, 500);
   }
   startup();
 

@@ -135,20 +135,28 @@
       ctx.setLineDash(l.hidden ? [5, 4] : isM ? [] : [6, 4]);
       ctx.beginPath(); ctx.moveTo(p.x, a.y); ctx.lineTo(p.x, b.y); ctx.stroke();
       ctx.setLineDash([]);
-      // name chip above the crop
+      // above the crop: the well number in a chip, and the lane's name (when it has one) in a lighter pill above it
       const nb = S.lanes.length > 1 ? Math.abs((S.lanes[i + 1] || S.lanes[i - 1]).x - l.x) * view.s : 999;
-      let lab = String(i + 1);
-      if (l.name) {
-        const full = lab + ' · ' + trunc(l.name.replace(/\*/g, ''), 12);   // "2 · 0 h", never "2 0 h"
-        if (sel || ctx.measureText(full).width + 12 < nb) lab = full;
-      }
-      if (crowded && !sel && !l.hidden && lab === String(i + 1) && i % every && i !== S.lanes.length - 1) { ctx.globalAlpha = 1; return; }
+      const lab = String(i + 1);
+      if (crowded && !sel && !l.hidden && i % every && i !== S.lanes.length - 1) { ctx.globalAlpha = 1; return; }
       const tw = ctx.measureText(lab).width + (crowded ? 8 : 12);
-      const cy = Math.max(12, a.y - 14);
+      const anyName = S.lanes.some(x => x.name), cy = Math.max(anyName ? 47 : 12, a.y - 14);
       ctx.fillStyle = l.hidden ? 'rgba(190,30,45,.9)' : sel ? '#2f6feb' : 'rgba(24,32,44,.72)';
       roundRect(ctx, p.x - tw / 2, cy - 9, tw, 18, 6); ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.fillText(l.hidden ? lab + ' ✕' : lab, p.x, cy + 3.8);
+      if (l.name) {
+        // the name pill sits above the number; when neighbours are close, names alternate between two rows so that
+        // each may be twice as wide, and only then are they shortened
+        let nm = trunc(l.name.replace(/\*/g, ''), 16), nw = ctx.measureText(nm).width + 10;
+        const row = !sel && nw > nb - 2 ? i % 2 : 0, room = row || (!sel && nw > nb - 2) ? 2 * nb - 4 : nb - 2;
+        if (!sel && nw > room) { nm = trunc(nm, Math.max(2, Math.floor(nm.length * (room - 10) / (nw - 10)))); nw = ctx.measureText(nm).width + 10; }
+        const ny = cy - 27 - row * 17;
+        ctx.fillStyle = sel ? 'rgba(47,111,235,.85)' : 'rgba(255,255,255,.88)';
+        roundRect(ctx, p.x - nw / 2, ny, nw, 16, 5); ctx.fill();
+        ctx.fillStyle = sel ? '#fff' : '#18202c';
+        ctx.fillText(nm, p.x, ny + 11.8);
+      }
       ctx.globalAlpha = 1;
     });
     if (App.mode === 'arrow' && hover && hover.snapY != null) {

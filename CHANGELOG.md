@@ -3,6 +3,27 @@
 ## Unreleased
 
 ### Added
+- The Densitometry view switch no longer carries a count of band boxes.
+- Hands-on tutorial: on the first visit the app opens on the empty workspace and a tutorial makes a figure with you, one real action at a time, in sixteen steps: open a practice gel, the three areas, band look (bright or dark), straightening, contrast, the figure area, checking and removing lanes, naming, the ladder, group line, target band, condition row, strips, densitometry with a loading control, export. Each step first says what an area is for, then spotlights the exact control (a button, the white-point slider, a lane number, the box handle on the raw image); button names appear as key caps in the text; the rest of the screen is dimmed while the control and the area where the result shows (the raw image, the figure) stay lit; the card says "Done" when the app shows the action was done, no text box, window or dialog is open, and a label that was asked for has been typed, and then waits for Next (nothing moves on by itself); any step can be skipped; the spotlight follows the panel when it scrolls; notices wait for the contrast step and are checked again before the export, and the practice gel is made so that the figure passes the pre-flight check. Replay it on any gel, your own included, with "Guide me" in the top bar or ? → "Hands-on tutorial".
+- While a target band is being placed, a dashed line on the figure follows the mouse, snapped to the band under it, with the estimated size, so you see where the arrow will go before clicking.
+- The text box for a strip label opens to the right of the gel and the one for a condition name to the left of it, and the target-band window opens beside the figure, so none of them covers the gel image.
+- On the raw image, a named lane shows its name in a light pill above the well-number chip instead of "2 · name" in one chip.
+- "Group lines break at splice gaps" (step 6, Layout). Off by default: a group line now runs on across a splice gap, since the gap itself shows that a lane was removed; tick it to break the line there as before.
+- Print: a printer button next to "Export PNG" (also "Print…" in the export menu and Ctrl+P) prints the figure at a readable size with a caption (file, experiment, date, size) for a lab notebook. Inside the Claude artifact, where printing is not possible, it saves a PDF to print instead.
+- "Include legend notes under the figure" in the export menu (off by default): the legend notes (inversion, removed lanes, ladder) are written under the figure in every export and print.
+- "All" / "none" links above the ladder's band list and "show all" / "hide the empty wells" above the lane list, so several boxes need not be ticked one by one.
+- Overview tour: a two-minute spotlight tour of the screen, offered at the end of the tutorial and under ? → "Overview tour".
+
+### Fixed
+- A condition row no longer has a cell under the ladder lane.
+
+### Changed
+- The app no longer opens a worked example by itself: it starts on the empty workspace, or on your library when it has gels. The examples stay one click away on the start screen.
+
+### Changed
+- Densitometry results (chart, table, lane profile, band sizes) moved out of the settings panel into a **Densitometry** view beside "Figure" in the figure column; adding a band box opens it, "Show results" in step 7 and the view switch bring it back. Step 7 keeps only the controls, and the checkbox is now "Loading control" with an explanation of the normalization; the reference lane is labelled "= 1.00".
+
+### Added
 - Library: every gel you open is kept in the browser (IndexedDB) with its latest edits, a thumbnail and a name you can change; the next visit shows your gels and one click reopens one as you left it. The open gel is saved after every change; the gel can be removed from its card. Replaces the single autosaved draft (an existing draft is moved into the library).
 
 ### Changed

@@ -81,6 +81,8 @@ Added in GelGrapher:
 
 **As an app:** on the web version, *File ▾ → Install as an app* (Chrome, Edge) or the browser's own *Add to Dock* / *Add to Home Screen* (Safari). The installed app has its own window and icon, opens without an internet connection, and whenever it starts online it fetches the newest version in the background and offers "Reload". This is the easiest way for a lab to stay on one, current version.
 
+**First time?** The app opens on an empty workspace with a hands-on tutorial that makes a figure with you, one real action at a time: a practice gel, the band look, straightening, contrast, the figure area, checking and removing lanes, naming, the ladder, group lines, arrows, condition rows, strips, densitometry with a loading control, export. Every step points at the exact control to use. It runs once by itself; "Guide me" in the top bar runs it again on any gel, your own included, and the ? button also has a two-minute overview tour.
+
 **Coming back to a gel:** every gel you open is kept in the browser's *Library* (top bar) with your latest edits, so the next visit shows your gels and one click reopens one exactly as you left it. The open gel is saved after every change. To move a gel to another computer or to archive it with a paper, save a project file (*Open / Save ▾ → Project…*).
 
 **Offline, fixed version:** download the latest release, unzip it and open `index.html`. No installation and no internet connection needed; it never changes, which is what you want for the exact build cited in a paper.
@@ -103,11 +105,11 @@ On first visit the Western blot example is open, so you can see what a finished 
 
 ## Densitometry
 
-Section 7, *Band intensity*:
+Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added.
 
-1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. The second box is suggested as the loading control; tick *Control* on the right one.
+1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. Tick **Loading control** on the box of the housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.
 2. Choose the **background**: a straight line between the box edges (the usual "close the peak" method of ImageJ's gel analyser), a rolling-ball baseline of the lane profile, or none.
-3. Set the **box width** (fraction of the lane spacing) and the **reference lane**.
+3. Set the **box width** (fraction of the lane spacing) and the **reference lane**, whose value is defined as 1.00; every other lane is given relative to it.
 
 For every lane in the figure (ladder lanes excluded) GelGrapher integrates the signal in the box on the **raw pixel values** (after rotation only; the display contrast has no effect) and subtracts the background. Dark-band images (Coomassie, silver, film) are inverted first so more protein always means more signal. The table shows integrated density (arbitrary units), target / loading control, and the value relative to the reference lane. Boxes containing saturated pixels are flagged, because their values are underestimated.
 
@@ -115,7 +117,7 @@ Export the table as CSV or copy it into Excel or Prism; export the bar chart as 
 
 Densitometry values are only comparable within one image. For statistics, quantify replicate blots and combine the CSVs.
 
-*Band sizes* lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+*Band sizes* (a tab of the Densitometry view) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
 
 ## Exports
 
@@ -125,6 +127,8 @@ Densitometry values are only comparable within one image. For statistics, quanti
 | TIFF | 8-bit grayscale, LZW, with resolution tags and the processing summary. |
 | PDF | Vector text and lines in the standard PDF fonts (Greek letters such as β via the Symbol font); the gel embedded pixel for pixel. |
 | Copy figure | The figure as a PNG on the clipboard, at the chosen dpi. |
+| Print (printer button, Ctrl+P) | The figure with a caption (file, experiment, date) for a lab notebook; a PDF inside the Claude artifact. |
+| Include legend notes | Export-menu option, off by default: the legend notes are written under the figure in exports and prints. |
 | SVG | Vector text and lines; edit in Illustrator or Inkscape. |
 | Uncropped image | Same rotation and contrast as the figure, with the crop box, strips, well numbers and removed lanes marked. |
 | Original data | The untouched source file (and marker image), byte-identical, with its SHA-256 in the file name. |

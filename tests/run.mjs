@@ -46,7 +46,7 @@ const UI_CHECKS = [
   ['carried bands agree with a fresh match', r => r.rotationCarry.every(x => x.bandVsScratchMatch < 3)],
   ['H removes and restores a lane; marker lane asks first', r => r.empty.hOnLane && r.empty.hBack && r.empty.markerNeedsConfirm],
   ['empty lane is suggested', r => r.empty.emptyWells.length > 0 && r.empty.barShown],
-  ['group line splits at a splice', r => r.groupSplit.extraLines === r.groupSplit.expected],
+  ['group line runs on across a splice; the option breaks it', r => r.groupSplit.bridged === 0 && r.groupSplit.extraLines === r.groupSplit.expected],
   ['extrapolated size marked ≈', r => r.extrap.outside.startsWith('≈') && !r.extrap.inside.startsWith('≈') && r.extrap.info === true],
   ['reset everything returns to the import state', r => r.resetAll.equalsInitial && r.resetAll.hist === 1],
   ['custom ladder travels with the template', r => r.templateLadder.carried === 1 && r.templateLadder.present && r.templateLadder.markerUses],
@@ -73,7 +73,12 @@ const UI_CHECKS = [
   ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']],
   ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']],
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
-  ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']]
+  ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']],
+  ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
+  ['hands-on tutorial waits for each real action, for typing, for dialogs and for Next; lights the areas to watch', r => r.tutorial.ok, ['tutorial']],
+  ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
+  ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
+  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
 // Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in
