@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-- Hands-on tutorial: on the first visit the app opens on the empty workspace and a tutorial asks for one real action at a time (open a practice gel, adjust the figure box, name lanes, check the ladder, group lanes, mark a band, measure, export) and continues when the app shows it was done; optional steps can be skipped. Replay it on any gel, your own included, with "Guide me" in the top bar or ? → "Hands-on tutorial".
+- Hands-on tutorial: on the first visit the app opens on the empty workspace and a tutorial asks for one real action at a time (open a practice gel, adjust the figure box, set the contrast, name lanes, check the ladder, group lanes, mark a band, measure, export). Each step first says what an area is for, then spotlights the exact control (a button, the white-point slider, a lane number, the box handle on the raw image); button names appear as key caps in the text; the step continues when the app shows the action was done and you have finished typing; optional steps can be skipped; notices wait for the contrast step. Replay it on any gel, your own included, with "Guide me" in the top bar or ? → "Hands-on tutorial".
 - Overview tour: a two-minute spotlight tour of the screen, offered at the end of the tutorial and under ? → "Overview tour".
 
 ### Changed

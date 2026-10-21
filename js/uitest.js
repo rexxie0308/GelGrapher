@@ -449,29 +449,44 @@
       R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
     }
-    // 35. the hands-on tutorial: a step waits for the real action, continues when the state shows it, optional steps can be skipped
+    // 35. the hands-on tutorial: a part waits for the real action, continues when the state shows it, optional steps can be skipped
     {
       const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      const at = () => [G.Tour.step(), G.Tour.part()].join('.');
+      const until = async (f, ms) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < (ms || 4000)) await wait(100); return f(); };
+      const warnsHidden = () => getComputedStyle($('warnings')).display === 'none';
       App.setPref('tutorialSeen', null);
       G.Tour.start('tutorial');
       await wait(80);
-      const m0 = G.Tour.mode(), s0 = G.Tour.step();              // a gel is open, so "open a practice gel" is skipped
-      G.Tour.next();                                               // the review step
-      const s1 = G.Tour.step(), waiting = $('tourNext').disabled, clickable = getComputedStyle($('tour')).pointerEvents === 'none';
-      App.S.crop.h -= 5; App.commit(); await wait(1100);          // the asked-for action: the box changed
-      const s2 = G.Tour.step();
+      const m0 = G.Tour.mode(), a0 = at();                         // a gel is open, so "open a practice gel" is skipped: 1.0
+      G.Tour.next(); G.Tour.next();                                // the two review parts
+      const a1 = at(), waiting = $('tourNext').disabled, clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden();
+      App.S.crop.h -= 5; App.commit();                             // the asked-for action: the box changed
+      const a2 = await until(() => at() === '3.0') && at(), warnShown = !warnsHidden();
+      G.Tour.next();                                               // contrast: the intro part is read, the next asks to open the group
+      const keys = $('tourText').querySelectorAll('.tour-key').length;
+      $('imgAdv').open = true;
+      const a3 = await until(() => at() === '3.2') && at();
+      App.S.levels.white -= 0.01; App.commit();
+      const a4 = await until(() => at() === '4.0') && at();
       const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
-      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit(); await wait(1100);
-      const s3 = G.Tour.step(), optionalNext = !$('tourNext').disabled;   // the ladder step is optional: Next works as Skip
-      G.Tour.next(); const s4 = G.Tour.step();
-      App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit(); await wait(1100);
-      const s5 = G.Tour.step();
-      G.Tour.skipStep(); G.Tour.skipStep();                        // arrow and band box are optional
-      const s6 = G.Tour.step(), exportWaits = $('tourNext').disabled;
-      G.Tour.skipStep(); const s7 = G.Tour.step(), last = $('tourNext').textContent;
+      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit();
+      const a5 = await until(() => at() === '5.0') && at();
+      G.Tour.next();                                               // the intro part of the optional ladder step
+      const optionalNext = !$('tourNext').disabled;                // its action part: Next reads "Skip step"
       G.Tour.next();
-      R.tutorial = { m0, s0, s1, waiting, clickable, s2, s3, optionalNext, s4, s5, s6, exportWaits, s7, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
-        ok: m0 === 'tutorial' && s0 === 1 && s1 === 2 && waiting && clickable && s2 === 3 && s3 === 4 && optionalNext && s4 === 5 && s5 === 6 && s6 === 8 && exportWaits && s7 === 9 && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
+      const a6 = at();                                             // group line: the button part
+      App.mode = 'group'; App.emit('change');
+      const a7 = await until(() => at() === '6.1') && at();
+      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit();
+      const a8 = await until(() => at() === '7.0') && at();
+      G.Tour.skipStep(); G.Tour.skipStep();                        // arrow and band box are optional
+      const a9 = at(), exportWaits = $('tourNext').disabled;
+      G.Tour.skipStep(); const a10 = at(), last = $('tourNext').textContent;
+      G.Tour.next();
+      R.tutorial = { m0, a0, a1, waiting, clickable, warnHidden, a2, warnShown, keys, a3, a4, a5, optionalNext, a6, a7, a8, a9, exportWaits, a10, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
+        ok: m0 === 'tutorial' && a0 === '1.0' && a1 === '2.0' && waiting && clickable && warnHidden && a2 === '3.0' && warnShown && keys === 1 && a3 === '3.2' && a4 === '4.0' && a5 === '5.0' && optionalNext
+          && a6 === '6.0' && a7 === '6.1' && a8 === '7.0' && a9 === '9.0' && exportWaits && a10 === '10.0' && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
       App.S.groups.pop(); App.commit();
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
