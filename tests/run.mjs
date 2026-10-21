@@ -71,7 +71,8 @@ const UI_CHECKS = [
   ['flips carry annotations and undo each other', r => r.flip.relFollowsV && r.flip.namesStay && r.flip.relH && r.flip.identity, ['flip']],
   ['arrow labels on one side are spread apart', r => r.arrowSpread.ok, ['arrowSpread']],
   ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']],
-  ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']]
+  ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']],
+  ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']]
 ];
 
 async function runIn(name, base) {

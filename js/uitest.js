@@ -384,6 +384,27 @@
         ok: openAfter1 && openAfter2 && m.bands[0].show !== before[0] && m.bands[1].show !== before[1] };
       boxes()[0].click(); boxes()[1].click();               // put them back
     }
+    // 31. the dividers: dragging one resizes the panel / the stage split, the size is remembered, double-click resets
+    {
+      const $ = id => document.getElementById(id), panel = $('panel'), raw = $('rawCol'), gp = $('gutterPanel'), gs = $('gutterStage');
+      const w0 = panel.getBoundingClientRect().width, r0 = raw.getBoundingClientRect().width;
+      const drag = (el, from, to) => {
+        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 7, button: 0, clientX: from.x, clientY: from.y }));
+        el.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 7, clientX: to.x, clientY: to.y }));
+        el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 7, clientX: to.x, clientY: to.y }));
+      };
+      const bp = gp.getBoundingClientRect();
+      drag(gp, { x: bp.x + 3, y: bp.y + 200 }, { x: bp.x + 83, y: bp.y + 200 });
+      const w1 = panel.getBoundingClientRect().width, savedW = App.prefs().panelW;
+      const bs = gs.getBoundingClientRect(), stacked = getComputedStyle($('stage')).flexDirection === 'column';
+      drag(gs, { x: bs.x + 3, y: bs.y + 200 }, stacked ? { x: bs.x + 3, y: bs.y + 120 } : { x: bs.x - 97, y: bs.y + 200 });
+      const r1 = stacked ? raw.getBoundingClientRect().height : raw.getBoundingClientRect().width, savedS = App.prefs().stageSplit;
+      gp.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); gs.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      const w2 = panel.getBoundingClientRect().width, r2 = raw.getBoundingClientRect().width;
+      R.splitters = { w0, w1, w2, r0, r1, r2, savedW, savedS, stacked,
+        ok: Math.abs(w1 - (w0 + 80)) < 2 && savedW === Math.round(w0 + 80) && (stacked || r1 < r0 - 50) && typeof savedS === 'number'
+          && Math.abs(w2 - w0) < 2 && Math.abs(r2 - r0) < 2 && App.prefs().panelW == null && App.prefs().stageSplit == null };
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

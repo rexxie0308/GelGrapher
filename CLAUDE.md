@@ -16,7 +16,9 @@ Run `npm run check` and the Chromium tests before every push. CI (`.github/workf
 ## Architecture
 
 Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in this order by `index.html`:
-`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → editor → ui → figedit → quantui → claude → pwa`.
+`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → splitters → editor → ui → figedit → quantui → claude → pwa`.
+
+`splitters.js` drives the two dividers (`.gutter`): they set `--panel-w` on `#app` and `--raw-flex` / `--fig-flex` on `#stage`, remembered in the prefs (`panelW`, `stageSplit`), and fire `resize`; the editor refits to the crop when a drag ends.
 
 `pwa.js` (marked `data-artifact="no"`, so the artifact build leaves it out) registers `sw.js`, the service worker that stores the app shell for offline use and offers "Reload" when a deployment with a new stamp is found; it runs only over http(s) outside the artifact, and on localhost only with `?pwa=1`. `sw.js` lists every file of the shell (`tools/check.mjs` compares it with `index.html` and `manifest.webmanifest`); the Pages and release workflows replace `__VERSION__` in it. The offline and update behaviour is tested in `tests/run.mjs` (it needs a fresh browser context and `setOffline`), not in `js/uitest.js`.
 

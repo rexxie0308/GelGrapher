@@ -297,6 +297,7 @@
       </div>
     </div>
   </aside>
+  <div class="gutter" id="gutterPanel" role="separator" aria-orientation="vertical" aria-label="Resize the settings panel" tabindex="0" title="Drag to resize the panel; double-click to reset"></div>
 
   <main id="stage">
     <section class="pane-col" id="rawCol">
@@ -318,6 +319,7 @@
         </div>
       </div>
     </section>
+    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <section class="pane-col" id="figCol">
       <div class="col-head">
         <span class="col-title">Figure</span>
@@ -363,6 +365,7 @@
     <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
     <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
     <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
+    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the raw image and the figure; double-click one to reset. The sizes are remembered.</li>
     <li><b>Use it like a desktop app</b>: on the web version, File ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
   </ul>
   <h3>Image integrity</h3>
@@ -416,6 +419,7 @@
 <script src="js/export.js"></script>
 <script src="js/demo.js"></script>
 <script src="js/app.js"></script>
+<script src="js/splitters.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/figedit.js"></script>
