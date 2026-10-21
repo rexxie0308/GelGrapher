@@ -21,8 +21,9 @@ jobs:
       - name: Package the offline app
         run: |
           mkdir -p GelGrapher
-          cp -r index.html css js LICENSE README.md GelGrapher/
+          cp -r index.html css js icons sw.js manifest.webmanifest LICENSE README.md GelGrapher/
           rm GelGrapher/js/uitest.js
+          sed -i "s/__VERSION__/${GITHUB_REF_NAME}/g" GelGrapher/sw.js
           zip -r "GelGrapher-${GITHUB_REF_NAME}.zip" GelGrapher
       - name: Create the release
         env:

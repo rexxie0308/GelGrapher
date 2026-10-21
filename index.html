@@ -9,6 +9,10 @@
 <title>GelGrapher</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23176D7C'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='8' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='13' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='18' width='6' height='2.2' rx='1'/%3E%3Crect x='6' y='23' width='6' height='2.2' rx='1'/%3E%3Crect x='19' y='15' width='7' height='3' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
+<!-- installable from the web version (GitHub Pages or any https server): opens offline, updates itself when online -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#176D7C">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 </head>
 <body>
 <header class="topbar">
@@ -28,6 +32,7 @@
         <button id="btnSaveTpl"><span>Save style…</span><small>Lane names, markers, groups, layout — reuse for similar gels</small></button>
         <label><span>Apply style…</span><input type="file" id="tplInput" accept=".json" hidden></label>
         <div class="menu-sep"></div>
+        <button id="btnInstall" class="hidden"><span>Install as an app</span><small>Its own window and icon; opens offline and updates itself when online</small></button>
         <button id="btnResetAll" class="danger">Reset everything (back to import)</button>
       </div>
     </div>
@@ -292,6 +297,7 @@
       </div>
     </div>
   </aside>
+  <div class="gutter" id="gutterPanel" role="separator" aria-orientation="vertical" aria-label="Resize the settings panel" tabindex="0" title="Drag to resize the panel; double-click to reset"></div>
 
   <main id="stage">
     <section class="pane-col" id="rawCol">
@@ -313,6 +319,7 @@
         </div>
       </div>
     </section>
+    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <section class="pane-col" id="figCol">
       <div class="col-head">
         <span class="col-title">Figure</span>
@@ -332,6 +339,7 @@
 <input id="floatEd" class="float-ed hidden" type="text" autocomplete="off" spellcheck="false">
 <div id="warnings"></div>
 <div id="toasts"></div>
+<div id="updateBar" class="update-bar hidden" role="status"><span>A newer version of GelGrapher is ready.</span><button class="btn sm primary" id="updateReload">Reload</button><button class="btn sm ghost" id="updateLater">Later</button></div>
 
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
   <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
@@ -357,6 +365,8 @@
     <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
     <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
     <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
+    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the raw image and the figure; double-click one to reset. The sizes are remembered.</li>
+    <li><b>Use it like a desktop app</b>: on the web version, File ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
   </ul>
   <h3>Image integrity</h3>
   <ul>
@@ -409,10 +419,12 @@
 <script src="js/export.js"></script>
 <script src="js/demo.js"></script>
 <script src="js/app.js"></script>
+<script src="js/splitters.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/figedit.js"></script>
 <script src="js/quantui.js"></script>
 <script src="js/claude.js"></script>
+<script src="js/pwa.js" data-artifact="no"></script>
 </body>
 </html>

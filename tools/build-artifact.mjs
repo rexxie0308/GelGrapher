@@ -21,15 +21,16 @@ const title = pick(/<title>([^<]*)<\/title>/, '<title>');
 const description = pick(/<meta name="description" content="([^"]*)">/, 'description');
 let body = pick(/<body>([\s\S]*)<\/body>/, '<body>');
 
-// scripts in the order index.html loads them (the self-test script is never part of the page)
-const scripts = [...body.matchAll(/<script src="([^"]+)"><\/script>\n?/g)];
+// scripts in the order index.html loads them (the self-test script is never part of the page);
+// those marked data-artifact="no" (the service worker registration) are left out: the host runs the page
+const scripts = [...body.matchAll(/<script src="([^"]+)"([^>]*)><\/script>\n?/g)].filter(m => !/data-artifact="no"/.test(m[2]));
 if (!scripts.length) throw new Error('no <script src> tags found');
 const inlineJs = scripts.map(m => {
   const src = fs.readFileSync(path.join(ROOT, m[1]), 'utf8');
   if (/<\/script/i.test(src)) throw new Error(`${m[1]} contains "</script"`);
   return `<script>/* ${m[1]} */\n${src}</script>`;
 }).join('\n');
-body = body.replace(/<script src="[^"]+"><\/script>\n?/g, '');
+body = body.replace(/<script src="[^"]+"[^>]*><\/script>\n?/g, '');
 
 const css = fs.readFileSync(path.join(ROOT, 'css/style.css'), 'utf8');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

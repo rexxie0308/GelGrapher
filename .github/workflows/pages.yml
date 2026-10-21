@@ -27,7 +27,9 @@ jobs:
       - name: Assemble the site
         run: |
           mkdir -p _site
-          cp -r index.html css js LICENSE _site/
+          cp -r index.html css js icons sw.js manifest.webmanifest LICENSE _site/
+          rm _site/js/uitest.js
+          sed -i "s/__VERSION__/${GITHUB_SHA:0:7}/g" _site/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
