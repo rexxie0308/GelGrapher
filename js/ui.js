@@ -254,6 +254,7 @@
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? App.redo() : App.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); App.redo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && S()) { e.preventDefault(); printFigure(); }
     if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); }
   });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
@@ -301,6 +302,37 @@
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
   $('btnPNG').onclick = () => exportFigure('png');
+  /* ---------- print (for a lab notebook) ----------
+   * A page with the figure at a readable size and a caption: file, experiment, date, the legend notes. Printed from a
+   * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
+   * saved as a vector PDF to print. */
+  function printHtml() {
+    const f = App.buildFigure(false), wmm = f.w / G.Render.MM, shown = Math.min(180, Math.max(wmm, 120));
+    const notes = G.Export.legendHints(S()).join(' ');
+    const gt = App.gelType(), cap = [baseName(), typeof gt.name === 'function' ? gt.name() : gt.name, new Date().toISOString().slice(0, 10), `figure ${wmm.toFixed(0)} mm wide at ${S().style.dpi} dpi`, `${App.NAME} ${App.VERSION}`];
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(baseName())}</title><style>@page{margin:15mm}body{margin:0;font:9pt -apple-system,Segoe UI,Arial,sans-serif;color:#000}img{display:block;width:${shown.toFixed(1)}mm;max-width:100%}p{margin:3mm 0 0;max-width:180mm}.n{color:#333}</style></head><body><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(f.svg)}"><p>${esc(cap.join(' · '))}</p>${notes ? `<p class="n">${esc(notes)}</p>` : ''}</body></html>`;
+  }
+  async function printFigure() {
+    if (needImage()) return;
+    if (G.Host.inClaude()) {
+      App.busy(true, 'Preparing a PDF…');
+      try {
+        const f = App.buildFigure(false), r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
+        saved(r.status, 'Printing is not available inside Claude: the figure was saved as a PDF to print');
+      } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
+      return;
+    }
+    const fr = document.createElement('iframe');
+    fr.setAttribute('aria-hidden', 'true'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(fr);
+    const d = fr.contentDocument; d.open(); d.write(printHtml()); d.close();
+    const img = d.querySelector('img');
+    await new Promise(r => { if (img.complete) r(); else { img.onload = r; img.onerror = r; } });
+    const w = fr.contentWindow; w.focus(); w.print();   // the page's own window cannot print inside the artifact; this frame is used only outside it
+    setTimeout(() => fr.remove(), 60000);
+  }
+  $('btnPrint').onclick = printFigure;
+  $('btnPrintMenu').onclick = printFigure;
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
@@ -885,7 +917,7 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

@@ -48,11 +48,13 @@
       <div class="split">
         <button class="btn primary" id="btnPNG">Export PNG</button><button class="btn primary caret" id="btnExportMenu">▾</button>
       </div>
+      <button class="icon-btn round" id="btnPrint" title="Print the figure with a caption, for a lab notebook (Ctrl+P)" aria-label="Print the figure"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 6V2.5h8V6"/><rect x="1.5" y="6" width="13" height="5.5" rx="1"/><path d="M4 9.5h8v4H4z"/></svg></button>
       <div class="menu hidden right" id="exportMenu">
         <button id="btnTIFF"><span>TIFF (LZW, grayscale)</span><small>For journals that only accept TIFF (e.g. PLOS)</small></button>
         <button id="btnPDF"><span>PDF (vector)</span><small>Text and lines stay vector; the gel is embedded pixel for pixel</small></button>
         <button id="btnSVG">SVG (vector, editable in Illustrator)</button>
         <button id="btnCopyFig"><span>Copy figure to clipboard</span><small>PNG at the chosen dpi, for pasting into slides or a lab notebook</small></button>
+        <button id="btnPrintMenu"><span>Print…</span><small>The figure with a caption (file, date, notes), sized for a lab notebook page (Ctrl+P)</small></button>
         <div class="menu-sep"></div>
         <button id="btnUncropped"><span>Uncropped image (same processing)</span><small>For the supplement: same contrast and orientation, crop box and well numbers marked</small></button>
         <button id="btnOriginal"><span>Original data (file + SHA-256)</span><small>The untouched source file, byte-identical</small></button>

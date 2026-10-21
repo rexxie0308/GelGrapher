@@ -77,6 +77,7 @@ const UI_CHECKS = [
   ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
   ['hands-on tutorial waits for each real action, for typing, for dialogs and for Next; lights the areas to watch', r => r.tutorial.ok, ['tutorial']],
   ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
+  ['print page: the figure at a readable size with a caption and the legend notes', r => r.print.ok, ['print']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 

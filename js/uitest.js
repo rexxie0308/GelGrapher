@@ -544,6 +544,13 @@
       fl.forEach((i, k) => { App.S.lanes[i].name = names0[k]; });
       App.S.groups.pop(); App.S.conditions.pop(); App.S.quant.rows = []; App.S.quant.control = -1; App.S.lanes[spare].hidden = false; App.commit();
     }
+    // 37. print: a page with the figure at a readable size and a caption with the legend notes
+    {
+      const $ = id => document.getElementById(id);
+      const h = G.UI.printHtml(), notes = G.Export.legendHints(App.S).join(' ');
+      R.print = { btn: !!$('btnPrint') && !!$('btnPrintMenu'), svg: /data:image\/svg\+xml/.test(h), name: h.includes(G.UI.esc(App.S.file.name.replace(/\.[^.]+$/, ''))), mm: /width:1[2-8]\d\.\dmm/.test(h), notes: !notes || h.includes(G.UI.esc(notes).slice(0, 40)),
+        ok: !!$('btnPrint') && !!$('btnPrintMenu') && /data:image\/svg\+xml/.test(h) && /width:1[2-8]\d\.\dmm/.test(h) && (!notes || h.includes(G.UI.esc(notes).slice(0, 40))) };
+    }
     // 36. "all" / "none" picks: the band list and the lane list take every box at once
     {
       const $ = id => document.getElementById(id);
