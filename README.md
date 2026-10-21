@@ -103,11 +103,11 @@ On first visit the Western blot example is open, so you can see what a finished 
 
 ## Densitometry
 
-Section 7, *Band intensity*:
+Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added.
 
-1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. The second box is suggested as the loading control; tick *Control* on the right one.
+1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. Tick **Loading control** on the box of the housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.
 2. Choose the **background**: a straight line between the box edges (the usual "close the peak" method of ImageJ's gel analyser), a rolling-ball baseline of the lane profile, or none.
-3. Set the **box width** (fraction of the lane spacing) and the **reference lane**.
+3. Set the **box width** (fraction of the lane spacing) and the **reference lane**, whose value is defined as 1.00; every other lane is given relative to it.
 
 For every lane in the figure (ladder lanes excluded) GelGrapher integrates the signal in the box on the **raw pixel values** (after rotation only; the display contrast has no effect) and subtracts the background. Dark-band images (Coomassie, silver, film) are inverted first so more protein always means more signal. The table shows integrated density (arbitrary units), target / loading control, and the value relative to the reference lane. Boxes containing saturated pixels are flagged, because their values are underestimated.
 
@@ -115,7 +115,7 @@ Export the table as CSV or copy it into Excel or Prism; export the bar chart as 
 
 Densitometry values are only comparable within one image. For statistics, quantify replicate blots and combine the CSVs.
 
-*Band sizes* lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+*Band sizes* (a tab of the Densitometry view) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
 
 ## Exports
 

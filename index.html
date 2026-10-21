@@ -264,35 +264,17 @@
       <!-- quantification -->
       <section class="sec" id="quantSec">
         <details class="adv flush" id="quantDetails">
-          <summary class="sec-head as-summary"><span class="sec-n">7</span><span>Quantify</span> <span class="h3-note" id="stQuant">densitometry, band sizes</span></summary>
-          <div class="seg full" id="quantTabs"><button data-tab="int" class="on">Band intensity</button><button data-tab="size">Band sizes</button></div>
-          <div id="quantInt">
-            <p class="lead">Add a <b>band box</b> per protein or product (e.g. target and loading control): click the band on the raw image, or drag across it.</p>
-            <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><span class="h3-note">tick = loading control</span></div>
-            <div id="boxList" class="list"></div>
-            <div class="field inline">
-              <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto"><option value="edge">Straight line at box edges</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
-            </div>
-            <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
-            <div class="field inline"><label class="inline-label"><span>Relative to lane</span> <select id="qRef" style="width:auto"></select></label></div>
-            <div id="quantTable" class="qtable"></div>
-            <div id="quantChart" class="qchart"></div>
-            <div class="field inline wrap" id="quantActions">
-              <button class="btn sm" id="btnQCopy">Copy table</button><button class="btn sm" id="btnQCSV">CSV</button>
-              <select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="svg">SVG</option><option value="pdf">PDF</option></select><button class="btn sm" id="btnQChart">Export chart</button>
-            </div>
-            <details class="adv"><summary>Lane profile</summary>
-              <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
-              <canvas id="qProfile" height="130"></canvas>
-              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
-            </details>
-            <p class="hint">Numbers come from the raw pixel values (only rotation is applied; the contrast setting has no effect). Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+          <summary class="sec-head as-summary"><span class="sec-n">7</span><span>Densitometry</span> <span class="h3-note" id="stQuant">band intensities, band sizes</span></summary>
+          <p class="lead">Add a <b>band box</b> for each band of interest, e.g. the target and the loading control: click <b>+ Band box</b>, then click the band on the raw image (or drag across it). The box is measured in every lane; the chart and table open in the <b>Densitometry</b> view of the figure area.</p>
+          <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><button class="btn sm ghost" id="btnShowQuant">Show results</button></div>
+          <div id="boxList" class="list"></div>
+          <p class="hint">Tick <b>Loading control</b> on the box of a housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.</p>
+          <div class="field inline">
+            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto"><option value="edge">Straight line at box edges</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
           </div>
-          <div id="quantSize" class="hidden">
-            <p class="lead">Every band in every lane of the figure, sized against the marker.</p>
-            <div id="sizeTable" class="qtable"></div>
-            <div class="field inline"><button class="btn sm" id="btnSCopy">Copy table</button><button class="btn sm" id="btnSCSV">CSV</button></div>
-          </div>
+          <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
+          <div class="field inline"><label class="inline-label"><span>Reference lane (= 1.00)</span> <select id="qRef" style="width:auto"></select></label></div>
+          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the loading-control correction).</p>
         </details>
       </section>
 
@@ -327,7 +309,7 @@
     <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <section class="pane-col" id="figCol">
       <div class="col-head">
-        <span class="col-title">Figure</span>
+        <div class="seg view-seg" id="viewSeg"><button data-view="figure" class="on">Figure</button><button data-view="quant">Densitometry <span class="badge hidden" id="quantBadge"></span></button></div>
         <span class="col-sub" id="figSub">Click any text to edit it</span>
         <span class="flex"></span>
         <span class="zoomlabel" id="figSize"></span>
@@ -335,6 +317,38 @@
       <div id="previewBox">
         <div id="preview"></div>
         <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
+      </div>
+      <!-- densitometry results: the chart, the table and the lane profile, next to the figure rather than in the settings -->
+      <div id="quantView" class="hidden">
+        <div class="qv-head">
+          <div class="seg" id="quantTabs"><button data-tab="int" class="on">Band intensity</button><button data-tab="size">Band sizes</button></div>
+          <span class="flex"></span>
+          <div class="inline" id="quantActions">
+            <button class="btn sm" id="btnQCopy">Copy table</button><button class="btn sm" id="btnQCSV">CSV</button>
+            <select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="svg">SVG</option><option value="pdf">PDF</option></select><button class="btn sm" id="btnQChart">Export chart</button>
+          </div>
+          <div class="inline hidden" id="sizeActions"><button class="btn sm" id="btnSCopy">Copy table</button><button class="btn sm" id="btnSCSV">CSV</button></div>
+        </div>
+        <div class="qv-body">
+          <div id="quantInt">
+            <div id="quantEmpty" class="qv-empty hidden">
+              <b>No band boxes yet.</b><br>Click <b>+ Band box</b> (step 7 in the panel, or here), then click the band on the raw image. The box is measured in every lane of the figure; tick the loading control and the values are normalized to it.
+              <div><button class="btn primary" id="btnAddBox2">+ Band box</button></div>
+            </div>
+            <div id="quantChart" class="qchart"></div>
+            <div id="quantTable" class="qtable"></div>
+            <details class="adv" id="profAdv"><summary>Lane profile</summary>
+              <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
+              <canvas id="qProfile" height="130"></canvas>
+              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
+            </details>
+            <p class="hint" id="quantNote">Integrated density of each box, from the raw pixel values (only rotation is applied; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+          </div>
+          <div id="quantSize" class="hidden">
+            <p class="lead">Every band in every lane of the figure, sized against the marker.</p>
+            <div id="sizeTable" class="qtable"></div>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -346,9 +360,19 @@
 <div id="toasts"></div>
 <div id="updateBar" class="update-bar hidden" role="status"><span>A newer version of GelGrapher is ready.</span><button class="btn sm primary" id="updateReload">Reload</button><button class="btn sm ghost" id="updateLater">Later</button></div>
 
+<div id="tour" class="hidden" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+  <div id="tourSpot"></div>
+  <div id="tourCard">
+    <div class="tour-top"><b id="tourTitle"></b><span class="h3-note" id="tourStep"></span></div>
+    <p id="tourText"></p>
+    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Skip tour</button><span class="flex"></span><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
+  </div>
+</div>
+
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
   <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
   <div>
+  <p class="inline"><button class="btn sm primary" id="btnTour">Take the guided tour</button><span class="h3-note">two minutes, on this screen</span></p>
   <h3>Fastest way to a figure</h3>
   <ol>
     <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
@@ -361,8 +385,8 @@
     <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
     <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
     <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
-    <li><b>Densitometry</b>: step 7, “+ Band box”, click the band on the raw image. Tick the loading control; the table and chart are normalized to it.</li>
-    <li><b>Band sizes in every lane</b>: step 7, “Band sizes”.</li>
+    <li><b>Densitometry</b>: step 7, “+ Band box”, click the band on the raw image. Tick the loading control (GAPDH, actin…) and every other band is divided by it in the same lane. The chart and table are in the <b>Densitometry</b> view next to “Figure”.</li>
+    <li><b>Band sizes in every lane</b>: the Densitometry view, “Band sizes”.</li>
     <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
@@ -439,6 +463,7 @@
 <script src="js/figedit.js"></script>
 <script src="js/quantui.js"></script>
 <script src="js/claude.js"></script>
+<script src="js/tour.js"></script>
 <script src="js/pwa.js" data-artifact="no"></script>
 </body>
 </html>

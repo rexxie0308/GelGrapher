@@ -421,6 +421,34 @@
       R.library = { listed: !!me, thumb: !!(me && me.thumb && me.thumb.startsWith('data:image')), lanes: me && me.lanes, title, reopened, gone, stillGone,
         ok: !!me && !!(me.thumb) && title === 'My blot' && reopened === 'kept-in-library' && gone && stillGone };
     }
+    // 33. the guided tour: steps with a target on screen, keyboard navigation, remembered as seen
+    {
+      const $ = id => document.getElementById(id);
+      App.setPref('tourSeen', null);
+      G.Tour.start();
+      await new Promise(r => setTimeout(r, 80));
+      const shown = !$('tour').classList.contains('hidden'), s0 = G.Tour.step(), t0 = $('tourTitle').textContent;
+      G.Tour.next(); const s1 = G.Tour.step(), spot = $('tourSpot').getBoundingClientRect();
+      G.Tour.back(); const s2 = G.Tour.step();
+      $('tour').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      R.tour = { shown, s0, s1, s2, t0, count: G.Tour.count(), spotW: spot.width, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tourSeen,
+        ok: shown && s0 === 0 && s1 === 1 && s2 === 0 && spot.width > 20 && G.Tour.count() >= 10 && $('tour').classList.contains('hidden') && !!App.prefs().tourSeen };
+    }
+    // 34. densitometry results live in the figure column: a new band box opens them, the chart and table are there, Figure comes back
+    {
+      const $ = id => document.getElementById(id);
+      await G.UI.loadExample('western');
+      const st = App.S, v0 = G.QuantUI.view(), badge = $('quantBadge').textContent;
+      const r = st.quant.rows[0], box = { name: 'extra', y0: r.y0 + 2, y1: r.y1 + 2 }; st.quant.rows.push(box); App.boxAdded = true; App.commit();
+      await new Promise(r => setTimeout(r, 50));
+      const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
+      const lcHead = /loading control/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
+      G.QuantUI.setView('figure');
+      const v2 = G.QuantUI.view(), figShown = !$('previewBox').classList.contains('hidden') && $('quantView').classList.contains('hidden');
+      st.quant.rows.pop(); App.commit();
+      R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
+        ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

@@ -41,6 +41,7 @@
       st.quant.rows.push({ y0: r.y0, y1: r.y1, name: '' });
       // the second box is usually the loading control: suggest it
       if (st.quant.rows.length === 2 && st.quant.control < 0) st.quant.control = 1;
+      App.boxAdded = true;   // a box drawn by the user opens the Densitometry view (quantui.js)
       App.commit();
       const d = $('quantDetails'); if (d && !d.open) d.open = true;
       requestAnimationFrame(() => { const inp = document.querySelector(`#boxList input[data-q="${st.quant.rows.length - 1}"]`); if (inp) inp.focus(); });

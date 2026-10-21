@@ -16,7 +16,7 @@ Run `npm run check` and the Chromium tests before every push. CI (`.github/workf
 ## Architecture
 
 Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in this order by `index.html`:
-`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → splitters → editor → ui → figedit → quantui → claude → pwa`.
+`tiff → ladders → gels → engine → render → quant → zip → pdf → host → export → demo → app → splitters → editor → ui → figedit → quantui → claude → tour → pwa`.
 
 `splitters.js` drives the two dividers (`.gutter`): they set `--panel-w` on `#app` and `--raw-flex` / `--fig-flex` on `#stage`, remembered in the prefs (`panelW`, `stageSplit`), and fire `resize`; the editor refits to the crop when a drag ends.
 
@@ -27,7 +27,8 @@ Plain scripts on `window` (no modules, no bundler, no dependencies), loaded in t
 - `gels.js` defines experiment types (`kind` = dna | rna | protein | native picks the ladder library and unit). `App.kind()`, `App.baseUnit()`, `App.fmtSize()` / `App.fmtExact()` format sizes; never hard-code "bp".
 - `engine.js` is pure image analysis (deskew, autoCrop, lane lattice, ladder fit in log(size)). Changes there affect every gel type: check the synthetic gels (`G.Demo.makeGel({preset: 'dna' | 'sds' | 'western'})`) and run the full tests.
 - `render.js` builds the figure SVG in points (`composeGel` handles removed lanes and stacked strips; `mapY` maps crop rows to figure rows or null outside strips).
-- `quant.js` is densitometry on raw pixels (never the display levels) and the band-size table; `quantui.js` is its panel.
+- `quant.js` is densitometry on raw pixels (never the display levels) and the band-size table; `quantui.js` drives step 7 (controls) and the **Densitometry view** of the figure column (`#quantView`: chart, table, lane profile, band sizes; `G.QuantUI.setView('figure' | 'quant')`). A new band box switches to the view; a load switches back to the figure.
+- `tour.js` is the guided tour (`G.Tour.start()`; auto once on the first visit from `ui.js` `startup`, remembered in the `tourSeen` pref; steps whose target is off screen are skipped).
 - `host.js` is the only place that touches `window.claude` (Claude artifact runtime). Everything must work without it.
 - The library (`App.library` in `app.js`: `list` / `open` / `rename` / `remove` / `clear`) keeps every opened gel in IndexedDB: store `gels` has one small record per image (state snapshot, thumbnail, title, names; key = the image's SHA-256), store `blobs` the file bytes once per image and per marker image. `App.saveDraftSoon` (called by `commit` / `undo` / `redo`) saves 800 ms after a change; examples are never saved, and a gel removed while open stays out (`App._libSkip`) until it is loaded again. `ui.js` renders the cards on the start screen (`#libBox`) and in the Library dialog (`#libDlg`). Self-tests 19 and 32 need IndexedDB (`?draft=1`).
 

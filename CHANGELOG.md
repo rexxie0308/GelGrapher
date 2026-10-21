@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- Guided tour: on the first visit a short spotlight tour walks through the screen; replay it from ? → "Take the guided tour".
+
+### Changed
+- Densitometry results (chart, table, lane profile, band sizes) moved out of the settings panel into a **Densitometry** view beside "Figure" in the figure column; adding a band box opens it, "Show results" in step 7 and the view switch bring it back. Step 7 keeps only the controls, and the checkbox is now "Loading control" with an explanation of the normalization; the reference lane is labelled "= 1.00".
+
+### Added
 - Library: every gel you open is kept in the browser (IndexedDB) with its latest edits, a thumbnail and a name you can change; the next visit shows your gels and one click reopens one as you left it. The open gel is saved after every change; the gel can be removed from its card. Replaces the single autosaved draft (an existing draft is moved into the library).
 
 ### Changed

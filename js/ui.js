@@ -239,6 +239,7 @@
   $('btnUndo').onclick = () => App.undo();
   $('btnRedo').onclick = () => App.redo();
   $('btnHelp').onclick = () => $('helpDlg').classList.remove('hidden');
+  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start(); };
   $('btnHelpClose').onclick = () => $('helpDlg').classList.add('hidden');
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
@@ -885,7 +886,12 @@
     let list = [];
     try { list = await App.library.list(); } catch (e) { list = []; }
     if (S()) return;
-    if (list.length) renderLibrary(); else loadExample('western');
+    if (list.length) renderLibrary();
+    else {
+      await loadExample('western');
+      // the first visit gets the tour once the example is on screen
+      if (!App.prefs().tourSeen && S()) setTimeout(() => { if (S() && !App.prefs().tourSeen) G.Tour.start(); }, 700);
+    }
   }
   startup();
 

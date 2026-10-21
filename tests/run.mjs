@@ -73,7 +73,9 @@ const UI_CHECKS = [
   ['two rows of wells: found, analysed separately, annotations kept per row', r => r.rows.ok && r.rows.bottomKept, ['rows']],
   ['marker band list stays open while several bands are ticked', r => r.bandTicks.ok && r.bandTicks.scrollKept && r.bandTicks.boxes, ['bandTicks']],
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
-  ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']]
+  ['library keeps the gel with its edits, renames, reopens and removes it', r => r.library.ok, ['library']],
+  ['guided tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
+  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
 // Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in

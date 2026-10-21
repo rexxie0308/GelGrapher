@@ -6,7 +6,7 @@
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   const done = fn => e => { if (!S()) return; if (fn) fn(e); App.commit(); };
   const live = fn => e => { if (!S()) return; fn(e); App.refresh(); };
-  let tab = 'int', lastR = null, lastSizes = null;
+  let tab = 'int', view = 'figure', lastR = null, lastSizes = null;
 
   const sig = v => (v == null || !isFinite(v) ? '–' : v >= 100 ? String(Math.round(v)) : v.toPrecision(3));
   const rel = v => (v == null || !isFinite(v) ? '–' : v.toFixed(2));
@@ -25,14 +25,26 @@
     }
   }
 
-  /* ---------- controls ---------- */
+  /* ---------- the figure column shows either the figure or the densitometry results ---------- */
+  function setView(v) {
+    view = v;
+    document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+    $('previewBox').classList.toggle('hidden', v !== 'figure'); $('quantView').classList.toggle('hidden', v !== 'quant');
+    $('figSub').textContent = v === 'figure' ? 'Click any text to edit it' : 'Measured in every lane of the figure';
+    $('figSize').classList.toggle('hidden', v !== 'figure');
+    if (v === 'figure') G.UI.updatePreview(); else render();
+  }
+  document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) setView(b.dataset.view); });
+  $('btnShowQuant').onclick = () => { if (S()) { setView('quant'); } };
+  $('btnAddBox2').onclick = () => $('btnAddBox').click();
   document.querySelectorAll('#quantTabs button').forEach(b => b.onclick = () => {
     tab = b.dataset.tab;
     document.querySelectorAll('#quantTabs button').forEach(x => x.classList.toggle('on', x === b));
     $('quantInt').classList.toggle('hidden', tab !== 'int'); $('quantSize').classList.toggle('hidden', tab !== 'size');
+    $('quantActions').classList.toggle('hidden', tab !== 'int'); $('sizeActions').classList.toggle('hidden', tab !== 'size');
     render();
   });
-  $('quantDetails').addEventListener('toggle', () => render());
+  $('profAdv').addEventListener('toggle', () => { if ($('profAdv').open) drawProfile(); });
   $('qBg').addEventListener('change', done(e => { S().quant.bg = e.target.value; }));
   $('qW').addEventListener('input', live(e => { S().quant.wFrac = +e.target.value / 100; widthLabel(); }));
   $('qW').addEventListener('change', done());
@@ -72,7 +84,7 @@
     $('boxList').innerHTML = q.rows.map((r, k) => `<div class="item">
       <span class="swatch${k === q.control ? ' ctl' : ''}"></span>
       <input type="text" data-q="${k}" value="${esc(r.name)}" placeholder="${`Band ${k + 1}, e.g. p53`}">
-      <label class="switch" title="${'Loading control (used for normalization)'}"><input type="checkbox" data-qc="${k}" ${k === q.control ? 'checked' : ''}>${'Control'}</label>
+      <label class="switch" title="${'The other bands in each lane are divided by this one (corrects for unequal loading)'}"><input type="checkbox" data-qc="${k}" ${k === q.control ? 'checked' : ''}>${'Loading control'}</label>
       <button class="x" data-qdel="${k}" title="${'Delete'}">×</button></div>`).join('')
       || `<p class="hint">${'No band boxes yet.'}</p>`;
     $('boxList').querySelectorAll('[data-q]').forEach(inp => {
@@ -102,8 +114,8 @@
   function renderTable(R) {
     const tg = R.rows.map((r, k) => k).filter(k => k !== R.control);
     const ctlName = R.control >= 0 ? R.rows[R.control].name : null;
-    const head = `<tr><th>${'Lane'}</th>${R.rows.map((r, k) => `<th title="${'Integrated density (a.u.)'}">${esc(r.name)}${k === R.control ? ' <span class="tag">LC</span>' : ''}</th>`).join('')}` +
-      tg.map(k => `<th title="${esc(ctlName ? `${R.rows[k].name} / ${ctlName}, relative to the reference lane` : 'relative to the reference lane')}">${esc(R.rows[k].name)} ${'rel.'}</th>`).join('') + '</tr>';
+    const head = `<tr><th>${'Lane'}</th>${R.rows.map((r, k) => `<th title="${'Integrated density (a.u.)'}">${esc(r.name)}${k === R.control ? ' <span class="tag" title="loading control">loading control</span>' : ''}</th>`).join('')}` +
+      tg.map(k => `<th title="${esc(ctlName ? `${R.rows[k].name} / ${ctlName}, relative to the reference lane` : 'relative to the reference lane')}">${esc(R.rows[k].name)} ${ctlName ? '/ ' + esc(ctlName) + ', rel.' : 'rel.'}</th>`).join('') + '</tr>';
     const body = R.lanes.map((i, j) => `<tr class="${i === R.ref ? 'ref' : ''}"><td>${esc(R.names[j].replace(/\*/g, ''))}</td>` +
       R.rows.map((r, k) => { const c = R.cells[k][j]; return `<td class="${c.sat ? 'sat' : ''}" title="${c.sat ? `${c.sat} saturated pixels` : ''}">${sig(c.vol)}${c.sat ? ' ⚠' : ''}</td>`; }).join('') +
       tg.map(k => `<td class="relv">${rel(R.rel[k][j])}</td>`).join('') + '</tr>').join('');
@@ -168,16 +180,18 @@
   function render(live) {
     const st = S();
     if (!st) return;
-    if (live) { if ($('quantDetails').open && tab === 'int') results(); return; }
+    if (live) { if (view === 'quant' && tab === 'int') results(); return; }
     const q = st.quant, lanes = G.Quant.quantLanes(App);
     $('qBg').value = q.bg; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
     const refNow = lanes.includes(q.ref) ? q.ref : lanes[0];
     $('qRef').innerHTML = lanes.map(i => `<option value="${i}"${i === refNow ? ' selected' : ''}>${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
     $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${'Well'} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
-    $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'densitometry, band sizes';
+    $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'band intensities, band sizes';
+    $('quantBadge').textContent = q.rows.length || ''; $('quantBadge').classList.toggle('hidden', !q.rows.length);
+    $('btnShowQuant').classList.toggle('hidden', view === 'quant');
     renderBoxes();
-    if (!$('quantDetails').open) return;
+    if (view !== 'quant') return;
     if (tab === 'size') { renderSizes(); return; }
     results();
   }
@@ -185,15 +199,18 @@
     const st = S();
     if (st.quant.rows.length && G.Quant.quantLanes(App).length) { lastR = G.Quant.measure(App); renderTable(lastR); }
     else { lastR = null; $('quantTable').innerHTML = ''; $('quantChart').innerHTML = ''; }
+    $('quantEmpty').classList.toggle('hidden', !!st.quant.rows.length);
     ['btnQCopy', 'btnQCSV', 'btnQChart'].forEach(id => { $(id).disabled = !lastR; });
-    drawProfile();
+    if ($('profAdv').open) drawProfile();
   }
 
   App.on(what => {
-    if (!S() || what === 'select' && !$('quantDetails').open) return;
+    if (!S() || what === 'select' && view !== 'quant') return;
+    // a band box drawn by the user opens the results: that is what adding one is for
+    if (what === 'change' && App.boxAdded) { App.boxAdded = false; if (view !== 'quant') { setView('quant'); return; } }
     render(what === 'refresh');
   });
-  // open the section when the loaded state already has band boxes (examples, projects)
-  App.on(what => { if (what === 'loaded' && S() && S().quant.rows.length) $('quantDetails').open = true; });
-  G.QuantUI = { render };
+  // a loaded gel (example, project, library) opens on its figure; boxes it already has show as a badge
+  App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; if (view !== 'figure') setView('figure'); if (S().quant.rows.length) $('quantDetails').open = true; } });
+  G.QuantUI = { render, setView, view: () => view };
 })(window);
