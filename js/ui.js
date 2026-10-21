@@ -119,7 +119,8 @@
   async function loadExample(kind) {
     App.busy(true, 'Building the example…');
     await new Promise(r => setTimeout(r, 30));
-    const g = G.Demo.makeGel({ preset: kind });
+    // the tutorial's practice gel has no saturated band, so the figure made in it passes the pre-flight check
+    const g = G.Demo.makeGel({ preset: kind, clean: !!(G.Tour && G.Tour.mode() === 'tutorial') });
     await App.load({ name: EXAMPLE_NAMES[kind], buffer: G.Demo.encodeTiff16(g) }, g.truth.gelType);
     if (!S()) return;
     App.isExample = kind;
@@ -618,6 +619,7 @@
           <select data-f="unit">${G.Ladders.unitsFor(kind).concat(G.Ladders.unitsFor(kind).includes(m.unit) ? [] : [m.unit]).map(u => `<option value="${u}">${u === 'auto' ? 'bp/kb' : u}</option>`).join('')}</select>
         </div>
         <details class="adv"${m.lane in wasOpen ? ' open' : ''}><summary>${`Bands (${shown}/${m.bands.length} shown)`}</summary>
+          <div class="pick">${'Labels:'} <a href="#" data-pickb="all">${'all'}</a> · <a href="#" data-pickb="none">${'none'}</a></div>
           <div class="list">${m.bands.map((b, k) => `<div class="item"><label class="switch"><input type="checkbox" data-band="${k}" ${b.show ? 'checked' : ''}></label>
             <span style="flex:1">${b.bp} ${unit}${b.ref ? ' ★' : ''}</span><span class="tag ${b.manual ? 'man' : b.matched ? 'ok' : ''}">${b.manual ? 'manual' : b.matched ? 'matched' : 'predicted'}</span></div>`).join('')}</div>
           <div class="field inline"><button class="btn sm" data-f="thin">${'Thin labels'}</button><button class="btn sm ghost" data-f="match">${'Re-match'}</button></div>
@@ -639,13 +641,15 @@
       q('thin').onclick = done(() => { m.bands.forEach(b => { b.show = true; }); App.thinMarkerLabels(m, false); });
       q('match').onclick = done(() => { m.bands = []; App.matchMarkers(false); });
       card.querySelectorAll('[data-band]').forEach(inp => inp.addEventListener('change', done(e => { m.bands[+inp.dataset.band].show = e.target.checked; })));
+      card.querySelectorAll('[data-pickb]').forEach(a => a.onclick = e => { e.preventDefault(); m.bands.forEach(b => { b.show = a.dataset.pickb === 'all'; }); App.commit(); });
     });
   }
 
   /* ---------- lane list (advanced) ---------- */
   function renderLanes() {
     const st = S(), r = range(), empty = new Set(App.emptyLanes());
-    $('laneList').innerHTML = st.lanes.map((l, i) => {
+    const emptyShown = st.lanes.some((l, i) => empty.has(i) && !l.hidden && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]);
+    $('laneList').innerHTML = `<div class="pick">${'Show:'} <a href="#" data-pick="all">${'all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the empty wells'}</a>` : ''}</div>` + st.lanes.map((l, i) => {
       const out = !r || i < r[0] || i > r[1];
       return `<div class="item${i === App.selLane ? ' sel' : ''}${out ? ' out' : ''}">
         <span class="idx">${i + 1}</span>
@@ -664,6 +668,12 @@
       if (await toggleLaneHidden(+inp.dataset.h, !e.target.checked)) App.commit(); else e.target.checked = true;
     }));
     $('laneList').querySelectorAll('[data-del]').forEach(b => b.onclick = done(() => { App.removeLane(+b.dataset.del); App.selLane = -1; toast('Lane deleted (Ctrl+Z to undo)'); }));
+    $('laneList').querySelectorAll('[data-pick]').forEach(a => a.onclick = e => {
+      e.preventDefault();
+      if (a.dataset.pick === 'all') st.lanes.forEach(l => { l.hidden = false; });
+      else st.lanes.forEach((l, i) => { if (empty.has(i) && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]) l.hidden = true; });
+      App.commit();
+    });
     $('laneCountNote').textContent = `${st.lanes.length} wells`;
     if (document.activeElement !== $('cropLaneN')) $('cropLaneN').value = r ? r[1] - r[0] + 1 : '';
     // range selects

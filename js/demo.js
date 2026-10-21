@@ -73,7 +73,7 @@
       else (samples[Ln] || []).forEach(([s, a]) => bands.push({ cx, y: yOf(s), a, s: opts.bandSigma }));
       if (opts.wellAmp) bands.push({ cx, y: wellY, a: opts.wellAmp, s: 5, well: true });
     }
-    (opts.extra || []).forEach(e => bands.push({ cx: x0 + e.lane * pitch, y: yOf(e.size), a: e.a, s: e.s }));
+    if (!opts.clean) (opts.extra || []).forEach(e => bands.push({ cx: x0 + e.lane * pitch, y: yOf(e.size), a: e.a, s: e.s }));   // clean: no saturating band (the tutorial's practice gel)
     if (row2) {
       for (let Ln = 0; Ln < row2.lanes; Ln++) {
         const cx = x0 + Ln * pitch;

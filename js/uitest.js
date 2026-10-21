@@ -449,21 +449,26 @@
       R.quantView = { v0, badge, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && badge === '2' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
     }
-    // 35. the hands-on tutorial: every part waits for the real action and continues when the state shows it
+    // 35. the hands-on tutorial: every part waits for the real action, for typing to end and for dialogs to close, then continues
     if (/[?&]draft=1/.test(location.search) || true) {
       const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
       const at = () => $('tourTitle').textContent + '·' + G.Tour.part();
       const until = async (want, ms) => { const t0 = Date.now(); while (at() !== want && Date.now() - t0 < (ms || 5000)) await wait(100); return at(); };
       const warnsHidden = () => getComputedStyle($('warnings')).display === 'none';
+      const holes = () => $('tourHoles').childNodes.length;
       const log = [];
       App.setPref('tutorialSeen', null);
+      $('panel').scrollTop = 200;
       G.Tour.start('tutorial');
       log.push(await until('The three areas·0'));                  // a gel is open, so the practice-gel step is skipped
-      const clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden();
-      G.Tour.next(); G.Tour.next(); G.Tour.next();
+      const clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden(), dimmed = getComputedStyle($('tourDim').querySelector('.dim')).fill !== 'none';
+      G.Tour.next(); G.Tour.next(); const panelTop = $('panel').scrollTop === 0;   // the panel intro shows its top
+      G.Tour.next();
       log.push(at());                                              // band look: switch
+      const twoLit = holes() === 2;                                // the switch and the figure column stay lit
       App.S.levels.invert = !App.S.levels.invert; App.commit(); log.push(await until('Band look: bright or dark·1'));
       App.S.levels.invert = !App.S.levels.invert; App.commit(); log.push(await until('Straighten the image·0'));
+      await wait(700); const foldWaits = !$('imgAdv').open && at() === 'Straighten the image·0';   // the fold is not opened for you
       $('imgAdv').open = true; log.push(await until('Straighten the image·1'));
       const keys = $('tourText').querySelectorAll('.tour-key').length;
       App.setRotation(App.S.rotation + 0.5); App.commit(); log.push(await until('Straighten the image·2'));
@@ -473,35 +478,69 @@
       App.S.levels.white += 0.01; App.commit(); log.push(await until('The figure area·0'));
       App.S.crop.h -= 5; App.commit(); log.push(await until('Check the lanes·0'));
       G.Tour.next(); $('fixLanes').open = true; log.push(await until('Check the lanes·2'));
+      const spot0 = $('tourSpot').getBoundingClientRect().top; $('panel').scrollTop += 40; await wait(120);
+      const follows = Math.abs($('tourSpot').getBoundingClientRect().top - spot0 + 40) < 3 || $('panel').scrollTop === 0;   // the spotlight follows a scroll
       $('btnEvenCrop').dispatchEvent(new MouseEvent('click', { bubbles: true })); log.push(await until('Check the lanes·3'));
       $('laneAdv').open = true; log.push(await until('Check the lanes·4'));
       const fl0 = G.UI.figLanes(), spare = App.emptyLanes().filter(i => fl0.includes(i))[0] ?? fl0[fl0.length - 1]; App.S.lanes[spare].hidden = true; App.commit(); log.push(await until('Name the lanes·0'));
-      const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
-      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit(); log.push(await until('Check the ladder·0'));
+      const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i)), names0 = fl.map(i => App.S.lanes[i].name);
+      App.S.lanes[fl[0]].name = 'tut-A'; App.S.lanes[fl[1]].name = 'tut-B'; App.commit(); await wait(700);
+      const needsAll = at() === 'Name the lanes·0';                // two names are not enough
+      fl.forEach((i, k) => { App.S.lanes[i].name = 'tut-' + k; }); App.commit(); log.push(await until('Check the ladder·0'));
       G.Tour.next(); document.querySelector('#markerList .mk-card details').open = true; log.push(await until('Check the ladder·2'));
       App.S.markers[0].bands[0].show = !App.S.markers[0].bands[0].show; App.commit(); log.push(await until('Group line·0'));
       App.mode = 'group'; App.emit('change'); log.push(await until('Group line·1'));
-      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: 'tut' }); App.commit(); log.push(await until('Target band arrow·0'));
+      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: '' }); App.commit(); await wait(700);
+      const needsLabel = at() === 'Group line·1';                   // a group without a label is not done
+      App.S.groups[App.S.groups.length - 1].text = 'tut'; $('floatEd').classList.remove('hidden'); App.commit(); await wait(1200);
+      const typingWaits = at() === 'Group line·1' && !G.Tour.done();   // nor while a text box is open
+      $('floatEd').classList.add('hidden'); log.push(await until('Target band arrow·0'));
       const skipLink = !!$('tourSkipPart');
       G.Tour.skipStep(); log.push(at());                           // condition row
       App.S.conditions.push({ name: '', values: App.S.lanes.map(() => '') }); App.commit(); log.push(await until('Condition row·1'));
-      App.S.conditions[0].values[fl[0]] = '+'; App.S.conditions[0].values[fl[1]] = '-'; App.commit(); log.push(await until('Condition row·2'));
+      App.S.conditions[0].values[fl[0]] = '+'; App.S.conditions[0].values[fl[1]] = '−'; App.commit(); log.push(await until('Condition row·2'));
       App.S.conditions[0].name = 'EcoRI'; App.commit(); log.push(await until('Strips·0'));
+      const nucleic = App.kind() === 'dna' || App.kind() === 'rna';
+      const stripText = (nucleic ? /DNA or RNA gel like this one/ : /Western figures show/).test($('tourText').textContent);   // worded for the gel that is open
       G.Tour.skipStep(); log.push(at());                           // densitometry intro
       G.Tour.next(); App.mode = 'quant'; App.emit('change'); log.push(await until('Densitometry·2'));
       App.mode = null; const r0 = App.S.markers[0].bands[3], r1 = App.S.markers[0].bands[6];
       App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await until('Densitometry·3'));
       App.S.quant.rows.push({ y0: r1.y - 6, y1: r1.y + 6, name: 'b' }); App.S.quant.control = 1; App.commit(); log.push(await until('Densitometry·5'));
-      G.Tour.next(); log.push(at()); G.QuantUI.setView('figure'); log.push(await until('Export the figure·0'));
-      G.Tour.next(); const exportWaits = $('tourNext').disabled; G.Tour.skipStep(); log.push(at()); const last = $('tourNext').textContent;
+      G.Tour.next(); log.push(at()); G.QuantUI.setView('figure');
+      $('warnings').innerHTML = '<div><span>⚠ a notice</span></div>';          // a notice is up: it is the first target of the export step
+      log.push(await until('Export the figure·0'));
+      const noticesStep = !warnsHidden() && $('tourSpot').getBoundingClientRect().height > 10;
+      G.Tour.next(); G.Tour.next(); log.push(at()); const exportWaits = $('tourNext').disabled;
+      const fontPt = App.S.style.fontPt; App.S.style.fontPt = 4; App.commit();  // something the pre-flight check warns about
+      G.UI.autoConfirm = null; $('btnPNG').click(); await wait(300);
+      const dialogWaits = !$('preflightDlg').classList.contains('hidden') && at() === 'Export the figure·2' && !G.Tour.done();   // the pre-flight window holds the step
+      $('pfBack').click(); await wait(300); const backWaits = at() === 'Export the figure·2' && !G.Tour.done();
+      App.S.style.fontPt = fontPt; App.commit();
+      G.Tour.skipStep(); log.push(at()); const last = $('tourNext').textContent;
       G.Tour.next();
       const expect = ['The three areas·0', 'Band look: bright or dark·0', 'Band look: bright or dark·1', 'Straighten the image·0', 'Straighten the image·1', 'Straighten the image·2', 'Set the contrast·0', 'Set the contrast·1', 'The figure area·0',
         'Check the lanes·0', 'Check the lanes·2', 'Check the lanes·3', 'Check the lanes·4', 'Name the lanes·0', 'Check the ladder·0', 'Check the ladder·2', 'Group line·0', 'Group line·1', 'Target band arrow·0', 'Condition row·0', 'Condition row·1', 'Condition row·2',
-        'Strips·0', 'Densitometry·0', 'Densitometry·2', 'Densitometry·3', 'Densitometry·5', 'Densitometry·6', 'Export the figure·0', 'Done·0'];
+        'Strips·0', 'Densitometry·0', 'Densitometry·2', 'Densitometry·3', 'Densitometry·5', 'Densitometry·6', 'Export the figure·0', 'Export the figure·2', 'Done·0'];
       const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
-      R.tutorial = { bad, clickable, warnHidden, warnShown, keys, skipLink, exportWaits, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
-        ok: !bad.length && clickable && warnHidden && warnShown && keys === 1 && skipLink && exportWaits && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
+      R.tutorial = { bad, clickable, warnHidden, warnShown, dimmed, panelTop, twoLit, foldWaits, keys, follows, needsAll, needsLabel, typingWaits, skipLink, stripText, noticesStep, exportWaits, dialogWaits, backWaits, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
+        ok: !bad.length && clickable && warnHidden && warnShown && dimmed && panelTop && twoLit && foldWaits && keys === 1 && follows && needsAll && needsLabel && typingWaits && skipLink && stripText && noticesStep && exportWaits && dialogWaits && backWaits && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen };
+      fl.forEach((i, k) => { App.S.lanes[i].name = names0[k]; });
       App.S.groups.pop(); App.S.conditions.pop(); App.S.quant.rows = []; App.S.quant.control = -1; App.S.lanes[spare].hidden = false; App.commit();
+    }
+    // 36. "all" / "none" picks: the band list and the lane list take every box at once
+    {
+      const $ = id => document.getElementById(id);
+      const m = App.S.markers[0], shown = () => m.bands.filter(b => b.show).length;
+      $('markerList').querySelector('[data-pickb="none"]').click(); const none = shown();
+      $('markerList').querySelector('[data-pickb="all"]').click(); const all = shown();
+      $('markerList').querySelector('[data-f="thin"]').click();
+      const r = G.UI.range(), empty = App.emptyLanes().filter(i => i >= r[0] && i <= r[1] && !App.S.markers.some(k => k.lane === i));
+      const hadLink = !!$('laneList').querySelector('[data-pick="hideEmpty"]');
+      if (hadLink) $('laneList').querySelector('[data-pick="hideEmpty"]').click();
+      const hiddenEmpty = App.S.lanes.filter(l => l.hidden).length;
+      $('laneList').querySelector('[data-pick="all"]').click(); const shownAll = App.S.lanes.every(l => !l.hidden);
+      R.picks = { none, all, n: m.bands.length, hadLink, empty: empty.length, hiddenEmpty, shownAll, ok: none === 0 && all === m.bands.length && hadLink === empty.length > 0 && hiddenEmpty === empty.length && shownAll };
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);

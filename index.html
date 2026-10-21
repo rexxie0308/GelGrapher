@@ -362,6 +362,7 @@
 <div id="updateBar" class="update-bar hidden" role="status"><span>A newer version of GelGrapher is ready.</span><button class="btn sm primary" id="updateReload">Reload</button><button class="btn sm ghost" id="updateLater">Later</button></div>
 
 <div id="tour" class="hidden" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+  <svg id="tourDim" aria-hidden="true"><defs><mask id="tourMask"><rect width="100%" height="100%" fill="#fff"/><g id="tourHoles"></g></mask></defs><rect class="dim" width="100%" height="100%" mask="url(#tourMask)"/></svg>
   <div id="tourSpot"></div>
   <div id="tourCard">
     <div class="tour-top"><b id="tourTitle"></b><span class="h3-note" id="tourStep"></span></div>
