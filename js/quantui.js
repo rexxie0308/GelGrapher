@@ -33,6 +33,7 @@
     $('figSub').textContent = v === 'figure' ? 'Click any text to edit it' : 'Measured in every lane of the figure';
     $('figSize').classList.toggle('hidden', v !== 'figure');
     if (v === 'figure') G.UI.updatePreview(); else render();
+    G.Editor.draw();   // the raw image shows the layer of this view in front (strips with the figure, band boxes here)
   }
   document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) setView(b.dataset.view); });
   $('btnShowQuant').onclick = () => { if (S()) { setView('quant'); } };

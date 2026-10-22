@@ -594,6 +594,20 @@
       R.densMode = { drift: +drift.toFixed(4), driftBox: +driftBox.toFixed(4), emptyLow, refOk: R2.refOk, relNull: R2.relNull, chart: R2.chart,
         ok: drift < 0.03 && emptyLow && R2.refOk[0] === true && R2.refOk[1] === false && R2.relNull && R2.chart };
     }
+    // 39. the raw image edits one layer at a time: band boxes respond with the Densitometry view, strips with the figure
+    {
+      await G.UI.loadExample('western');
+      const st = App.S, c = document.getElementById('editor'), lane = G.Quant.quantLanes(App)[0];
+      const pt = (x, y) => { const p = G.Editor.toScreen(x, y); return [p.x, p.y]; };
+      const qy = Math.min(st.quant.rows[0].y0, st.quant.rows[0].y1), sy = Math.min(st.strips[0].y0, st.strips[0].y1);
+      const strip = st.strips[0], sMid = (strip.y0 + strip.y1) / 2;
+      G.QuantUI.setView('figure');
+      const fQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, fS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
+      G.QuantUI.setView('quant');
+      const qQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, qS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
+      G.QuantUI.setView('figure');
+      R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
+    }
     // 36. "all" / "none" picks: the band list and the lane list take every box at once
     {
       const $ = id => document.getElementById(id);
