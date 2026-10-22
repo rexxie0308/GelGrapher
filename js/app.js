@@ -14,7 +14,7 @@
     unitHeader: true, groupTicks: false, groupSplit: false, dpi: 600, laneNumberMode: 'well', stripGapPt: 3
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
-  const defaultQuant = () => ({ rows: [], bg: 'edge', wFrac: 0.7, control: -1, ref: -1 });
+  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'band', wFrac: 0.7, control: -1, ref: -1 });   // mode: 'band' = pixels above the noise floor only, 'box' = the whole box
 
   const App = {
     S: null,            // serialisable state

@@ -75,9 +75,10 @@ const UI_CHECKS = [
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
   ['library keeps the gel with its edits, renames, reopens, closes and removes it', r => r.library.ok, ['library']],
   ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
-  ['hands-on tutorial waits for each real action, for typing, for dialogs and for Next; lights the areas to watch', r => r.tutorial.ok, ['tutorial']],
+  ['hands-on tutorial: one card per task, the ring follows the stage, the block stays lit, waits for the action and Next', r => r.tutorial.ok, ['tutorial']],
   ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
   ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
+  ['densitometry: band pixels above the noise floor are box-size independent; no relative value without a band in the reference lane', r => r.densMode.ok, ['densMode']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
@@ -128,7 +129,9 @@ async function runIn(name, base) {
       for (const [what, ok, keys] of UI_CHECKS) {
         let good = false;
         try { good = !!ok(r); } catch (e) { /* missing field = failure */ }
-        good ? pass(what) : fail(what, r.error ? r.error.split('\n')[0] : keys ? JSON.stringify(Object.fromEntries(keys.map(k => [k, r[k]]))).slice(0, 400) : '');
+        // on a failure, the checks that came out false are named first, then the detail (cut to a line)
+        const falsy = keys ? keys.flatMap(k => Object.entries(r[k] || {}).filter(([, v]) => v === false).map(([n]) => n)) : [];
+        good ? pass(what) : fail(what, r.error ? r.error.split('\n')[0] : keys ? (falsy.length ? `false: ${falsy.join(', ')} · ` : '') + JSON.stringify(Object.fromEntries(keys.map(k => [k, r[k]]))).slice(0, 400) : '');
       }
       if (errs.length) fail('interface page errors', errs.join(' | '));
       await page.close();
