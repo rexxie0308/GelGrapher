@@ -36,6 +36,25 @@
     G.Editor.draw();   // the raw image shows the layer of this view in front (strips with the figure, band boxes here)
   }
   document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) setView(b.dataset.view); });
+  /* the figure column follows the control you touch: a view switched for you is flashed on the switch so the change is seen */
+  function follow(v) {
+    if (!S() || view === v) return;
+    setView(v);
+    const b = document.querySelector(`#viewSeg [data-view="${v}"]`);
+    if (b) { b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 800); }
+  }
+  // steps 1-6 of the panel work on the figure, step 7 on the densitometry: touching a control there opens that view
+  const panelView = e => {
+    const t = e.target.closest ? e.target : null;
+    if (!t || !S()) return;
+    const ctl = t.closest('button, input, select, textarea, label, summary, a, .list, [contenteditable]');
+    if (!ctl || !ctl.closest('#sections')) return;
+    const sum = ctl.closest('summary');
+    if (sum && sum.parentElement.open && e.type === 'pointerdown') return;   // closing a fold: done with it, no switch
+    follow(ctl.closest('#quantSec') ? 'quant' : 'figure');
+  };
+  $('sections').addEventListener('pointerdown', panelView, true);
+  $('sections').addEventListener('focusin', panelView, true);
   $('btnShowQuant').onclick = () => { if (S()) { setView('quant'); } };
   $('btnAddBox2').onclick = () => $('btnAddBox').click();
   document.querySelectorAll('#quantTabs button').forEach(b => b.onclick = () => {
@@ -215,5 +234,5 @@
   });
   // a loaded gel (example, project, library) opens on its figure
   App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; if (view !== 'figure') setView('figure'); if (S().quant.rows.length) $('quantDetails').open = true; } });
-  G.QuantUI = { render, setView, view: () => view };
+  G.QuantUI = { render, setView, follow, view: () => view };
 })(window);

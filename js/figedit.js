@@ -24,8 +24,8 @@
     $('btnAddBox').classList.toggle('on', m === 'quant');
     prev.classList.toggle('arming', m === 'arrow');
     if (m !== 'arrow') guide.classList.add('hidden');
-    // the raw image edits one layer at a time: a band box is drawn with the Densitometry view open, a strip with the figure
-    if (G.QuantUI && ((m === 'quant' && G.QuantUI.view() !== 'quant') || (m === 'strip' && G.QuantUI.view() !== 'figure'))) G.QuantUI.setView(m === 'quant' ? 'quant' : 'figure');
+    // every tool opens the view it works in: a band box the Densitometry view, an arrow, group line or strip the figure
+    if (m && G.QuantUI) G.QuantUI.follow(m === 'quant' ? 'quant' : 'figure');
     G.Editor.draw();
   }
   $('modeCancel').onclick = () => setMode(null);
@@ -60,6 +60,7 @@
   };
   $('btnAddCond').onclick = () => {
     if (!S()) return;
+    if (G.QuantUI) G.QuantUI.follow('figure');
     S().conditions.push({ name: '', values: S().lanes.map(() => '') });
     App.commit();
     G.UI.toast('Click each cell on the figure to cycle + / − / empty; click "Condition" to name the row', 3200);

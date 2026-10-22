@@ -80,6 +80,7 @@ const UI_CHECKS = [
   ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
   ['densitometry: band pixels above the noise floor are box-size independent; no relative value without a band in the reference lane', r => r.densMode.ok, ['densMode']],
   ['raw image edits one layer at a time: band boxes in the Densitometry view, strips with the figure', r => r.layers.ok, ['layers']],
+  ['the figure column follows the panel step: steps 1-6 the figure, step 7 the Densitometry view', r => r.followView.ok, ['followView']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 

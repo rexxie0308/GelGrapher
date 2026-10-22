@@ -608,6 +608,24 @@
       G.QuantUI.setView('figure');
       R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
     }
+    // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
+    {
+      const $ = id => document.getElementById(id), v = () => G.QuantUI.view();
+      const down = el => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      G.QuantUI.setView('quant');
+      down($('btnAddGroup')); const grp = v(); G.FigEdit.setMode(null);
+      down($('qMode')); const mode = v(), flash = !!$('viewSeg').querySelector('.flash');
+      G.FigEdit.setMode('arrow'); const arrow = v(); G.FigEdit.setMode(null);
+      G.QuantUI.setView('quant'); $('btnAddCond').click(); const cond = v();
+      App.S.conditions.pop(); App.commit();
+      const det = $('quantDetails'), sum = det.querySelector('summary');
+      det.open = true; G.QuantUI.setView('figure'); down(sum); const closing = v();   // closing the fold: no switch
+      det.open = false; down(sum); const opening = v(); det.open = true;
+      G.QuantUI.setView('quant'); $('gelType').focus(); const focus = v();   // keyboard focus counts too
+      $('gelType').blur(); G.QuantUI.setView('figure');
+      R.followView = { grp, mode, flash, arrow, cond, closing, opening, focus,
+        ok: grp === 'figure' && mode === 'quant' && flash && arrow === 'figure' && cond === 'figure' && closing === 'figure' && opening === 'quant' && focus === 'figure' };
+    }
     // 36. "all" / "none" picks: the band list and the lane list take every box at once
     {
       const $ = id => document.getElementById(id);
