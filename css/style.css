@@ -192,6 +192,8 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .seg.full button { flex: 1; }
 .seg button { border: none; background: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 12.3px; }
 .seg button.on { background: var(--raised); color: var(--text); font-weight: 600; box-shadow: var(--shadow-sm); }
+.seg button.flash { animation: seg-flash .8s ease-out; }
+@keyframes seg-flash { 0% { box-shadow: 0 0 0 0 var(--accent); } 35% { box-shadow: 0 0 0 4px var(--accent-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
 
 .list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; margin-top: 6px; }
 .item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--r-sm); }

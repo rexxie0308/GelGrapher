@@ -105,7 +105,7 @@ On first visit the Western blot example is open, so you can see what a finished 
 
 ## Densitometry
 
-Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added.
+Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added. The figure area follows the step you work in: any control of section 7 opens the Densitometry view and any control of sections 1–6 brings the figure back, so an annotation you add is always shown.
 
 1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. Tick **Loading control** on the box of the housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.
 2. Choose the **background**: a straight line between the box edges (the usual "close the peak" method of ImageJ's gel analyser), a rolling-ball baseline of the lane profile, or none. Choose the **measure**: *band pixels above the noise floor* (default: only pixels above the background noise count, so the value does not depend on the box size as long as the box contains the band) or *whole box* (every pixel of the box, ImageJ style).
