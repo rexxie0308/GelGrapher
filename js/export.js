@@ -266,7 +266,7 @@
     if (S.quant.rows.length) {
       const R = G.Quant.measure(A);
       log.densitometry = {
-        method: { background: R.method, boxWidthPx: Math.round(R.halfWidthPx * 20) / 10, values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' },
+        method: { background: R.method, measure: R.mode === 'box' ? 'whole box' : 'band pixels above the noise floor (3 sigma of the background rows at the box edges)', boxWidthPx: Math.round(R.halfWidthPx * 20) / 10, values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' },
         loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceWell: R.ref + 1,
         boxes: S.quant.rows.map(q => ({ name: q.name, yFrom: Math.round(Math.min(q.y0, q.y1)), yTo: Math.round(Math.max(q.y0, q.y1)) })),
         lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j],
@@ -299,7 +299,8 @@
     if (S.quant.rows.length) {
       const R = G.Quant.measure(A), bg = { edge: 'a straight-line background between the box edges', rolling: 'a rolling-ball background', none: 'no background subtraction' }[R.method];
       const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : '';
-      h.push(`Band intensities were quantified by densitometry of the raw image (integrated density in fixed-width boxes, ${bg})${ctl} and expressed relative to lane ${R.ref + 1}.`);
+      const how = R.mode === 'box' ? 'integrated density in fixed-width boxes' : 'integrated density of the band pixels above the background noise floor in fixed-width boxes';
+      h.push(`Band intensities were quantified by densitometry of the raw image (${how}, ${bg})${ctl}` + (R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.'));
     }
     return h;
   }

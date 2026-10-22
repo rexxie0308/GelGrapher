@@ -46,6 +46,7 @@
   });
   $('profAdv').addEventListener('toggle', () => { if ($('profAdv').open) drawProfile(); });
   $('qBg').addEventListener('change', done(e => { S().quant.bg = e.target.value; }));
+  $('qMode').addEventListener('change', done(e => { S().quant.mode = e.target.value; }));
   $('qW').addEventListener('input', live(e => { S().quant.wFrac = +e.target.value / 100; widthLabel(); }));
   $('qW').addEventListener('change', done());
   $('qRef').addEventListener('change', done(e => { S().quant.ref = +e.target.value; }));
@@ -119,7 +120,9 @@
     const body = R.lanes.map((i, j) => `<tr class="${i === R.ref ? 'ref' : ''}"><td>${esc(R.names[j].replace(/\*/g, ''))}</td>` +
       R.rows.map((r, k) => { const c = R.cells[k][j]; return `<td class="${c.sat ? 'sat' : ''}" title="${c.sat ? `${c.sat} saturated pixels` : ''}">${sig(c.vol)}${c.sat ? ' ⚠' : ''}</td>`; }).join('') +
       tg.map(k => `<td class="relv">${rel(R.rel[k][j])}</td>`).join('') + '</tr>').join('');
-    const note = R.saturatedLanes.length ? `<p class="hint warn-t">${`Boxes in well${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')} contain saturated pixels, so their values are underestimated; re-image with a shorter exposure.`}</p>` : '';
+    let note = R.saturatedLanes.length ? `<p class="hint warn-t">${`Boxes in well${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')} contain saturated pixels, so their values are underestimated; re-image with a shorter exposure.`}</p>` : '';
+    const noRef = tg.filter(k => !R.refOk[k]).map(k => R.rows[k].name);
+    if (noRef.length) note += `<p class="hint warn-t">${`The reference lane (well ${R.ref + 1}) has no band in ${noRef.join(', ')}, so no relative values are given for ${noRef.length > 1 ? 'these boxes' : 'this box'} and the chart shows the values themselves. Pick a reference lane with that band in step 7.`}</p>`;
     $('quantTable').innerHTML = `<div class="tscroll"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` + note;
     const ch = G.Quant.chartSVG(App, R);
     $('quantChart').innerHTML = ch ? ch.svg : '';
@@ -182,7 +185,7 @@
     if (!st) return;
     if (live) { if (view === 'quant' && tab === 'int') results(); return; }
     const q = st.quant, lanes = G.Quant.quantLanes(App);
-    $('qBg').value = q.bg; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
+    $('qBg').value = q.bg; $('qMode').value = q.mode === 'box' ? 'box' : 'band'; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
     const refNow = lanes.includes(q.ref) ? q.ref : lanes[0];
     $('qRef').innerHTML = lanes.map(i => `<option value="${i}"${i === refNow ? ' selected' : ''}>${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);

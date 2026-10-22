@@ -279,6 +279,9 @@
           <div class="field inline">
             <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto"><option value="edge">Straight line at box edges</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
           </div>
+          <div class="field inline">
+            <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Band pixels: only pixels above the noise floor of the background count, so the value does not change with the box size. Whole box: every pixel of the box (ImageJ gel analyser), which drifts with the box size and the noise."><option value="band">Band pixels above the noise floor</option><option value="box">Whole box (ImageJ style)</option></select></label>
+          </div>
           <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
           <div class="field inline"><label class="inline-label"><span>Reference lane (= 1.00)</span> <select id="qRef" style="width:auto"></select></label></div>
           <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the loading-control correction).</p>
