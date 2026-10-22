@@ -24,6 +24,8 @@
     $('btnAddBox').classList.toggle('on', m === 'quant');
     prev.classList.toggle('arming', m === 'arrow');
     if (m !== 'arrow') guide.classList.add('hidden');
+    // the raw image edits one layer at a time: a band box is drawn with the Densitometry view open, a strip with the figure
+    if (G.QuantUI && ((m === 'quant' && G.QuantUI.view() !== 'quant') || (m === 'strip' && G.QuantUI.view() !== 'figure'))) G.QuantUI.setView(m === 'quant' ? 'quant' : 'figure');
     G.Editor.draw();
   }
   $('modeCancel').onclick = () => setMode(null);

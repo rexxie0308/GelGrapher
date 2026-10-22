@@ -73,34 +73,44 @@
       ctx.stroke(); ctx.restore();
     }
 
-    // strips (teal) and densitometry band boxes (green)
+    // strips (teal) and densitometry band boxes (green): two layers. The one that belongs to the open view (strips
+    // with the figure, band boxes with the Densitometry view) is drawn on top and can be dragged; the other is a faint outline
     ctx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
-    S.strips.forEach((t, k) => {
+    const q = quantLayer();
+    const drawStrips = () => S.strips.forEach((t, k) => {
       const p0 = toScr(c.x, Math.min(t.y0, t.y1)), p1 = toScr(c.x + c.w, Math.max(t.y0, t.y1));
-      const hov = hover && hover.type === 'sedge' && hover.k === k;
-      ctx.fillStyle = 'rgba(14,143,143,.10)'; ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
-      ctx.strokeStyle = '#0e8f8f'; ctx.lineWidth = hov ? 2.4 : 1.4; ctx.setLineDash([6, 3]);
+      const hov = !q && hover && hover.type === 'sedge' && hover.k === k;
+      ctx.globalAlpha = q ? 0.35 : 1;
+      if (!q) { ctx.fillStyle = 'rgba(14,143,143,.10)'; ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y); }
+      ctx.strokeStyle = '#0e8f8f'; ctx.lineWidth = hov ? 2.4 : q ? 1 : 1.4; ctx.setLineDash(q ? [2, 4] : [6, 3]);
       ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y); ctx.setLineDash([]);
       // name just above the strip's top right corner, outside the crop (band-box names sit beside their box)
       const t1 = 'Strip' + ' ' + (k + 1) + (t.label ? ': ' + t.label : '');
       ctx.textAlign = 'right'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
       ctx.strokeText(t1, p1.x - 4, p0.y - 5); ctx.fillStyle = '#0b6e6e'; ctx.fillText(t1, p1.x - 4, p0.y - 5);
+      ctx.globalAlpha = 1;
     });
     const qhw = App.S.quant.rows.length ? G.Quant.boxHalfWidth(S) : 0;
     const qLanes = G.Quant.quantLanes(App);
-    S.quant.rows.forEach((r, k) => {
+    const drawBoxes = () => S.quant.rows.forEach((r, k) => {
       const ya = toScr(0, Math.min(r.y0, r.y1)).y, yb = toScr(0, Math.max(r.y0, r.y1)).y;
-      const hov = hover && (hover.type === 'qedge' || hover.type === 'qbody') && hover.k === k, ctl = k === S.quant.control;
-      ctx.strokeStyle = ctl ? '#7a8b00' : '#1f9d55'; ctx.lineWidth = hov ? 2 : 1.2;
+      const hov = q && hover && (hover.type === 'qedge' || hover.type === 'qbody') && hover.k === k, ctl = k === S.quant.control;
+      ctx.globalAlpha = q ? 1 : 0.35;
+      ctx.strokeStyle = ctl ? '#7a8b00' : '#1f9d55'; ctx.lineWidth = hov ? 2 : q ? 1.2 : 1;
       ctx.fillStyle = ctl ? 'rgba(122,139,0,.12)' : 'rgba(31,157,85,.12)';
+      if (!q) ctx.setLineDash([2, 4]);
       qLanes.forEach(i => {
         const x0 = toScr(S.lanes[i].x - qhw, 0).x, x1 = toScr(S.lanes[i].x + qhw, 0).x;
-        ctx.fillRect(x0, ya, x1 - x0, yb - ya); ctx.strokeRect(x0, ya, x1 - x0, yb - ya);
+        if (q) ctx.fillRect(x0, ya, x1 - x0, yb - ya);
+        ctx.strokeRect(x0, ya, x1 - x0, yb - ya);
       });
+      ctx.setLineDash([]);
       const t2 = r.name || `Band ${k + 1}`;
       ctx.textAlign = 'left'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
       ctx.strokeText(t2, b.x + 8, (ya + yb) / 2 + 4); ctx.fillStyle = ctl ? '#5c6900' : '#14713a'; ctx.fillText(t2, b.x + 8, (ya + yb) / 2 + 4);
+      ctx.globalAlpha = 1;
     });
+    if (q) { drawStrips(); drawBoxes(); } else { drawBoxes(); drawStrips(); }
     if (creating) {
       const ya = toScr(0, Math.min(creating.y0, creating.y1)).y, yb = toScr(0, Math.max(creating.y0, creating.y1)).y;
       ctx.fillStyle = creating.mode === 'strip' ? 'rgba(14,143,143,.18)' : 'rgba(31,157,85,.18)';
@@ -220,6 +230,8 @@
     return [[c.x, c.y, 'nw'], [mx, c.y, 'n'], [c.x + c.w, c.y, 'ne'], [c.x + c.w, my, 'e'], [c.x + c.w, c.y + c.h, 'se'], [mx, c.y + c.h, 's'], [c.x, c.y + c.h, 'sw'], [c.x, my, 'w']];
   }
 
+  // the Densitometry view is open: band boxes are the active layer on the raw image (else the strips are)
+  const quantLayer = () => !!(G.QuantUI && G.QuantUI.view && G.QuantUI.view() === 'quant');
   function hitTest(sx, sy, shift) {
     const S = App.S; if (!S) return null;
     const c = S.crop, p = toImg(sx, sy), tol = HIT / view.s;
@@ -234,11 +246,13 @@
       mk.bands.forEach((b, k) => { const d = Math.abs(p.y - b.y); if (d <= bd) { bd = d; best = k; } });
       if (best >= 0) return { type: 'band', m: mi, i: best };
     }
-    // edges of band boxes and strips (drag up / down); inside a band box = move it
+    // edges of band boxes and strips (drag up / down); inside a band box = move it. Only the layer of the open view
+    // responds: band boxes with the Densitometry view, strips with the figure
     if (inX) {
-      for (let k = 0; k < S.quant.rows.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.quant.rows[k][e]) <= tol) return { type: 'qedge', k, e };
-      for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
-      for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= c.x && p.x <= c.x + c.w) return { type: 'qbody', k }; }
+      const q = quantLayer();
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.quant.rows[k][e]) <= tol) return { type: 'qedge', k, e };
+      if (!q) for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= c.x && p.x <= c.x + c.w) return { type: 'qbody', k }; }
     }
     if (inY) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
     if (inY && Math.abs(p.x - c.x) <= tol) return { type: 'crop', k: 'w' };
@@ -471,5 +485,5 @@
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
   // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg };
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false) };
 })(window);
