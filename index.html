@@ -250,6 +250,12 @@
             </select>
             <span class="h3-note" id="angleInfo"></span>
           </div>
+          <div class="field inline">
+            <label class="inline-label" for="groupFit">Long group labels</label>
+            <select id="groupFit" style="width:auto" title="A group label wider than its line: wrap it onto several lines (even lengths), shrink the font (not below 5 pt) or keep one line and let it stick out. Shift+Enter in the label box starts a new line by hand.">
+              <option value="wrap">Wrap</option><option value="shrink">Shrink</option><option value="line">One line</option>
+            </select>
+          </div>
           <div class="field inline wrap">
             <label class="switch"><input type="checkbox" id="unitHeader" checked><span>Unit header (kDa / bp)</span></label>
             <label class="switch"><input type="checkbox" id="laneNumbers"><span>Lane numbers</span></label>
@@ -365,7 +371,7 @@
 </div>
 
 <div id="popover" class="popover hidden"></div>
-<input id="floatEd" class="float-ed hidden" type="text" autocomplete="off" spellcheck="false">
+<textarea id="floatEd" class="float-ed hidden" rows="1" autocomplete="off" spellcheck="false"></textarea>
 <div id="arrowGuide" class="hidden"><span></span></div>
 <div id="warnings"></div>
 <div id="toasts"></div>

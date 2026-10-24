@@ -52,7 +52,7 @@ The ladder, unit and band look you choose are remembered per experiment type.
 From GelFigure:
 
 - **Automatic first draft**: straightening (±15°), crop, lane detection, ladder identification and size labels, linear contrast.
-- **Edit on the figure**: click a lane name and type, Enter jumps to the next lane; drag across lane names for a group line; click cells to cycle `+` / `−`.
+- **Edit on the figure**: click a lane name and type, Enter jumps to the next lane; drag across lane names for a group line; click cells to cycle `+` / `−`. A group label wider than its line wraps onto even lines (or shrinks, or stays on one line: Layout → Long group labels); Shift+Enter starts a new line by hand.
 - **Lanes numbered by well**: cropping only chooses which wells are shown, so names and annotations survive any crop.
 - **Target-band arrows with sizes** estimated from the ladder(s); values outside the ladder are marked `≈`.
 - **Several exposures at once**: the best one (least saturation, best signal-to-noise) is chosen.
@@ -183,7 +183,7 @@ Both bright-on-dark and dark-on-light images are handled; polarity is detected a
 - Automatic detection was validated on DNA agarose gels (iBright imagers) and on synthetic gels of every type. If detection fails on your images, use *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
 - Strips come from one image. Panels from different exposures or re-probed membranes are separate figures; stack them in your layout program.
 - 2D gels, dot blots and capillary systems are not supported.
-- Bio-Rad `.scn` / `.1sc` and other proprietary formats must be exported to TIFF first. BigTIFF and palette TIFFs are not supported. 16-bit PNGs are read as 8-bit by browsers.
+- Bio-Rad `.scn` / `.1sc` and other proprietary formats must be exported to TIFF first. BigTIFF is not supported. Palette (indexed) TIFFs load: a grey colour map gives the grey values, a false-colour map that runs one way is read back as the saved intensity, any other map is converted by luminance. 1-, 2- and 4-bit TIFFs have 2 to 16 grey levels only. 16-bit PNGs are read as 8-bit by browsers.
 
 ## Development
 

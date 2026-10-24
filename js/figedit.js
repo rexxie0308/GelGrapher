@@ -88,7 +88,8 @@
     const r = el.getBoundingClientRect();
     edit = { kind, id, orig: getVal(kind, id) || '' };
     fed.value = edit.orig;
-    fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
+    fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label (Shift+Enter: new line)' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
+    fitRows();
     const w = Math.max(120, Math.min(240, r.width + 50));
     fed.style.width = w + 'px';
     // where the text will be: over a lane name or group label (above the gel); a strip label grows to the right of
@@ -108,10 +109,13 @@
     fed.classList.add('hidden');
     App.commit();
   }
-  fed.addEventListener('input', () => { if (edit) { setVal(edit.kind, edit.id, fed.value); App.refresh(); } });
+  // the box is a one-line textarea so a group label can hold typed line breaks (Shift+Enter); it grows with them
+  const fitRows = () => { fed.rows = Math.max(1, Math.min(4, fed.value.split('\n').length)); };
+  fed.addEventListener('input', () => { if (edit) { fitRows(); setVal(edit.kind, edit.id, fed.value); App.refresh(); } });
   fed.addEventListener('keydown', e => {
     if (!edit || composing(e)) return;          // IME is choosing characters: Enter belongs to it
     if (e.key === 'Escape') { e.preventDefault(); closeEd(true); return; }
+    if (e.key === 'Enter' && e.shiftKey && edit.kind === 'group') return;   // a new line in the label
     if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
       const { kind, id } = edit;

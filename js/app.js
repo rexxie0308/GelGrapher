@@ -11,7 +11,7 @@
   const defaultStyle = () => ({
     gelWidthMm: 45, autoWidth: true, mmPerLane: 5.5, fontPt: 7, lineWidthPt: 0.5, labelAngle: 'auto', laneNumbers: false, frame: false,
     panelLetter: '', panelPt: 8, spliceStyle: 'gap', spliceGapPt: 1.5, tickLenPt: 2.5, labelGapPt: 2.5,
-    unitHeader: true, groupTicks: false, groupSplit: false, dpi: 600, laneNumberMode: 'well', stripGapPt: 3
+    unitHeader: true, groupTicks: false, groupSplit: false, groupFit: 'wrap', dpi: 600, laneNumberMode: 'well', stripGapPt: 3
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
   const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'band', wFrac: 0.7, control: -1, ref: -1 });   // mode: 'band' = pixels above the noise floor only, 'box' = the whole box
@@ -1057,6 +1057,7 @@
     if (st.fontPt < 5) add('warn', `Font size ${st.fontPt} pt is small (most journals ask for ≥ 5–6 pt).`, { label: 'Use 6 pt', run: () => { st.fontPt = 6; } });
     if (st.lineWidthPt < 0.25) add('warn', `Line width ${st.lineWidthPt} pt is too thin.`, { label: 'Use 0.5 pt', run: () => { st.lineWidthPt = 0.5; } });
     const fig = App.buildFigure(false), wmm = fig.w / G.Render.MM;
+    if (fig.minPt < 5 && st.fontPt >= 5) add('warn', `A group label is shrunk to ${fig.minPt.toFixed(1)} pt to fit its line (most journals ask for ≥ 5–6 pt).`, { label: 'Wrap long labels', run: () => { st.groupFit = 'wrap'; } });
     if (wmm > 183) add('warn', `The figure is ${wmm.toFixed(0)} mm wide, wider than a double column (about 180 mm).`);
     (fig.overlaps || []).forEach(w => add('warn', w));
     if (S.levels.gamma !== 1) add('warn', `Gamma = ${S.levels.gamma}: a non-linear adjustment that must be stated in the legend.`);

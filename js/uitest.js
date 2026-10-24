@@ -608,6 +608,26 @@
       G.QuantUI.setView('figure');
       R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
     }
+    // 41. long group labels: wrap (even lines), shrink (not below 5 pt) or one line; typed line breaks; the next tier moves up
+    {
+      const st = App.S, keep = JSON.stringify(st.groups), keepFit = st.style.groupFit;
+      const svgLines = k => [...document.querySelectorAll(`#preview g[data-edit="group"][data-k="${k}"] text`)];
+      st.groups = [{ from: 1, to: 2, text: 'siRNA against the long isoform of the protein' }, { from: 0, to: 4, text: 'B' }];
+      st.style.groupFit = 'wrap'; App.commit();
+      const wrapN = svgLines(0).length, wrapPt = +svgLines(0)[0].getAttribute('font-size');
+      const ys = svgLines(0).map(t => +t.getAttribute('y')), yB = +svgLines(1)[0].getAttribute('y');
+      st.style.groupFit = 'shrink'; App.commit();
+      const shrinkN = svgLines(0).length, shrinkPt = +svgLines(0)[0].getAttribute('font-size');
+      st.style.groupFit = 'line'; App.commit();
+      const lineN = svgLines(0).length, linePt = +svgLines(0)[0].getAttribute('font-size'), wide = App.buildFigure(false).overlaps.length;
+      st.groups[0].text = 'one\ntwo'; st.style.groupFit = 'wrap'; App.commit();
+      const typedN = svgLines(0).length, typed = svgLines(0).map(t => t.textContent);
+      st.groups[0].text = '*Abc* defghij klmnop *qrs*'; App.commit();
+      const it = svgLines(0).map(t => t.innerHTML);
+      st.groups = JSON.parse(keep); st.style.groupFit = keepFit; App.commit();
+      R.groupFit = { wrapN, wrapPt, shrinkN, shrinkPt, lineN, linePt, wide, typedN, typed, it, fontPt: st.style.fontPt, yBelowB: yB < Math.min(...ys),
+        ok: wrapN > 1 && wrapPt === st.style.fontPt && yB < Math.min(...ys) && shrinkN === 1 && shrinkPt < st.style.fontPt && shrinkPt >= 5 && lineN === 1 && linePt === st.style.fontPt && wide > 0 && typedN === 2 && typed[0] === 'one' && typed[1] === 'two' };
+    }
     // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

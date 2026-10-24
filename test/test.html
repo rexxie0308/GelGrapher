@@ -40,6 +40,27 @@ function lzwTiff8(w, h, px) {
   return buf;
 }
 
+// uncompressed TIFF writer: 1/2/4/8-bit, PhotometricInterpretation 0/1/3, optional colour map (3 × 2^bits uint16)
+function palTiff(w, h, bits, photo, idx, cmap) {
+  const rowB = Math.ceil(w * bits / 8), data = new Uint8Array(rowB * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const bit = x * bits; data[y * rowB + (bit >> 3)] |= idx[y * w + x] << (8 - bits - (bit & 7)); }
+  const tags = [[256, 4, w], [257, 4, h], [258, 3, bits], [259, 3, 1], [262, 3, photo], [273, 4, 0], [277, 3, 1], [278, 4, h], [279, 4, data.length]];
+  if (cmap) tags.push([320, 3, cmap]);
+  const n = tags.length, ifd = 8, extraOff = ifd + 2 + n * 12 + 4;
+  const dataOff = extraOff + (cmap ? cmap.length * 2 : 0);
+  const buf = new ArrayBuffer(dataOff + data.length), dv = new DataView(buf);
+  dv.setUint16(0, 0x4949, true); dv.setUint16(2, 42, true); dv.setUint32(4, ifd, true);
+  let p = ifd; dv.setUint16(p, n, true); p += 2;
+  for (const [t, ty, v] of tags) {
+    dv.setUint16(p, t, true); dv.setUint16(p + 2, ty, true);
+    if (Array.isArray(v)) { dv.setUint32(p + 4, v.length, true); dv.setUint32(p + 8, extraOff, true); v.forEach((c, i) => dv.setUint16(extraOff + i * 2, c, true)); }
+    else { dv.setUint32(p + 4, 1, true); if (ty === 3) dv.setUint16(p + 8, v, true); else dv.setUint32(p + 8, t === 273 ? dataOff : v, true); }
+    p += 12;
+  }
+  new Uint8Array(buf).set(data, dataOff);
+  return buf;
+}
+
 (async () => {
   const R = {};
   try {
@@ -50,6 +71,33 @@ function lzwTiff8(w, h, px) {
     const dl = await TIFF.decode(lzwTiff8(w, h, px));
     let bad = 0; for (let i = 0; i < px.length; i++) if (Math.round(dl.data[i] * 255) !== px[i]) bad++;
     R.lzw = { ok: bad === 0, bad };
+
+    // 1b. palette (indexed) TIFFs and 1/4-bit packed data: the colour map decides the intensity
+    {
+      const pw = 37, ph = 11, pn = pw * ph, near = (a, b) => Math.abs(a - b) < 1e-3;
+      const idx8 = new Uint8Array(pn).map((_, i) => (i * 37) & 255), idx4 = new Uint8Array(pn).map((_, i) => (i * 7) & 15), idx1 = new Uint8Array(pn).map((_, i) => (i * 5 % 3) & 1);
+      const grey = [], inv = [], fire = [], col = [], g4 = [];
+      for (let i = 0; i < 256; i++) { grey.push(i * 257); inv.push(65535 - i * 257); fire.push(Math.min(65535, i * 400)); col.push((i * 7919) & 65535); }
+      for (let i = 0; i < 16; i++) g4.push(i * 4369);
+      const map = (r, g, b) => r.concat(g, b), P = {};
+      let d = await TIFF.decode(palTiff(pw, ph, 8, 3, idx8, map(grey, grey, grey)));
+      P.grey = idx8.every((v, i) => near(d.data[i], v / 255)) && d.warnings.length === 0;
+      d = await TIFF.decode(palTiff(pw, ph, 8, 3, idx8, map(inv, inv, inv)));
+      P.inverted = idx8.every((v, i) => near(d.data[i], 1 - v / 255));
+      d = await TIFF.decode(palTiff(pw, ph, 8, 3, idx8, map(fire, fire.map(v => v >> 1), fire.map(v => v >> 3))));
+      P.falseColour = idx8.every((v, i) => near(d.data[i], v / 255)) && /false-colour/.test(d.warnings.join());
+      d = await TIFF.decode(palTiff(pw, ph, 8, 3, idx8, map(col, col.map(v => (v * 3) & 65535), col.map(v => (v * 5) & 65535))));
+      P.colour = /luminance/.test(d.warnings.join()) && d.data.every(v => v >= 0 && v <= 1);
+      d = await TIFF.decode(palTiff(pw, ph, 4, 1, idx4));
+      P.bits4 = idx4.every((v, i) => near(d.data[i], v / 15)) && /16 grey levels/.test(d.warnings.join());
+      d = await TIFF.decode(palTiff(pw, ph, 4, 0, idx4));
+      P.bits4inv = idx4.every((v, i) => near(d.data[i], 1 - v / 15));
+      d = await TIFF.decode(palTiff(pw, ph, 1, 1, idx1));
+      P.bits1 = idx1.every((v, i) => d.data[i] === v);
+      d = await TIFF.decode(palTiff(pw, ph, 4, 3, idx4, map(g4, g4, g4)));
+      P.pal4 = idx4.every((v, i) => near(d.data[i], v / 15)) && /16 grey levels/.test(d.warnings.join());
+      R.palette = Object.assign({ ok: Object.values(P).every(Boolean) }, P);
+    }
 
     // 2. synthetic 16-bit gel
     const g = Demo.makeGel();
@@ -166,7 +214,7 @@ function lzwTiff8(w, h, px) {
     const out = Render.build(S, gel, 'data:,');
     R.render = { ok: out.svg.startsWith('<svg') && out.angle > 0 && gel.segs.length === 2, angle: out.angle, segs: gel.segs.length, warnings: out.warnings, wMm: (out.w / Render.MM).toFixed(1), hMm: (out.h / Render.MM).toFixed(1) };
   } catch (e) { R.error = e.stack || String(e); }
-  R.allOk = !R.error && ['lzw', 'tiff16', 'deskew', 'crop', 'lanes', 'ladder', 'render'].every(k => R[k] && R[k].ok) && R.deskewRange.every(d => d.ok);
+  R.allOk = !R.error && ['lzw', 'palette', 'tiff16', 'deskew', 'crop', 'lanes', 'ladder', 'render'].every(k => R[k] && R[k].ok) && R.deskewRange.every(d => d.ok);
   document.getElementById('out').textContent = JSON.stringify(R, null, 1);
 })();
 </script></body></html>

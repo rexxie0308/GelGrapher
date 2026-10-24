@@ -736,7 +736,7 @@
     const st = S(), rows = [];
     st.groups.forEach((g, k) => rows.push(`<div class="item"><span class="kind">${'Group'}</span>
       <span class="idx" style="width:auto">${Math.min(g.from, g.to) + 1}–${Math.max(g.from, g.to) + 1}</span>
-      <input type="text" data-g="${k}" value="${esc(g.text)}" placeholder="${'Group label'}"><button class="x" data-gdel="${k}">×</button></div>`));
+      <textarea class="ta" rows="${Math.max(1, g.text.split('\n').length)}" data-g="${k}" placeholder="${'Group label'}" title="Shift+Enter starts a new line">${esc(g.text)}</textarea><button class="x" data-gdel="${k}">×</button></div>`));
     st.arrows.forEach((a, k) => rows.push(`<div class="item${k === App.selArrow ? ' sel' : ''}"><span class="kind">${'Arrow'}</span>
       <button class="btn sm ghost" data-aed="${k}" style="flex:1;justify-content:flex-start">${esc(App.arrowLabel(a) || '(unnamed)')}</button><button class="x" data-adel="${k}">×</button></div>`));
     st.conditions.forEach((c, r) => rows.push(`<div class="item"><span class="kind">${'Condition'}</span>
@@ -747,7 +747,12 @@
     box.innerHTML = rows.join('');
     box.querySelectorAll('[data-st]').forEach(inp => { const t = st.strips[+inp.dataset.st]; inp.addEventListener('input', live(e => { t.label = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-stdel]').forEach(b => b.onclick = done(() => { st.strips.splice(+b.dataset.stdel, 1); }));
-    box.querySelectorAll('[data-g]').forEach(inp => { const g = st.groups[+inp.dataset.g]; inp.addEventListener('input', live(e => { g.text = e.target.value; })); inp.addEventListener('change', done()); });
+    box.querySelectorAll('[data-g]').forEach(inp => {
+      const g = st.groups[+inp.dataset.g];
+      inp.addEventListener('input', live(e => { g.text = e.target.value; inp.rows = Math.max(1, g.text.split('\n').length); }));
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); } });
+      inp.addEventListener('change', done());
+    });
     box.querySelectorAll('[data-c]').forEach(inp => { const c = st.conditions[+inp.dataset.c]; inp.addEventListener('input', live(e => { c.name = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-gdel]').forEach(b => b.onclick = done(() => st.groups.splice(+b.dataset.gdel, 1)));
     box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = done(() => st.conditions.splice(+b.dataset.cdel, 1)));
@@ -761,6 +766,7 @@
   $('fontPt').addEventListener('change', done(e => { S().style.fontPt = E.clamp(+e.target.value || 7, 4, 14); }));
   $('lineW').addEventListener('change', done(e => { S().style.lineWidthPt = E.clamp(+e.target.value || 0.5, 0.25, 2); }));
   $('labelAngle').addEventListener('change', done(e => { S().style.labelAngle = e.target.value; }));
+  $('groupFit').addEventListener('change', done(e => { S().style.groupFit = e.target.value; }));
   ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
@@ -855,7 +861,7 @@
     updateClipLine(); updateDpiLine(); updateEmptyBar();
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
-    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle);
+    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle); $('groupFit').value = y.groupFit || 'wrap';
     ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
