@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- Raster exports are checked against the browser's canvas limit before anything is drawn. Safari, and every browser on iPhone and iPad, blank out a canvas above about 16.7 million pixels, which a double-column figure reaches at 1200 dpi; the Layout step now shows the pixel size of the export, the pre-flight check offers the largest resolution that fits, and "Export PNG" says so instead of saving a blank image. TIFFs are drawn in horizontal bands, so they are not bound by that limit.
+- Typeface (step 6, Layout): Arial (default), Helvetica or Times New Roman for every text of the figure; installed system fonts only, nothing is downloaded or embedded. The same choice drives the text measurement, the SVG, the PDF (Times New Roman is set in Times; Arial and Helvetica share metrics) and style templates; an unknown name falls back to Arial.
+- Lane-name angle: "Custom" with a 0–90° field beside the presets; the value is kept in projects and styles.
 - Palette (indexed-colour) TIFFs load, as do 1-, 2- and 4-bit TIFFs (ImageJ 8-bit saves, scanned gels, false-colour imager exports): a grey colour map gives the grey values (inverted maps included), a false-colour map whose brightness runs one way is read back as the saved intensity index, and any other map is converted by luminance; a note says which happened, and a 4-bit file warns that it has only 16 grey levels. Approach after GelFigure 0.6.6.
 - Long group labels (step 6, Layout): a label wider than its group line is now **wrapped** onto even lines (default), or **shrunk** (not below 5 pt), or kept on **one line**; a label wider than its line moves the groups above it up a tier instead of colliding with them, and the pre-flight check notices a shrunk label. Shift+Enter in the label box starts a new line by hand. Approach after GelFigure 0.6.5.
 - The Densitometry view switch no longer carries a count of band boxes.

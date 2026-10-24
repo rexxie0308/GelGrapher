@@ -183,6 +183,7 @@ Both bright-on-dark and dark-on-light images are handled; polarity is detected a
 - Automatic detection was validated on DNA agarose gels (iBright imagers) and on synthetic gels of every type. If detection fails on your images, use *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
 - Strips come from one image. Panels from different exposures or re-probed membranes are separate figures; stack them in your layout program.
 - 2D gels, dot blots and capillary systems are not supported.
+- Safari, and every browser on iPhone and iPad, cannot draw a PNG above about 16.7 million pixels (a double-column figure at 1200 dpi). The Layout step shows the export's pixel size and the pre-flight check offers the largest resolution that fits; TIFF, SVG and PDF are not affected.
 - Bio-Rad `.scn` / `.1sc` and other proprietary formats must be exported to TIFF first. BigTIFF is not supported. Palette (indexed) TIFFs load: a grey colour map gives the grey values, a false-colour map that runs one way is read back as the saved intensity, any other map is converted by luminance. 1-, 2- and 4-bit TIFFs have 2 to 16 grey levels only. 16-bit PNGs are read as 8-bit by browsers.
 
 ## Development

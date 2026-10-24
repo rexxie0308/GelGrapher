@@ -163,7 +163,9 @@
     const content = enc.encode(ops.join('\n'));
     const cz = await deflate(content);
     obj(4, `<< /Length ${(cz || content).length}${cz ? ' /Filter /FlateDecode' : ''} >>`, cz || content);
-    const base = { F1: 'Helvetica', F2: 'Helvetica-Oblique', F3: 'Helvetica-Bold', F4: 'Helvetica-BoldOblique' };
+    const base = G.Render.font && G.Render.font() === 'Times New Roman'
+      ? { F1: 'Times-Roman', F2: 'Times-Italic', F3: 'Times-Bold', F4: 'Times-BoldItalic' }
+      : { F1: 'Helvetica', F2: 'Helvetica-Oblique', F3: 'Helvetica-Bold', F4: 'Helvetica-BoldOblique' };
     Object.entries(base).forEach(([k, f]) => obj(fontIds[k], `<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));
     obj(fontIds.F5, '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>');
     for (let i = 0; i < images.length; i++) {

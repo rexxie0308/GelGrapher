@@ -70,24 +70,60 @@
     return new Blob([keep[0], ...parts, ...keep.slice(1)], { type: 'image/png' });
   }
 
-  function svgToCanvas(svg, wPt, hPt, dpi) {
+  /* Browsers refuse or silently blank out very large canvases: Safari, and every browser on iOS and
+   * iPadOS, above about 16.7 million pixels; others at 16384 px a side. A double-column figure at
+   * 1200 dpi is past the first limit, so the size is checked before anything is drawn. */
+  function rasterLimit() {
+    const ua = navigator.userAgent || '';
+    const apple = navigator.vendor === 'Apple Computer, Inc.' || /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    return apple ? { maxPixels: 16777216, maxSide: 32767, browser: 'Safari' } : { maxPixels: 268435456, maxSide: 16384, browser: 'this browser' };
+  }
+  // the pixel size of a raster export and whether this browser can draw it; fitsDpi = the largest offered
+  // resolution that fits (null when even 300 dpi does not)
+  function rasterSize(wPt, hPt, dpi) {
+    const lim = rasterLimit();
+    const fits = d => { const w = Math.round(wPt * d / 72), h = Math.round(hPt * d / 72); return w * h <= lim.maxPixels && w <= lim.maxSide && h <= lim.maxSide; };
+    const w = Math.round(wPt * dpi / 72), h = Math.round(hPt * dpi / 72);
+    return { w, h, px: w * h, ok: fits(dpi), fitsDpi: [1200, 600, 300].find(fits) || null, browser: lim.browser, maxPixels: lim.maxPixels };
+  }
+  const tooBig = (rs, dpi, what) => `${what} would be ${rs.w} × ${rs.h} px at ${dpi} dpi, more than ${rs.browser} can draw. ` + (rs.fitsDpi ? `Export at ${rs.fitsDpi} dpi.` : 'Make the figure smaller, or export SVG or PDF.');
+
+  function loadSvg(svg) {
     return new Promise((resolve, reject) => {
-      const scale = dpi / 72;
       const img = new Image();
       const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = Math.round(wPt * scale); c.height = Math.round(hPt * scale);
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        resolve(c);
-      };
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not rasterise the SVG')); };
       img.src = url;
     });
+  }
+  async function svgToCanvas(svg, wPt, hPt, dpi) {
+    const img = await loadSvg(svg), scale = dpi / 72;
+    const c = document.createElement('canvas');
+    c.width = Math.round(wPt * scale); c.height = Math.round(hPt * scale);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+  // the SVG drawn in horizontal bands of a few million pixels each and read back as 8-bit grey, so a
+  // TIFF can be larger than one canvas may be (only the width is bounded by the canvas side limit)
+  async function svgToGray(svg, wPt, hPt, dpi) {
+    const img = await loadSvg(svg), scale = dpi / 72, lim = rasterLimit();
+    const w = Math.round(wPt * scale), h = Math.round(hPt * scale);
+    const rows = Math.max(1, Math.min(h, Math.floor(Math.min(lim.maxPixels / 2, 8e6) / w)));
+    const g = new Uint8Array(w * h);
+    const c = document.createElement('canvas'); c.width = w; c.height = rows;
+    const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+    for (let y0 = 0; y0 < h; y0 += rows) {
+      const hh = Math.min(rows, h - y0);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, rows);
+      ctx.drawImage(img, 0, -y0, w, h);
+      const id = ctx.getImageData(0, 0, w, hh).data, n = w * hh, base = y0 * w;
+      for (let i = 0; i < n; i++) g[base + i] = Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2]);
+    }
+    return { gray: g, w, h };
   }
 
   // minimal summary embedded in exported rasters: the figure carries its own audit trail
@@ -103,6 +139,8 @@
   }
 
   async function exportPNG(svg, wPt, hPt, dpi, name, S) {
+    const rs = rasterSize(wPt, hPt, dpi);
+    if (!rs.ok) { G.App.notify(tooBig(rs, dpi, 'The PNG')); return 'failed'; }
     const c = await svgToCanvas(svg, wPt, hPt, dpi);
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     return download(await pngDecorate(blob, dpi, S ? { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) } : {}), name);
@@ -163,11 +201,10 @@
     return buf;
   }
   async function exportTIFF(svg, wPt, hPt, dpi, name, S) {
-    const c = await svgToCanvas(svg, wPt, hPt, dpi);
-    const id = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, n = c.width * c.height;
-    const g = new Uint8Array(n);
-    for (let i = 0; i < n; i++) g[i] = Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2]);
-    return download(new Blob([encodeTiffGray(g, c.width, c.height, dpi, summaryText(S))], { type: 'image/tiff' }), name);
+    const rs = rasterSize(wPt, hPt, dpi), lim = rasterLimit();
+    if (rs.w > lim.maxSide || rs.w * rs.h > 1.5e9) { G.App.notify(tooBig(rs, dpi, 'The TIFF')); return 'failed'; }
+    const r = await svgToGray(svg, wPt, hPt, dpi);   // drawn in bands: not bound by the canvas pixel limit
+    return download(new Blob([encodeTiffGray(r.gray, r.w, r.h, dpi, summaryText(S))], { type: 'image/tiff' }), name);
   }
 
   function exportSVG(svg, name) {
@@ -185,6 +222,8 @@
     const W = fullCanvas.width, H = fullCanvas.height;
     const fs = Math.max(14, Math.round(W / 70));
     const top = fs * 4, bottom = fs * 3.2;
+    const lim = rasterLimit();
+    if (W * (H + top + bottom) > lim.maxPixels || W > lim.maxSide) { G.App.notify(`The uncropped image (${W} × ${Math.round(H + top + bottom)} px) is more than ${lim.browser} can draw.`); return 'failed'; }
     const c = document.createElement('canvas');
     c.width = W; c.height = H + top + bottom;
     const ctx = c.getContext('2d');
@@ -312,5 +351,5 @@
     return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
   }
 
-  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, encodeTiffGray, pngDecorate };
+  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
 })(window);

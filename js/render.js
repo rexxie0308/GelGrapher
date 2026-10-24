@@ -4,7 +4,15 @@
 (function (G) {
   'use strict';
   const MM = 72 / 25.4;
-  const FONT = 'Arial, Helvetica, sans-serif';
+  /* Figure typefaces: names only, installed system fonts, never downloaded or embedded. One list serves
+   * measurement, the SVG, the PDF (Arial and Helvetica share metrics; Times New Roman = Times) and
+   * imported styles; anything else falls back to Arial. */
+  const FONTS = Object.freeze({ Arial: 'Arial, Helvetica, sans-serif', Helvetica: 'Helvetica, Arial, sans-serif', 'Times New Roman': '"Times New Roman", Times, serif' });
+  const fontName = n => (Object.prototype.hasOwnProperty.call(FONTS, n) ? n : 'Arial');
+  let family = 'Arial';   // the figure font of the last build(); measure() and the PDF writer follow it
+  const setFont = n => { family = fontName(n); };
+  // a lane-name angle: 'auto' or a whole number of degrees 0–90
+  const labelAngle = v => (v === 'auto' || v == null || v === '' || !isFinite(+v) ? 'auto' : Math.max(0, Math.min(90, Math.round(+v))));
 
   const mctx = document.createElement('canvas').getContext('2d');
   // label markup: *italic* segments
@@ -15,7 +23,7 @@
   function measure(text, pt, bold) {
     let w = 0;
     for (const r of parseRuns(text)) {
-      mctx.font = `${r.it ? 'italic ' : ''}${bold ? 'bold ' : ''}${pt * 4}px Arial`;
+      mctx.font = `${r.it ? 'italic ' : ''}${bold ? 'bold ' : ''}${pt * 4}px ${FONTS[family]}`;
       w += mctx.measureText(r.t).width / 4;
     }
     return w;
@@ -160,6 +168,7 @@
   /* Build SVG. imgHref = data URL / blob URL of composed gel raster. Returns {svg, w, h, warnings} */
   function build(S, gel, imgHref) {
     const st = S.style, pt = st.fontPt, lw = st.lineWidthPt;
+    setFont(st.font);
     const warnings = [], overlaps = [];
     const overlap = msg => { warnings.push(msg); overlaps.push(msg); };
     let minPt = Infinity;   // the smallest text actually printed (a shrunk group label can go below the figure font)
@@ -227,7 +236,7 @@
     // baseline of the lane-name row: the (bp) unit header is aligned to this, not to the marker labels
     const unitRowY = yTop;
     if (hasNames) {
-      angle = st.labelAngle === 'auto' ? autoAngle(names, pitch, pt) : +st.labelAngle;
+      angle = labelAngle(st.labelAngle) === 'auto' ? autoAngle(names, pitch, pt) : labelAngle(st.labelAngle);
       const rad = angle * Math.PI / 180, sn = Math.sin(rad), cs = Math.cos(rad);
       let hMax = pt;
       vis.forEach((o, vi) => {
@@ -248,7 +257,7 @@
         }
       });
       if (angle !== 0 && pitch < pt * 1.15) overlap('Lanes are too narrow: even 90° labels overlap; use a smaller font or a wider figure');
-      if (angle === 0 && st.labelAngle !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
+      if (angle === 0 && labelAngle(st.labelAngle) !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
       yTop -= (angle === 0 ? pt * 1.3 : hMax + pt * 0.35);
     }
     // groups: line spanning lanes + shared text above
@@ -409,7 +418,7 @@
     const vx = box.x0 - m, vy = box.y0 - m, vw = box.x1 - box.x0 + 2 * m, vh = box.y1 - box.y0 + 2 * m;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
       `width="${f(vw / MM)}mm" height="${f(vh / MM)}mm" viewBox="${f(vx)} ${f(vy)} ${f(vw)} ${f(vh)}" ` +
-      `font-family="${FONT}" fill="#000">` +
+      `font-family="${esc(FONTS[family])}" fill="#000">` +
       `<rect x="${f(vx)}" y="${f(vy)}" width="${f(vw)}" height="${f(vh)}" fill="#fff"/>` +
       els.join('') + `</svg>`;
     return { svg, w: vw, h: vh, angle, warnings, overlaps, minPt: Math.min(minPt, pt), scale: sc, vx, vy, gelW: W, gelH: H };
@@ -435,5 +444,5 @@
       .replace(/<\/svg>$/, els + '</svg>');
     return Object.assign({}, fig, { svg, h: nh, notes: lines.length });
   }
-  G.Render = { build, composeGel, measure, MM, laneBounds, withNotes };
+  G.Render = { build, composeGel, measure, MM, laneBounds, withNotes, FONTS, fontName, setFont, font: () => family, labelAngle };
 })(window);

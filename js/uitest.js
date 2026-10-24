@@ -628,6 +628,46 @@
       R.groupFit = { wrapN, wrapPt, shrinkN, shrinkPt, lineN, linePt, wide, typedN, typed, it, fontPt: st.style.fontPt, yBelowB: yB < Math.min(...ys),
         ok: wrapN > 1 && wrapPt === st.style.fontPt && yB < Math.min(...ys) && shrinkN === 1 && shrinkPt < st.style.fontPt && shrinkPt >= 5 && lineN === 1 && linePt === st.style.fontPt && wide > 0 && typedN === 2 && typed[0] === 'one' && typed[1] === 'two' };
     }
+    // 42. typeface allowlist and a custom lane-name angle: measurement, SVG and PDF follow the chosen font
+    {
+      const st = App.S, keepFont = st.style.font, keepAngle = st.style.labelAngle;
+      const fam = () => (document.querySelector('#preview svg').getAttribute('font-family') || '');
+      st.style.font = 'Times New Roman'; App.commit();
+      const times = /Times New Roman/.test(fam()), measured = G.Render.font() === 'Times New Roman';
+      const wTimes = G.Render.measure('Loading control', 7);
+      const pdf = await G.PDF.fromSVG(App.buildFigure(false).svg, { title: 't' });
+      const pdfText = new TextDecoder('latin1').decode(new Uint8Array(await pdf.blob.arrayBuffer()));
+      const pdfTimes = /\/BaseFont \/Times-Roman/.test(pdfText);
+      st.style.font = 'Comic Sans'; App.commit();
+      const fallback = /Arial/.test(fam()) && G.Render.fontName('Comic Sans') === 'Arial';
+      const wArial = G.Render.measure('Loading control', 7);
+      st.style.labelAngle = 37; App.commit();
+      const custom = App.buildFigure(false).angle === 37 && document.getElementById('labelAngle').value === 'custom' && +document.getElementById('labelAngleNum').value === 37;
+      st.style.labelAngle = '120'; App.commit();
+      const clamped = App.buildFigure(false).angle === 90;
+      st.style.labelAngle = 'auto'; App.commit();
+      const auto = document.getElementById('labelAngleNum').disabled && document.getElementById('labelAngle').value === 'auto';
+      st.style.font = keepFont; st.style.labelAngle = keepAngle; App.commit();
+      R.fonts = { times, measured, pdfTimes, fallback, wTimes: +wTimes.toFixed(2), wArial: +wArial.toFixed(2), custom, clamped, auto,
+        ok: times && measured && pdfTimes && fallback && Math.abs(wTimes - wArial) > 0.01 && custom && clamped && auto };
+    }
+    // 43. raster exports are checked against the browser's canvas limit before drawing; a TIFF is drawn in bands
+    {
+      const st = App.S, f = App.buildFigure(false), keepDpi = st.style.dpi;
+      const r6 = G.Export.rasterSize(f.w, f.h, 600), lim = G.Export.rasterLimit();
+      const sane = r6.w === Math.round(f.w * 600 / 72) && r6.h === Math.round(f.h * 600 / 72) && r6.px === r6.w * r6.h;
+      // a figure ten metres wide: nothing can draw it as one canvas, and no offered resolution fits
+      const huge = G.Export.rasterSize(10000 * G.Render.MM, 10000 * G.Render.MM, 300);
+      const pf = (() => { st.style.dpi = 300; const w = st.style.gelWidthMm, a = st.style.autoWidth; st.style.autoWidth = false; st.style.gelWidthMm = 100000; const out = App.preflight(); st.style.gelWidthMm = w; st.style.autoWidth = a; return out; })();
+      const warned = pf.some(x => /more than .* can draw/.test(x.text));
+      st.style.dpi = keepDpi;
+      // the banded grey render matches the one-canvas render pixel for pixel
+      const g = await G.Export.svgToGray(f.svg, f.w, f.h, 150), c = await G.Export.svgToCanvas(f.svg, f.w, f.h, 150);
+      const id = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let diff = 0; for (let i = 0; i < g.gray.length; i++) if (Math.abs(g.gray[i] - Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2])) > 2) diff++;
+      R.raster = { sane, hugeOk: huge.ok, hugeFits: huge.fitsDpi, warned, limit: lim.maxPixels, bands: g.w === c.width && g.h === c.height, diffFrac: +(diff / g.gray.length).toFixed(4),
+        ok: sane && !huge.ok && huge.fitsDpi === null && warned && g.w === c.width && g.h === c.height && diff / g.gray.length < 0.001 };
+    }
     // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

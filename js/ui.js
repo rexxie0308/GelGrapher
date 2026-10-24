@@ -765,7 +765,10 @@
   $('gelW').addEventListener('change', done(e => { S().style.gelWidthMm = E.clamp(+e.target.value || 45, 10, 180); S().style.autoWidth = false; }));
   $('fontPt').addEventListener('change', done(e => { S().style.fontPt = E.clamp(+e.target.value || 7, 4, 14); }));
   $('lineW').addEventListener('change', done(e => { S().style.lineWidthPt = E.clamp(+e.target.value || 0.5, 0.25, 2); }));
-  $('labelAngle').addEventListener('change', done(e => { S().style.labelAngle = e.target.value; }));
+  const PRESET_ANGLES = ['auto', '0', '45', '60', '90'];
+  $('labelAngle').addEventListener('change', done(e => { const v = e.target.value; S().style.labelAngle = v === 'custom' ? G.Render.labelAngle($('labelAngleNum').value || 0) : v; }));
+  $('labelAngleNum').addEventListener('change', done(e => { S().style.labelAngle = G.Render.labelAngle(e.target.value); }));
+  $('font').addEventListener('change', done(e => { S().style.font = G.Render.fontName(e.target.value); }));
   $('groupFit').addEventListener('change', done(e => { S().style.groupFit = e.target.value; }));
   ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
@@ -861,7 +864,10 @@
     updateClipLine(); updateDpiLine(); updateEmptyBar();
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
-    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle); $('groupFit').value = y.groupFit || 'wrap';
+    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('groupFit').value = y.groupFit || 'wrap'; $('font').value = G.Render.fontName(y.font);
+    const la = G.Render.labelAngle(y.labelAngle);
+    $('labelAngle').value = PRESET_ANGLES.includes(String(la)) ? String(la) : 'custom';
+    $('labelAngleNum').value = la === 'auto' ? '' : la; $('labelAngleNum').disabled = la === 'auto';
     ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
@@ -919,7 +925,10 @@
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.width = (f.w * k) + 'px'; svg.style.height = (f.h * k) + 'px';
     $('figSize').textContent = `${(f.w / G.Render.MM).toFixed(1)} × ${(f.h / G.Render.MM).toFixed(1)} mm`;
-    $('angleInfo').textContent = st.style.labelAngle === 'auto' ? `now ${f.angle}°` : '';
+    $('angleInfo').textContent = G.Render.labelAngle(st.style.labelAngle) === 'auto' ? `now ${f.angle}°` : '';
+    const rs = G.Export.rasterSize(f.w, f.h, st.style.dpi);
+    $('pxLine').innerHTML = rs.ok ? `${rs.w} × ${rs.h} px at ${st.style.dpi} dpi` : `<span class="bad">${rs.w} × ${rs.h} px at ${st.style.dpi} dpi: more than ${rs.browser} can draw as PNG</span>` + (rs.fitsDpi ? ` <button class="btn sm" id="btnFitDpi">Use ${rs.fitsDpi} dpi</button>` : '');
+    const fb = $('btnFitDpi'); if (fb) fb.onclick = done(() => { S().style.dpi = rs.fitsDpi; });
     showWarnings(f.warnings);
     // legend suggestions are English: they go into the manuscript
     const hints = G.Export.legendHints(st);
