@@ -299,6 +299,10 @@
         saved(r.status, 'Exported vector PDF');
         return;
       }
+      if (kind === 'pptx') {
+        saved(await G.Export.exportPPTX(f.svg, `${baseName()}_figure.pptx`, S(), { crop: App._lastCrop, gel: App._lastGel }), 'Exported an editable PowerPoint slide');
+        return;
+      }
       const fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
       const st = kind === 'tiff' ? await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S())
         : await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
@@ -338,6 +342,7 @@
   $('btnPrintMenu').onclick = printFigure;
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
+  $('btnPPTX').onclick = () => exportFigure('pptx');
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
   $('btnCopyFig').onclick = async () => {
     if (needImage()) return;

@@ -10,7 +10,7 @@ const CACHE = 'gelgrapher-' + VERSION;
 const FILES = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
-  'js/tiff.js', 'js/ladders.js', 'js/gels.js', 'js/engine.js', 'js/render.js', 'js/quant.js', 'js/zip.js', 'js/pdf.js',
+  'js/tiff.js', 'js/ladders.js', 'js/gels.js', 'js/engine.js', 'js/render.js', 'js/quant.js', 'js/zip.js', 'js/pdf.js', 'js/pptx.js',
   'js/host.js', 'js/export.js', 'js/demo.js', 'js/app.js', 'js/splitters.js', 'js/editor.js', 'js/ui.js', 'js/figedit.js', 'js/quantui.js',
   'js/claude.js', 'js/tour.js', 'js/pwa.js'
 ];

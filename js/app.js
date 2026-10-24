@@ -1024,7 +1024,7 @@
     const gel = G.Render.composeGel(R, cc, approxScale);
     const key = [App._display, r.x, r.y, r.w, r.h, gel.canvas.width, gel.canvas.height, R.lanes.map(l => l.hidden ? 'h' + l.x : '').join(), R.strips.map(t => t.y0 + '-' + t.y1).join()].join('|');
     if (App._gelKey !== key) { App._gelKey = key; App._gelHref = gel.canvas.toDataURL('image/png'); }
-    App._lastGel = gel;
+    App._lastGel = gel; App._lastCrop = cc;
     const out = G.Render.build(R, gel, App._gelHref);
     if (S.saturatedInCrop > 0) out.warnings.push(App.saturationText());
     const bc = App.bandClipFrac();

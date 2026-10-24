@@ -306,6 +306,22 @@
       const bytes = new Uint8Array(await r.blob.arrayBuffer()), text = new TextDecoder('latin1').decode(bytes);
       R.pdf = { ok: text.startsWith('%PDF-1.4') && text.includes('/BaseFont /Symbol') && text.includes('/Subtype /Image') && /startxref\s+\d+\s+%%EOF\s*$/.test(text) && !r.missing.length, bytes: bytes.length, missing: r.missing };
     }
+    // 44. editable PowerPoint: a valid package, text boxes for every label, the gel as cropped pictures per block
+    {
+      const f = App.buildFigure(false), gel = App._lastGel, st = App.S;
+      st.groups.push({ from: 0, to: 2, text: 'Mock *siRNA*' }); App.commit();
+      const f2 = App.buildFigure(false);
+      const r = await G.PPTX.fromFigure(f2.svg, { crop: App._lastCrop, gel: App._lastGel, title: 'test' });
+      const parts = await G.Zip.read(await r.blob.arrayBuffer()), get = n => { const p = parts.find(x => x.name === n); return p ? new TextDecoder().decode(p.data) : ''; };
+      const slide = get('slide1.xml'), pres = get('presentation.xml'), png = parts.find(x => x.name === 'gel.png');
+      const nText = (f2.svg.match(/<text /g) || []).length, nBox = (slide.match(/txBox="1"/g) || []).length;
+      const nPic = (slide.match(/<p:pic>/g) || []).length, blocks = gel.segs.length * gel.vsegs.length;
+      const names = G.UI.figLanes().map(i => st.lanes[i].name).filter(Boolean), vbW = +/viewBox="[-\d.]+ [-\d.]+ ([-\d.]+)/.exec(f2.svg)[1];
+      st.groups.pop(); App.commit();
+      R.pptx = { parts: parts.length, nText, nBox, nPic, blocks, italic: /i="1"/.test(slide), srcRect: /<a:srcRect /.test(slide), names: names.every(n => slide.includes(G.UI.esc(n).replace(/&quot;/g, '"'))),
+        size: pres.includes(`cx="${Math.round(Math.max(72, vbW) * 12700)}"`), png: !!png && new Uint8Array(png.data)[0] === 0x89, types: get('[Content_Types].xml').includes('presentationml.slide+xml'),
+        ok: nBox === nText && nPic === blocks && blocks >= 1 && /i="1"/.test(slide) && /<a:srcRect /.test(slide) && !!png && new Uint8Array(png.data)[0] === 0x89 && pres.includes(`cx="${Math.round(Math.max(72, vbW) * 12700)}"`) };
+    }
     // 24. ZIP round trip (how a Claude artifact hands over TIFF and project files)
     {
       const z = await G.Zip.make([{ name: 'gel.tif', data: new Uint8Array([1, 2, 3, 250]) }, { name: 'β.txt', data: 'ok' }]);

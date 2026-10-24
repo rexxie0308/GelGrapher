@@ -126,6 +126,7 @@ Densitometry values are only comparable within one image. For statistics, quanti
 | PNG | Rendered at 300 / 600 / 1200 dpi, with `pHYs`, `sRGB` and an embedded processing summary. |
 | TIFF | 8-bit grayscale, LZW, with resolution tags and the processing summary. |
 | PDF | Vector text and lines in the standard PDF fonts (Greek letters such as β via the Symbol font); the gel embedded pixel for pixel. |
+| PPTX | One editable slide: labels as text boxes, lines and arrows as shapes, the gel as pictures that can be recropped on the slide. |
 | Copy figure | The figure as a PNG on the clipboard, at the chosen dpi. |
 | Print (printer button, Ctrl+P) | The figure with a caption (file, experiment, date) for a lab notebook; a PDF inside the Claude artifact. |
 | Include legend notes | Export-menu option, off by default: the legend notes are written under the figure in exports and prints. |

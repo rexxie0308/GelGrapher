@@ -210,6 +210,11 @@
   function exportSVG(svg, name) {
     return download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), name);
   }
+  // editable PowerPoint: text and lines as native shapes, the gel as recroppable pictures (opts: crop, gel)
+  async function exportPPTX(svg, name, S, opts) {
+    const r = await G.PPTX.fromFigure(svg, Object.assign({ title: S ? S.file.name : 'Figure', subject: S ? summaryText(S) : '' }, opts || {}));
+    return download(r.blob, name);
+  }
   // vector PDF; resolves {status, missing: characters the standard PDF fonts cannot show}
   async function exportPDF(svg, name, S, title) {
     const r = await G.PDF.fromSVG(svg, { title: title || (S ? S.file.name : 'Figure'), subject: S ? summaryText(S) : '' });
@@ -351,5 +356,5 @@
     return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
   }
 
-  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
+  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportPPTX, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
 })(window);

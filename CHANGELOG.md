@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- PowerPoint export (export menu → "PowerPoint (editable)"): one slide the size of the figure in which every label is a text box and every line, frame and arrow head a native shape, so they can be edited in PowerPoint; the gel is one picture per shown block (lane segment × strip), each a native crop of the whole processed crop, so dragging the crop handles in PowerPoint reveals more of the gel. Fonts are referenced by name, not embedded. Dependency-free, works inside the Claude artifact. Approach after GelFigure 0.6.7.
 - Raster exports are checked against the browser's canvas limit before anything is drawn. Safari, and every browser on iPhone and iPad, blank out a canvas above about 16.7 million pixels, which a double-column figure reaches at 1200 dpi; the Layout step now shows the pixel size of the export, the pre-flight check offers the largest resolution that fits, and "Export PNG" says so instead of saving a blank image. TIFFs are drawn in horizontal bands, so they are not bound by that limit.
 - Typeface (step 6, Layout): Arial (default), Helvetica or Times New Roman for every text of the figure; installed system fonts only, nothing is downloaded or embedded. The same choice drives the text measurement, the SVG, the PDF (Times New Roman is set in Times; Arial and Helvetica share metrics) and style templates; an unknown name falls back to Arial.
 - Lane-name angle: "Custom" with a 0–90° field beside the presets; the value is kept in projects and styles.
