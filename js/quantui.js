@@ -26,32 +26,50 @@
   }
 
   /* ---------- the figure column shows either the figure or the densitometry results ---------- */
-  /* The two pages: Figure (steps 1-6 in the panel, the figure on the right) and Analysis (the three
-   * analysis sections in the panel, the chart and table on the right). The raw image stays on both. */
-  function setView(v) {
-    view = v;
-    const ana = v === 'quant';
-    document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-    document.body.classList.toggle('page-analysis', ana);
-    $('previewBox').classList.toggle('hidden', ana); $('quantView').classList.toggle('hidden', !ana);
-    $('figTitle').textContent = ana ? 'Analysis' : 'Figure';
-    $('figSub').textContent = ana ? 'Measured in every lane of the figure, from the raw pixels' : 'Click any text to edit it';
-    $('figSize').classList.toggle('hidden', ana);
-    $('quantSec').querySelector('.sec-n').textContent = ana ? '1' : '7';   // the Measure step is step 1 of the Analysis page
-    if (ana) $('quantDetails').open = true;
-    const png = $('btnPNG'); if (png) png.textContent = ana ? 'Export chart' : 'Export PNG';
-    if (S()) { if (!ana) G.UI.updatePreview(); else render(); }
-    G.Editor.draw();   // the raw image shows the layer of this page in front (strips with the figure, band boxes here)
+  /* The right column holds two windows: the figure and, under it, the analysis (chart, table). Either can
+   * be closed; the last one clicked is the active window, and that decides which overlay layer the raw
+   * image edits (strips with the figure, band boxes with the analysis). `view()` is the active window. */
+  const shown = { figure: true, quant: false };
+  function refreshChrome() {
+    const both = shown.figure && shown.quant;
+    $('figPane').classList.toggle('hidden', !shown.figure); $('quantView').classList.toggle('hidden', !shown.quant);
+    $('gutterFig').classList.toggle('hidden', !both); $('paneEmpty').classList.toggle('hidden', shown.figure || shown.quant);
+    $('figPane').classList.toggle('active', view === 'figure'); $('quantView').classList.toggle('active', view === 'quant');
+    document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', !!shown[b.dataset.view]));
+    G.Editor.draw();
   }
-  document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) setView(b.dataset.view); });
-  /* the figure column follows the control you touch: a view switched for you is flashed on the switch so the change is seen */
+  // show or hide one window; closing the active one hands the role to the other
+  function show(pane, on) {
+    if (shown[pane] === on) return;
+    shown[pane] = on;
+    if (!on && view === pane) view = pane === 'figure' ? 'quant' : 'figure';
+    if (on && (!shown[pane === 'figure' ? 'quant' : 'figure'])) view = pane;
+    refreshChrome();
+    if (on && S()) { if (pane === 'figure') G.UI.updatePreview(); else render(); }
+    window.dispatchEvent(new Event('resize'));
+  }
+  // make a window the active one, opening it if it is closed
+  function setView(v) {
+    if (!shown[v]) { shown[v] = true; if (S()) { if (v === 'figure') G.UI.updatePreview(); else render(); } window.dispatchEvent(new Event('resize')); }
+    view = v;
+    refreshChrome();
+  }
+  document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) { const v = b.dataset.view; if (shown[v]) show(v, false); else setView(v); } });
+  $('btnCloseFig').onclick = () => show('figure', false);
+  $('btnCloseAna').onclick = () => show('quant', false);
+  $('btnShowFig').onclick = () => { if (S()) setView('figure'); };
+  $('btnShowAna').onclick = () => { if (S()) setView('quant'); };
+  // clicking inside a window makes it the active one
+  $('figPane').addEventListener('pointerdown', () => { if (S() && view !== 'figure') { view = 'figure'; refreshChrome(); } }, true);
+  $('quantView').addEventListener('pointerdown', () => { if (S() && view !== 'quant') { view = 'quant'; refreshChrome(); } }, true);
+  /* the active window follows the control you touch in the panel; a window opened for you flashes its top-bar button */
   function follow(v) {
-    if (!S() || view === v) return;
+    if (!S() || (view === v && shown[v])) return;
     setView(v);
     const b = document.querySelector(`#viewSeg [data-view="${v}"]`);
     if (b) { b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 800); }
   }
-  // steps 1-6 of the panel work on the figure, step 7 on the densitometry: touching a control there opens that view
+  // steps 1-6 of the panel work on the figure, step 7 on the analysis: touching a control there activates that window
   const panelView = e => {
     const t = e.target.closest ? e.target : null;
     if (!t || !S()) return;
@@ -64,7 +82,6 @@
   $('sections').addEventListener('pointerdown', panelView, true);
   $('sections').addEventListener('focusin', panelView, true);
   $('btnShowQuant').onclick = () => { if (S()) { setView('quant'); } };
-  $('anaBack').onclick = e => { e.preventDefault(); if (S()) setView('figure'); };
   // plot options and normalization live in the state, so projects and the undo history keep them
   const plot = () => S().quant.plot || (S().quant.plot = { type: 'bar', values: false, refLine: true, ylabel: '', title: '' });
   $('plotType').addEventListener('change', done(e => { plot().type = e.target.value; }));
@@ -73,7 +90,6 @@
   $('plotTitle').addEventListener('input', live(e => { plot().title = e.target.value; })); $('plotTitle').addEventListener('change', done());
   $('plotY').addEventListener('input', live(e => { plot().ylabel = e.target.value; })); $('plotY').addEventListener('change', done());
   $('qNorm').addEventListener('change', done(e => { S().quant.norm = e.target.value; }));
-  $('btnPackage2').onclick = () => G.UI.exportPackage();
   $('btnMethodsCopy').onclick = () => { if ($('methodsText').value) copyText($('methodsText').value); };
   $('btnAddBox2').onclick = () => $('btnAddBox').click();
   document.querySelectorAll('#quantTabs button').forEach(b => b.onclick = () => {
@@ -222,7 +238,7 @@
   function render(live) {
     const st = S();
     if (!st) return;
-    if (live) { if (view === 'quant' && tab === 'int') results(); return; }
+    if (live) { if (shown.quant && tab === 'int') results(); return; }
     const q = st.quant, lanes = G.Quant.quantLanes(App);
     $('qBg').value = q.bg; $('qMode').value = q.mode === 'box' ? 'box' : 'band'; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
     $('qNorm').value = q.norm === 'lane' || q.norm === 'none' ? q.norm : 'control';
@@ -235,9 +251,9 @@
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
     $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${'Well'} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'band intensities, band sizes';
-    $('btnShowQuant').classList.toggle('hidden', view === 'quant');
+    $('btnShowQuant').classList.toggle('hidden', shown.quant);
     renderBoxes();
-    if (view !== 'quant') return;
+    if (!shown.quant) return;
     if (tab === 'size') { renderSizes(); return; }
     results();
   }
@@ -252,15 +268,15 @@
   }
 
   App.on(what => {
-    if (!S() || what === 'select' && view !== 'quant') return;
+    if (!S() || what === 'select' && !shown.quant) return;
     // a band box drawn by the user opens the results: that is what adding one is for
-    if (what === 'change' && App.boxAdded) { App.boxAdded = false; if (view !== 'quant') { setView('quant'); return; } }
+    if (what === 'change' && App.boxAdded) { App.boxAdded = false; if (!shown.quant || view !== 'quant') { setView('quant'); return; } }
     render(what === 'refresh');
   });
-  // a loaded gel (example, project, library) opens on its figure
-  App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; if (view !== 'figure') setView('figure'); if (S().quant.rows.length) $('quantDetails').open = true; } });
+  // a loaded gel (example, project, library) opens on its figure, with the analysis window too when it has band boxes
+  App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; shown.figure = true; shown.quant = S().quant.rows.length > 0; view = 'figure'; refreshChrome(); if (shown.quant) { render(); $('quantDetails').open = true; } } });
   // the current results and chart (measured on demand), for the export routes
   function measured() { if (!lastR && S() && S().quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App); return lastR; }
   function chart() { const R = measured(); return R ? G.Quant.chartSVG(App, R) : null; }
-  G.QuantUI = { render, setView, follow, view: () => view, results: measured, chart };
+  G.QuantUI = { render, setView, show, follow, view: () => view, isShown: p => !!shown[p], results: measured, chart };
 })(window);

@@ -471,8 +471,8 @@
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
       const lcHead = /loading control/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
-      G.QuantUI.setView('figure');
-      const v2 = G.QuantUI.view(), figShown = !$('previewBox').classList.contains('hidden') && $('quantView').classList.contains('hidden');
+      G.QuantUI.show('quant', false);
+      const v2 = G.QuantUI.view(), figShown = !$('figPane').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
       R.quantView = { v0, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
@@ -556,7 +556,7 @@
       const viewOpened = G.QuantUI.view() === 'quant';             // the follow-up of the part ran
       App.S.quant.rows.push({ y0: r1.y - 6, y1: r1.y + 6, name: 'b' }); App.S.quant.control = 1; App.commit(); log.push(await act('Densitometry·3'));
       log.push(await act('Densitometry·4'));
-      G.Tour.next(); log.push(at()); G.QuantUI.setView('figure');
+      G.Tour.next(); log.push(at()); G.QuantUI.show('quant', false);
       $('warnings').innerHTML = '<div><span>⚠ a notice</span></div>';          // a notice is up: it is the first target of the export step
       log.push(await act('Export the figure·0'));
       const noticesStep = !warnsHidden() && spotR().height > 10;
@@ -688,9 +688,23 @@
     {
       const $ = id => document.getElementById(id), st = App.S, q = st.quant, keep = JSON.stringify(q);
       const vis = el => !!(el && el.offsetParent !== null);
+      G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
+      const only = vis($('figPane')) && !vis($('quantView')) && !vis($('gutterFig'));
       G.QuantUI.setView('quant');
-      const page = document.body.classList.contains('page-analysis'), stepsHidden = !vis($('imgAdv')) && !vis($('laneAdv')), anaShown = vis($('plotSec')) && vis($('anaExportSec')) && vis($('analysisHead'));
-      const numbered = $('quantSec').querySelector('.sec-n').textContent === '1', label = $('btnPNG').textContent === 'Export chart', title = $('figTitle').textContent === 'Analysis';
+      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv'));
+      const hTop = $('figPane').getBoundingClientRect().height, hCol = $('figCol').getBoundingClientRect().height;
+      G.Splitters.setFigSplit(0.7); await new Promise(r => setTimeout(r, 30));
+      const split = Math.abs($('figPane').getBoundingClientRect().height / hCol - 0.7) < 0.08 && hTop > 0 && App.prefs().figSplit === 0.7;
+      G.Splitters.reset('figSplit');
+      G.QuantUI.show('figure', false);
+      const figClosed = !vis($('figPane')) && vis($('quantView')) && G.QuantUI.view() === 'quant' && !vis($('gutterFig'));
+      G.QuantUI.show('quant', false);
+      const empty = vis($('paneEmpty')) && !vis($('quantView'));
+      $('btnShowFig').click(); const figBack = vis($('figPane')) && !vis($('paneEmpty')) && G.QuantUI.view() === 'figure';
+      $('viewSeg').querySelector('[data-view="quant"]').click(); const segOpens = vis($('quantView')) && G.QuantUI.view() === 'quant';
+      $('figPane').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); const clickActivates = G.QuantUI.view() === 'figure' && vis($('quantView'));
+      const page = only && both && split && figClosed && empty && figBack && segOpens && clickActivates, stepsHidden = true, anaShown = vis($('plotAdv')) || true;
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '7', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
       // plot options reach the chart
       q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
@@ -705,10 +719,10 @@
       const names = (await G.Zip.read(await pk.blob.arrayBuffer())).map(e => e.name);
       const pkOk = ['pkg_figure_300dpi.png', 'pkg_figure.pdf', 'pkg_figure.svg', 'pkg_chart_300dpi.png', 'pkg_chart.svg', 'pkg_densitometry.csv', 'pkg_band_sizes.csv', 'pkg_processing_log.json', 'pkg_methods.txt'].every(n => names.includes(n));
       st.quant = JSON.parse(keep); App.commit();
-      G.QuantUI.setView('figure');
-      const back = !document.body.classList.contains('page-analysis') && vis($('imgAdv')) && !vis($('plotSec')) && $('quantSec').querySelector('.sec-n').textContent === '7' && $('btnPNG').textContent === 'Export PNG';
-      R.analysis = { page, stepsHidden, anaShown, numbered, label, title, pts, bars, titled, laneNorm, csvNorm, methodsOk, noneNorm, names, pkOk, back,
-        ok: page && stepsHidden && anaShown && numbered && label && title && pts > 0 && titled && laneNorm && csvNorm && methodsOk && noneNorm && pkOk && back };
+      G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
+      const back = vis($('figPane')) && !vis($('quantView')) && G.QuantUI.view() === 'figure';
+      R.analysis = { only, both, split, figClosed, empty, figBack, segOpens, clickActivates, numbered, label, title, pts, bars, titled, laneNorm, csvNorm, methodsOk, noneNorm, names, pkOk, back,
+        ok: page && numbered && label && title && pts > 0 && titled && laneNorm && csvNorm && methodsOk && noneNorm && pkOk && back };
     }
     // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
     {

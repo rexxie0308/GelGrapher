@@ -289,15 +289,6 @@
   const saved = (status, msg) => { if (status === 'saved') toast(msg); };
   async function exportFigure(kind) {
     if (needImage()) return;
-    // on the Analysis page the Export button and its menu export the chart
-    if (G.QuantUI && G.QuantUI.view() === 'quant') {
-      const ch = G.QuantUI.chart();
-      if (!ch) { toast('No chart yet: add a band box (step 1 on the left) first'); return; }
-      App.busy(true, 'Exporting…');
-      try { saved(await G.Export.exportChart(ch, kind, `${baseName()}_chart`, S().style.dpi, S()), `Exported the chart as ${kind.toUpperCase()}`); }
-      catch (e) { alertDlg(e.message); } finally { App.busy(false); }
-      return;
-    }
     if (!(await preflight())) return;
     App.busy(true, 'Exporting…');
     try {
@@ -318,7 +309,8 @@
       saved(st, `Exported ${dpi} dpi ${fmt}` + (eff < dpi ? ` (the gel itself is ${eff} dpi)` : ''));
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPNG').onclick = () => exportFigure('png');
+  $('btnPNGItem').onclick = () => exportFigure('png');
+  $('btnFigExport').onclick = () => exportFigure($('figFmt').value);
   /* ---------- print (for a lab notebook) ----------
    * A page with the figure at a readable size and a caption: file, experiment, date, the legend notes. Printed from a
    * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
@@ -363,7 +355,7 @@
       saved(await G.Export.download(r.blob, baseName() + '_package.zip'), `Exported ${r.files.length} files in one ZIP`);
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPackage').onclick = exportPackage;
+  $('btnPNG').onclick = exportPackage;   // the green button: everything in one ZIP
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
   $('btnCopyFig').onclick = async () => {
     if (needImage()) return;
@@ -376,7 +368,7 @@
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       toast(`Copied a ${dpi} dpi PNG; paste it anywhere`);
     } catch (e) {
-      toast('The clipboard is not available here; use Export PNG instead', 3600);
+      toast('The clipboard is not available here; use Export figure instead', 3600);
     } finally { App.busy(false); }
   };
   $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(figForExport().svg, baseName() + '_figure.svg'), 'Exported SVG'); };
@@ -857,7 +849,7 @@
       : 'No marker in the figure: add the marker lane in step 4 on the left';
     else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
-    else { msg = 'Ready — <b>Export PNG</b> at the top right; add groups, arrows or strips on the left, or switch to <b>Analysis</b> for band intensities'; ok = true; }
+    else { msg = 'Ready — <b>Export figure</b> above the figure, or <b>Export all</b> at the top right; add groups, arrows or strips on the left, band boxes in step 7'; ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
     $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);
