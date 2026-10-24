@@ -62,7 +62,7 @@ From GelFigure:
 
 Added in GelGrapher:
 
-- **Seven experiment types** with 50 built-in ladders (25 DNA, 5 RNA, 18 protein, 2 native protein).
+- **Seven experiment types** with 62 built-in ladders (25 DNA, 5 RNA, 30 protein, 2 native protein), each from the manufacturer's datasheet or product page.
 - **Densitometry**: band boxes, three background methods, normalization to a loading control, relative values, saturation flags, lane profiles, CSV and a publication bar chart.
 - **Band-size table**: every band in every lane sized against the ladder, as a table and CSV.
 - **Strips**: show only chosen regions of a blot (e.g. the target and the loading control), stacked with a gap, each labelled on the right.

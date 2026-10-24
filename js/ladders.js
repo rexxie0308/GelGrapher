@@ -66,6 +66,21 @@
     P('magicmark', 'Invitrogen MagicMark XP Western (LC5602)', [220, 120, 100, 80, 60, 50, 40, 30, 20]),
     P('benchmark', 'Invitrogen BenchMark Protein Ladder (10747012)', [220, 160, 120, 100, 90, 80, 70, 60, 50, 40, 30, 25, 20, 15, 10]),
     // ---- native protein ----
+    /* Added 2026-10, sizes read from the vendors' product pages (sources in docs/ladder-sources.md):
+     * Thermo 26632 / 26625 / 26628, Epizyme WJ101 / WJ102 / WJ103 / WJ106 / WJ107 / WJ402, Yeasen 26616ES /
+     * 20350ES / 20352ES. The Spectra pages name the colours but not which band carries which: no ref. */
+    P('pr26632', 'Thermo PageRuler Unstained Low Range (26632, Tricine gels)', [100, 30, 25, 20, 15, 10, 5, 3.4], [25]),
+    P('spectra26625', 'Thermo Spectra Multicolor High Range (26625)', [300, 250, 180, 130, 100, 70, 50, 40]),
+    P('spectra26628', 'Thermo Spectra Multicolor Low Range (26628, Tricine gels)', [40, 25, 15, 10, 4.6, 1.7]),
+    P('epiwj101', 'Epizyme Two-color Prestained 15–150 kDa (WJ101)', [150, 100, 70, 50, 40, 35, 25, 20, 15], [70, 25]),
+    P('epiwj102', 'Epizyme Two-color Prestained 10–250 kDa (WJ102)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj103', 'Epizyme Three-color Prestained 10–250 kDa (WJ103)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj106', 'Epizyme NIR Prestained 10–250 kDa (WJ106)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj107', 'Epizyme Three-color Prestained 10–180 kDa (WJ107)', [180, 130, 100, 70, 55, 40, 35, 25, 15, 10], [70, 10]),
+    P('epiwj402', 'Epizyme Two-color Prestained Low Range 1.2–40 kDa (WJ402, Tricine gels)', [40, 30, 20, 15, 7.5, 4.2, 1.2], [20]),
+    P('yeasen26616', 'Yeasen GoldBand Plus 3-color Regular Range 10–180 kDa (26616ES)', [180, 130, 100, 70, 55, 40, 35, 25, 15, 10], [70, 10]),
+    P('yeasen20350', 'Yeasen GoldBand Plus 3-color Regular Range 8–180 kDa (20350ES)', [180, 130, 100, 72, 55, 43, 33, 25, 17, 8], [72, 8]),
+    P('yeasen20352', 'Yeasen GoldBand 3-color High Range 10–245 kDa (20352ES)', [245, 180, 140, 100, 72, 60, 45, 35, 25, 20, 15, 10], [72, 25]),
     N('nativemark', 'Invitrogen NativeMark Unstained (LC0725)', [1236, 1048, 720, 480, 242, 146, 66, 20]),
     N('hmwnative', 'Cytiva HMW Native Marker Kit (28403842)', [669, 440, 232, 140, 66])
   ];
