@@ -684,6 +684,32 @@
       R.raster = { sane, hugeOk: huge.ok, hugeFits: huge.fitsDpi, warned, limit: lim.maxPixels, bands: g.w === c.width && g.h === c.height, diffFrac: +(diff / g.gray.length).toFixed(4),
         ok: sane && !huge.ok && huge.fitsDpi === null && warned && g.w === c.width && g.h === c.height && diff / g.gray.length < 0.001 };
     }
+    // 45. the Analysis page: its own panel sections, the chart export route, plot options, normalization modes, the package
+    {
+      const $ = id => document.getElementById(id), st = App.S, q = st.quant, keep = JSON.stringify(q);
+      const vis = el => !!(el && el.offsetParent !== null);
+      G.QuantUI.setView('quant');
+      const page = document.body.classList.contains('page-analysis'), stepsHidden = !vis($('imgAdv')) && !vis($('laneAdv')), anaShown = vis($('plotSec')) && vis($('anaExportSec')) && vis($('analysisHead'));
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '1', label = $('btnPNG').textContent === 'Export chart', title = $('figTitle').textContent === 'Analysis';
+      // plot options reach the chart
+      q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
+      const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
+      // normalization modes and the border background
+      q.norm = 'lane'; q.bg = 'border'; App.commit();
+      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
+      const csvNorm = G.Quant.quantCSV(App, M).includes('total lane'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
+      q.norm = 'none'; App.commit();
+      const noneNorm = G.Quant.measure(App).normLabel === null;
+      // the package
+      const f = App.buildFigure(false), pk = await G.Export.packageBlob(st, 'pkg', f, G.QuantUI.chart(), 300);
+      const names = (await G.Zip.read(await pk.blob.arrayBuffer())).map(e => e.name);
+      const pkOk = ['pkg_figure_300dpi.png', 'pkg_figure.pdf', 'pkg_figure.svg', 'pkg_chart_300dpi.png', 'pkg_chart.svg', 'pkg_densitometry.csv', 'pkg_band_sizes.csv', 'pkg_processing_log.json', 'pkg_methods.txt'].every(n => names.includes(n));
+      st.quant = JSON.parse(keep); App.commit();
+      G.QuantUI.setView('figure');
+      const back = !document.body.classList.contains('page-analysis') && vis($('imgAdv')) && !vis($('plotSec')) && $('quantSec').querySelector('.sec-n').textContent === '7' && $('btnPNG').textContent === 'Export PNG';
+      R.analysis = { page, stepsHidden, anaShown, numbered, label, title, pts, bars, titled, laneNorm, csvNorm, methodsOk, noneNorm, names, pkOk, back,
+        ok: page && stepsHidden && anaShown && numbered && label && title && pts > 0 && titled && laneNorm && csvNorm && methodsOk && noneNorm && pkOk && back };
+    }
     // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();
@@ -697,8 +723,8 @@
       const det = $('quantDetails'), sum = det.querySelector('summary');
       det.open = true; G.QuantUI.setView('figure'); down(sum); const closing = v();   // closing the fold: no switch
       det.open = false; down(sum); const opening = v(); det.open = true;
-      G.QuantUI.setView('quant'); $('gelType').focus(); const focus = v();   // keyboard focus counts too
-      $('gelType').blur(); G.QuantUI.setView('figure');
+      G.QuantUI.setView('quant'); $('gelType').dispatchEvent(new FocusEvent('focusin', { bubbles: true })); const focus = v();   // keyboard focus counts too
+      G.QuantUI.setView('figure');
       R.followView = { grp, mode, flash, arrow, cond, closing, opening, focus,
         ok: grp === 'figure' && mode === 'quant' && flash && arrow === 'figure' && cond === 'figure' && closing === 'figure' && opening === 'quant' && focus === 'figure' };
     }

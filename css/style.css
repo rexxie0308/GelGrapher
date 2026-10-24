@@ -305,6 +305,14 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 
 /* ---------- densitometry view (figure column) ---------- */
 .view-seg { padding: 2px; }
+/* the Analysis page: the panel shows only its own sections, the figure column the results */
+.ana-only { display: none; }
+body.page-analysis .ana-only { display: block; }
+body.page-analysis #sections > .sec:not(.ana-sec), body.page-analysis .legend-wrap { display: none; }
+.ana-head { padding: 14px 16px 8px; border-bottom: 1px solid var(--line-2); }
+.ana-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.ana-head .hint a { color: var(--accent); }
+#methodsText { width: 100%; font-size: 12px; line-height: 1.45; resize: vertical; }
 .view-seg button { padding: 4px 10px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
 .badge { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
 #quantView { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--stage); }

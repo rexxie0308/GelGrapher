@@ -26,14 +26,22 @@
   }
 
   /* ---------- the figure column shows either the figure or the densitometry results ---------- */
+  /* The two pages: Figure (steps 1-6 in the panel, the figure on the right) and Analysis (the three
+   * analysis sections in the panel, the chart and table on the right). The raw image stays on both. */
   function setView(v) {
     view = v;
+    const ana = v === 'quant';
     document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-    $('previewBox').classList.toggle('hidden', v !== 'figure'); $('quantView').classList.toggle('hidden', v !== 'quant');
-    $('figSub').textContent = v === 'figure' ? 'Click any text to edit it' : 'Measured in every lane of the figure';
-    $('figSize').classList.toggle('hidden', v !== 'figure');
-    if (v === 'figure') G.UI.updatePreview(); else render();
-    G.Editor.draw();   // the raw image shows the layer of this view in front (strips with the figure, band boxes here)
+    document.body.classList.toggle('page-analysis', ana);
+    $('previewBox').classList.toggle('hidden', ana); $('quantView').classList.toggle('hidden', !ana);
+    $('figTitle').textContent = ana ? 'Analysis' : 'Figure';
+    $('figSub').textContent = ana ? 'Measured in every lane of the figure, from the raw pixels' : 'Click any text to edit it';
+    $('figSize').classList.toggle('hidden', ana);
+    $('quantSec').querySelector('.sec-n').textContent = ana ? '1' : '7';   // the Measure step is step 1 of the Analysis page
+    if (ana) $('quantDetails').open = true;
+    const png = $('btnPNG'); if (png) png.textContent = ana ? 'Export chart' : 'Export PNG';
+    if (S()) { if (!ana) G.UI.updatePreview(); else render(); }
+    G.Editor.draw();   // the raw image shows the layer of this page in front (strips with the figure, band boxes here)
   }
   document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { if (S()) setView(b.dataset.view); });
   /* the figure column follows the control you touch: a view switched for you is flashed on the switch so the change is seen */
@@ -51,11 +59,22 @@
     if (!ctl || !ctl.closest('#sections')) return;
     const sum = ctl.closest('summary');
     if (sum && sum.parentElement.open && e.type === 'pointerdown') return;   // closing a fold: done with it, no switch
-    follow(ctl.closest('#quantSec') ? 'quant' : 'figure');
+    follow(ctl.closest('.ana-sec') ? 'quant' : 'figure');
   };
   $('sections').addEventListener('pointerdown', panelView, true);
   $('sections').addEventListener('focusin', panelView, true);
   $('btnShowQuant').onclick = () => { if (S()) { setView('quant'); } };
+  $('anaBack').onclick = e => { e.preventDefault(); if (S()) setView('figure'); };
+  // plot options and normalization live in the state, so projects and the undo history keep them
+  const plot = () => S().quant.plot || (S().quant.plot = { type: 'bar', values: false, refLine: true, ylabel: '', title: '' });
+  $('plotType').addEventListener('change', done(e => { plot().type = e.target.value; }));
+  $('plotValues').addEventListener('change', done(e => { plot().values = e.target.checked; }));
+  $('plotRef').addEventListener('change', done(e => { plot().refLine = e.target.checked; }));
+  $('plotTitle').addEventListener('input', live(e => { plot().title = e.target.value; })); $('plotTitle').addEventListener('change', done());
+  $('plotY').addEventListener('input', live(e => { plot().ylabel = e.target.value; })); $('plotY').addEventListener('change', done());
+  $('qNorm').addEventListener('change', done(e => { S().quant.norm = e.target.value; }));
+  $('btnPackage2').onclick = () => G.UI.exportPackage();
+  $('btnMethodsCopy').onclick = () => { if ($('methodsText').value) copyText($('methodsText').value); };
   $('btnAddBox2').onclick = () => $('btnAddBox').click();
   document.querySelectorAll('#quantTabs button').forEach(b => b.onclick = () => {
     tab = b.dataset.tab;
@@ -134,7 +153,7 @@
   }
   function renderTable(R) {
     const tg = R.rows.map((r, k) => k).filter(k => k !== R.control);
-    const ctlName = R.control >= 0 ? R.rows[R.control].name : null;
+    const ctlName = R.normLabel;
     const head = `<tr><th>${'Lane'}</th>${R.rows.map((r, k) => `<th title="${'Integrated density (a.u.)'}">${esc(r.name)}${k === R.control ? ' <span class="tag" title="loading control">loading control</span>' : ''}</th>`).join('')}` +
       tg.map(k => `<th title="${esc(ctlName ? `${R.rows[k].name} / ${ctlName}, relative to the reference lane` : 'relative to the reference lane')}">${esc(R.rows[k].name)} ${ctlName ? '/ ' + esc(ctlName) + ', rel.' : 'rel.'}</th>`).join('') + '</tr>';
     const body = R.lanes.map((i, j) => `<tr class="${i === R.ref ? 'ref' : ''}"><td>${esc(R.names[j].replace(/\*/g, ''))}</td>` +
@@ -206,6 +225,11 @@
     if (live) { if (view === 'quant' && tab === 'int') results(); return; }
     const q = st.quant, lanes = G.Quant.quantLanes(App);
     $('qBg').value = q.bg; $('qMode').value = q.mode === 'box' ? 'box' : 'band'; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
+    $('qNorm').value = q.norm === 'lane' || q.norm === 'none' ? q.norm : 'control';
+    const P = plot();
+    $('plotType').value = P.type === 'point' ? 'point' : 'bar'; $('plotValues').checked = !!P.values; $('plotRef').checked = P.refLine !== false;
+    if (document.activeElement !== $('plotTitle')) $('plotTitle').value = P.title || '';
+    if (document.activeElement !== $('plotY')) $('plotY').value = P.ylabel || '';
     const refNow = lanes.includes(q.ref) ? q.ref : lanes[0];
     $('qRef').innerHTML = lanes.map(i => `<option value="${i}"${i === refNow ? ' selected' : ''}>${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
@@ -221,6 +245,7 @@
     const st = S();
     if (st.quant.rows.length && G.Quant.quantLanes(App).length) { lastR = G.Quant.measure(App); renderTable(lastR); }
     else { lastR = null; $('quantTable').innerHTML = ''; $('quantChart').innerHTML = ''; }
+    $('methodsText').value = lastR ? G.Quant.methodsText(App, lastR) : '';
     $('quantEmpty').classList.toggle('hidden', !!st.quant.rows.length);
     ['btnQCopy', 'btnQCSV', 'btnQChart'].forEach(id => { $(id).disabled = !lastR; });
     if ($('profAdv').open) drawProfile();
@@ -234,5 +259,8 @@
   });
   // a loaded gel (example, project, library) opens on its figure
   App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; if (view !== 'figure') setView('figure'); if (S().quant.rows.length) $('quantDetails').open = true; } });
-  G.QuantUI = { render, setView, follow, view: () => view };
+  // the current results and chart (measured on demand), for the export routes
+  function measured() { if (!lastR && S() && S().quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App); return lastR; }
+  function chart() { const R = measured(); return R ? G.Quant.chartSVG(App, R) : null; }
+  G.QuantUI = { render, setView, follow, view: () => view, results: measured, chart };
 })(window);

@@ -289,6 +289,15 @@
   const saved = (status, msg) => { if (status === 'saved') toast(msg); };
   async function exportFigure(kind) {
     if (needImage()) return;
+    // on the Analysis page the Export button and its menu export the chart
+    if (G.QuantUI && G.QuantUI.view() === 'quant') {
+      const ch = G.QuantUI.chart();
+      if (!ch) { toast('No chart yet: add a band box (step 1 on the left) first'); return; }
+      App.busy(true, 'Exporting…');
+      try { saved(await G.Export.exportChart(ch, kind, `${baseName()}_chart`, S().style.dpi, S()), `Exported the chart as ${kind.toUpperCase()}`); }
+      catch (e) { alertDlg(e.message); } finally { App.busy(false); }
+      return;
+    }
     if (!(await preflight())) return;
     App.busy(true, 'Exporting…');
     try {
@@ -343,6 +352,18 @@
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
   $('btnPPTX').onclick = () => exportFigure('pptx');
+  /* everything in one ZIP: figure, chart, measurements, band sizes, log, methods (the Claude viewer saves ZIPs) */
+  async function exportPackage() {
+    if (needImage()) return;
+    if (!(await preflight())) return;
+    App.busy(true, 'Packing…');
+    try {
+      const f = figForExport(), ch = G.QuantUI ? G.QuantUI.chart() : null;
+      const r = await G.Export.packageBlob(S(), baseName(), f, ch, S().style.dpi);
+      saved(await G.Export.download(r.blob, baseName() + '_package.zip'), `Exported ${r.files.length} files in one ZIP`);
+    } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
+  }
+  $('btnPackage').onclick = exportPackage;
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
   $('btnCopyFig').onclick = async () => {
     if (needImage()) return;
@@ -386,7 +407,7 @@
   });
   // close: back to the start screen (the library, or the empty workspace)
   async function closeWorkspace() {
-    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden');
+    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden'); $('viewSeg').classList.add('hidden');
     $('imgChipName').textContent = 'Open image'; $('coachText').textContent = 'Drop a gel image into the window to start';
     $('preview').innerHTML = ''; showWarnings([]); dismissed.clear();
     $('floatEd').classList.add('hidden'); $('popover').classList.add('hidden'); $('modeBanner').classList.add('hidden');
@@ -836,7 +857,7 @@
       : 'No marker in the figure: add the marker lane in step 4 on the left';
     else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
-    else { msg = 'Ready — <b>Export PNG</b> at the top right; add groups, arrows, strips or densitometry on the left'; ok = true; }
+    else { msg = 'Ready — <b>Export PNG</b> at the top right; add groups, arrows or strips on the left, or switch to <b>Analysis</b> for band intensities'; ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
     $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);
@@ -946,7 +967,7 @@
   App.on(what => {
     if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
@@ -955,7 +976,7 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

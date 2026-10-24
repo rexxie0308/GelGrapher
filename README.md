@@ -105,7 +105,7 @@ On first visit the Western blot example is open, so you can see what a finished 
 
 ## Densitometry
 
-Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added. The figure area follows the step you work in: any control of section 7 opens the Densitometry view and any control of sections 1–6 brings the figure back, so an annotation you add is always shown.
+Densitometry has its own page: **Analysis** in the top bar (next to Figure). The settings panel then shows only the analysis steps (Densitometry: boxes, background, measure, normalization; Plot: bars or points, values, title, axis label; Export) and the right side the chart and the table; the raw image stays for drawing boxes. Adding the first box opens the page, and any control of steps 1–6 brings the figure back. While the page is open, the Export button exports the chart, and "Everything (ZIP)" bundles figure, chart, CSVs, processing log and a methods paragraph.
 
 1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. Tick **Loading control** on the box of the housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.
 2. Choose the **background**: a straight line between the box edges (the usual "close the peak" method of ImageJ's gel analyser), a rolling-ball baseline of the lane profile, or none. Choose the **measure**: *band pixels above the noise floor* (default: only pixels above the background noise count, so the value does not depend on the box size as long as the box contains the band) or *whole box* (every pixel of the box, ImageJ style).
@@ -117,7 +117,9 @@ Export the table as CSV or copy it into Excel or Prism; export the bar chart as 
 
 Densitometry values are only comparable within one image. For statistics, quantify replicate blots and combine the CSVs.
 
-*Band sizes* (a tab of the Densitometry view) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+*Band sizes* (a tab of the Analysis page) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+
+Background: a straight line between the box edges (ImageJ gel analyser), the median of a 3-pixel border around the box (Image Studio, Image Lab), a rolling ball under the lane profile, or none. Normalization: the loading-control box of the same lane, the total lane density (total-protein normalization), or none; values are then expressed relative to a reference lane. One gel gives one value per lane; replicate gels and statistics belong in your analysis software, and the methods paragraph says exactly what was measured.
 
 ## Exports
 

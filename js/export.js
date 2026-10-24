@@ -341,20 +341,52 @@
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
     if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
-      const R = G.Quant.measure(A), bg = { edge: 'a straight-line background between the box edges', rolling: 'a rolling-ball background', none: 'no background subtraction' }[R.method];
-      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : '';
+      const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
+      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : R.normMode === 'lane' ? ', normalized to the total lane density' : '';
       const how = R.mode === 'box' ? 'integrated density in fixed-width boxes' : 'integrated density of the band pixels above the background noise floor in fixed-width boxes';
       h.push(`Band intensities were quantified by densitometry of the raw image (${how}, ${bg})${ctl}` + (R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.'));
     }
     return h;
   }
 
-  // densitometry bar chart: PNG / SVG / PDF
+  // densitometry chart: PNG / TIFF / SVG / PDF / PPTX
   async function exportChart(chart, fmt, base, dpi, S) {
     if (fmt === 'svg') return exportSVG(chart.svg, base + '.svg');
     if (fmt === 'pdf') return (await exportPDF(chart.svg, base + '.pdf', S, 'Densitometry')).status;
+    if (fmt === 'pptx') return exportPPTX(chart.svg, base + '.pptx', S, {});
+    if (fmt === 'tiff') return exportTIFF(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.tif`, S);
     return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
   }
 
-  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportPPTX, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
+  // PNG bytes of an SVG at dpi, with the resolution and summary chunks (null when the canvas limit forbids it)
+  async function pngBlob(svg, wPt, hPt, dpi, S) {
+    if (!rasterSize(wPt, hPt, dpi).ok) return null;
+    const c = await svgToCanvas(svg, wPt, hPt, dpi), blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    return pngDecorate(blob, dpi, S ? { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) } : {});
+  }
+  /* Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes
+   * (CSV), the processing log and the methods text. fig = {svg, w, h}; chart = {svg, w, h} or null. */
+  async function packageBlob(S, base, fig, chart, dpi) {
+    const A = G.App, files = [], add = (name, data) => files.push({ name: `${base}/${name}`, data });
+    const figPng = await pngBlob(fig.svg, fig.w, fig.h, dpi, S);
+    if (figPng) add(`${base}_figure_${dpi}dpi.png`, figPng);
+    add(`${base}_figure.pdf`, (await G.PDF.fromSVG(fig.svg, { title: S.file.name, subject: summaryText(S) })).blob);
+    add(`${base}_figure.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + fig.svg);
+    let R = null;
+    if (S.quant.rows.length) {
+      R = G.Quant.measure(A);
+      if (chart) {
+        const chPng = await pngBlob(chart.svg, chart.w, chart.h, dpi, S);
+        if (chPng) add(`${base}_chart_${dpi}dpi.png`, chPng);
+        add(`${base}_chart.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + chart.svg);
+      }
+      add(`${base}_densitometry.csv`, G.Quant.quantCSV(A, R));
+    }
+    if (S.markers.length) add(`${base}_band_sizes.csv`, G.Quant.sizesCSV(A, G.Quant.bandSizes(A)));
+    add(`${base}_processing_log.json`, JSON.stringify(processingLog(S), null, 2));
+    add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION}\n`);
+    return { blob: await G.Zip.make(files), files: files.map(f => f.name) };
+  }
+
+  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportPPTX, exportChart, packageBlob, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
 })(window);

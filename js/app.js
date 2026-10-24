@@ -14,7 +14,9 @@
     unitHeader: true, groupTicks: false, groupSplit: false, groupFit: 'wrap', dpi: 600, laneNumberMode: 'well', stripGapPt: 3
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
-  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'band', wFrac: 0.7, control: -1, ref: -1 });   // mode: 'band' = pixels above the noise floor only, 'box' = the whole box
+  const defaultPlot = () => ({ type: 'bar', values: false, refLine: true, ylabel: '', title: '' });
+  // mode: 'band' = pixels above the noise floor only, 'box' = the whole box; norm: 'control' | 'lane' | 'none'
+  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'band', wFrac: 0.7, control: -1, ref: -1, norm: 'control', plot: defaultPlot() });
 
   const App = {
     S: null,            // serialisable state
@@ -1223,6 +1225,7 @@
     S.style = Object.assign(defaultStyle(), S.style || {});
     S.strips = S.strips || [];
     S.quant = Object.assign(defaultQuant(), S.quant || {});
+    S.quant.plot = Object.assign(defaultPlot(), S.quant.plot || {});
     if (S.markerImage === undefined) S.markerImage = null;
     S.flip = Object.assign({ h: false, v: false }, S.flip || {});
     if (S.gelRows === undefined) S.gelRows = null;

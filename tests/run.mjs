@@ -85,6 +85,7 @@ const UI_CHECKS = [
   ['typeface allowlist (SVG, measurement, PDF) and a custom lane-name angle', r => r.fonts.ok, ['fonts']],
   ['raster exports checked against the canvas limit; banded TIFF render matches', r => r.raster.ok, ['raster']],
   ['editable PowerPoint: text boxes per label, cropped gel pictures per block, valid package', r => r.pptx.ok, ['pptx']],
+  ['Analysis page: own panel sections, chart export route, plot options, normalization modes, package ZIP', r => r.analysis.ok, ['analysis']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
