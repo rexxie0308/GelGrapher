@@ -135,6 +135,13 @@
     const pitchScr = (S.lanePitch || S.laneHalfW / 0.3) * view.s, every = Math.max(1, Math.ceil(24 / Math.max(1, pitchScr)));
     const crowded = every > 1;
     if (crowded) ctx.font = '600 10px -apple-system, Segoe UI, Arial, sans-serif';
+    // the lane about to be added follows the pointer
+    if (App.mode === 'lane' && hover && hover.type === 'laneGhost') {
+      const p = toScr(hover.x, c.y);
+      ctx.strokeStyle = '#2f6feb'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(p.x, a.y - 14); ctx.lineTo(p.x, b.y + 14); ctx.stroke();
+      ctx.setLineDash([]);
+    }
     S.lanes.forEach((l, i) => {
       const p = toScr(l.x, c.y), sel = App.selLanes.has(i), hov = hover && hover.type === 'lane' && hover.i === i;
       const isM = mkLanes.has(i), out = l.x < c.x || l.x > c.x + c.w;
@@ -309,6 +316,17 @@
       e.preventDefault();
       return;
     }
+    // adding a lane: one click places the line where the pointer is (lanes are global, so a click
+    // outside the red box adds a well outside the figure range); Shift keeps the tool armed
+    if (App.mode === 'lane') {
+      if (p.x >= 0 && p.x <= App.rot.w) {
+        App.selLane = App.addLane(Math.round(p.x * 10) / 10);
+        App.commit();
+        if (!e.shiftKey && G.FigEdit) G.FigEdit.setMode(null);
+      }
+      e.preventDefault();
+      return;
+    }
     const h = hitTest(sx, sy, e.shiftKey);
     drag = { h, sx, sy, p0: p, crop0: Object.assign({}, App.S.crop), moved: false, view0: Object.assign({}, view) };
     if (h.type === 'lane') {
@@ -363,6 +381,7 @@
         return;
       }
       if (App.mode === 'strip' || App.mode === 'quant') { cv.style.cursor = 'crosshair'; return; }
+      if (App.mode === 'lane') { hover = { type: 'laneGhost', x: toImg(sx, sy).x }; cv.style.cursor = 'crosshair'; draw(); return; }
       const h = hitTest(sx, sy, e.shiftKey);
       const changed = JSON.stringify(h) !== JSON.stringify(hover);
       hover = h; cv.style.cursor = cursorFor(h);
@@ -497,5 +516,5 @@
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
   // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false) };
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null) };
 })(window);

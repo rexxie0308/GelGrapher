@@ -1,4 +1,4 @@
-/* Step 7 of the panel: densitometry (band boxes, table, chart, lane profile) and band sizes. */
+/* Step 6 of the panel: densitometry (band boxes, table, chart, lane profile) and band sizes. */
 (function (G) {
   'use strict';
   const App = G.App, $ = id => document.getElementById(id);
@@ -69,7 +69,7 @@
     const b = document.querySelector(`#viewSeg [data-view="${v}"]`);
     if (b) { b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 800); }
   }
-  // steps 1-6 of the panel work on the figure, step 7 on the analysis: touching a control there activates that window
+  // steps 1-5 of the panel work on the figure, step 6 on the analysis: touching a control there activates that window
   const panelView = e => {
     const t = e.target.closest ? e.target : null;
     if (!t || !S()) return;

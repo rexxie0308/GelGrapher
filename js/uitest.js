@@ -517,7 +517,7 @@
       $('btnEvenCrop').dispatchEvent(new MouseEvent('click', { bubbles: true })); log.push(await act('Check the lanes·2'));
       await wait(400);
       const fl0 = G.UI.figLanes(), spare = App.emptyLanes().filter(i => fl0.includes(i))[0] ?? fl0[fl0.length - 1];
-      const showVisible = $('laneAdv').open && within(spotR(), $('laneList').getBoundingClientRect(), 8);   // the Show box is scrolled into view, the ring inside the list
+      const showVisible = within(spotR(), $('laneList').getBoundingClientRect(), 8);   // the Show box is scrolled into view, the ring inside the list
       const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i)), names0 = fl.map(i => App.S.lanes[i].name);
       fl.forEach(i => { App.S.lanes[i].name = ''; });                 // no names when the naming card begins
       App.S.lanes[spare].hidden = true; App.commit(); log.push(await act('Name the lanes·0'));
@@ -704,7 +704,7 @@
       $('viewSeg').querySelector('[data-view="quant"]').click(); const segOpens = vis($('quantView')) && G.QuantUI.view() === 'quant';
       $('figPane').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); const clickActivates = G.QuantUI.view() === 'figure' && vis($('quantView'));
       const page = only && both && split && figClosed && empty && figBack && segOpens && clickActivates, stepsHidden = true, anaShown = vis($('plotAdv')) || true;
-      const numbered = $('quantSec').querySelector('.sec-n').textContent === '7', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
       // plot options reach the chart
       q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
@@ -743,7 +743,31 @@
       R.multiSel = { two, movedTogether, spread, single, parse, moved, est: est && +est.toFixed(1), close, round, clamped,
         ok: two && movedTogether && spread && single && parse && moved && close && round && clamped };
     }
-    // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
+    // 47. "+ Add lane" places a lane where the raw image is clicked; lane names live in step 2 (no step 3)
+    {
+      const $ = id => document.getElementById(id), st = App.S, cv = $('editor');
+      const keep = JSON.stringify(st.lanes), n0 = st.lanes.length;
+      $('btnAddLane').click(); const armed = App.mode === 'lane' && $('btnAddLane').classList.contains('on') && !$('modeBanner').classList.contains('hidden');
+      // a click half-way between the first two lanes, inside the crop
+      const xImg = (st.lanes[0].x + st.lanes[1].x) / 2, yImg = st.crop.y + st.crop.h / 2;
+      const r = cv.getBoundingClientRect(), sp = G.Editor.toScreen(xImg, yImg);
+      const ev = o => new PointerEvent(o.type, Object.assign({ bubbles: true, cancelable: true, pointerId: 9, button: 0, clientX: r.left + sp.x, clientY: r.top + sp.y }, o));
+      cv.dispatchEvent(ev({ type: 'pointermove' })); const ghost = G.Editor.hoverType() === 'laneGhost';
+      cv.dispatchEvent(ev({ type: 'pointerdown' })); window.dispatchEvent(ev({ type: 'pointerup' }));
+      const added = st.lanes.length === n0 + 1 && Math.abs(st.lanes[1].x - xImg) < 0.2 && App.selLane === 1, disarmed = App.mode === null;
+      // Shift keeps the tool armed
+      $('btnAddLane').click(); cv.dispatchEvent(ev({ type: 'pointerdown', shiftKey: true, clientX: r.left + sp.x + 6 })); window.dispatchEvent(ev({ type: 'pointerup' }));
+      const stillArmed = App.mode === 'lane' && st.lanes.length === n0 + 2; G.FigEdit.setMode(null);
+      st.lanes = JSON.parse(keep); App.selLane = -1; App.fixIndices(); App.commit();
+      const sec2 = $('laneList').closest('.sec'), inStep2 = !!sec2 && sec2.querySelector('.sec-n').textContent === '2' && $('laneBulk').closest('.sec') === sec2 && !$('stNames');
+      const marker3 = $('markerList').closest('.sec').querySelector('.sec-n').textContent === '3';
+      const inp = $('laneList').querySelector('input[type=text][data-i="1"]'), old = st.lanes[1].name;
+      inp.value = 'Typed'; inp.dispatchEvent(new Event('input', { bubbles: true })); const typed = st.lanes[1].name === 'Typed';
+      st.lanes[1].name = old; App.commit();
+      const status = /named/.test($('stRange').textContent);
+      R.addLane = { armed, ghost, added, disarmed, stillArmed, inStep2, marker3, typed, status, ok: armed && ghost && added && disarmed && stillArmed && inStep2 && marker3 && typed && status };
+    }
+    // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();
       const down = el => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));

@@ -90,17 +90,17 @@ Added in GelGrapher:
 Then:
 
 1. Choose the **experiment type** and drop the image. Everything is detected automatically.
-2. **Click the grey lane numbers** on the figure and type the names (Enter = next lane), or paste a row from Excel on the left.
-3. **Check the ladder** in section 4; a poor fit is flagged.
-4. Optional: group lines, arrows, +/− rows and strips (section 5), densitometry and band sizes (section 7).
+2. **Click the grey lane numbers** on the figure and type the names (Enter = next lane), or type them in the lane list of step 2 or paste a row from Excel there. A lane missing? *+ Add lane*, then click its place on the raw image.
+3. **Check the ladder** in step 3; a poor fit is flagged.
+4. Optional: group lines, arrows, +/− rows and strips (step 4), densitometry and band sizes (step 6).
 5. **Export** (top right). The pre-flight check runs first.
 
 On first visit the Western blot example is open, so you can see what a finished figure looks like. Drop your own image at any time to start.
 
 ## Western blots
 
-- **Strips** (section 5, *Strip*): drag down across a region of the raw image, for example the p53 band with the 70 and 55 kDa marker ticks, then the GAPDH band. The figure shows only the strips, stacked with a white gap, each with its name on the right and its own kDa ticks on the left. The legend notes say that the panels are regions of the same image and that the uncropped image shows the rest; the uncropped export marks every strip.
-- **Marker image** (section 4): if the prestained ladder does not show on the chemiluminescence image, load the white-light / colorimetric image the imager took in the same position. Ladder bands are read from it; the figure still shows the blot. It is stored in projects and drafts, and exported with the original data.
+- **Strips** (step 4, *Strip*): drag down across a region of the raw image, for example the p53 band with the 70 and 55 kDa marker ticks, then the GAPDH band. The figure shows only the strips, stacked with a white gap, each with its name on the right and its own kDa ticks on the left. The legend notes say that the panels are regions of the same image and that the uncropped image shows the rest; the uncropped export marks every strip.
+- **Marker image** (step 3): if the prestained ladder does not show on the chemiluminescence image, load the white-light / colorimetric image the imager took in the same position. Ladder bands are read from it; the figure still shows the blot. It is stored in projects and drafts, and exported with the original data.
 - **No marker image?** Mark the ladder lane as a marker and drag its yellow lines onto the bands you see on the membrane; the others re-fit around them.
 
 ## Densitometry
@@ -183,7 +183,7 @@ Both bright-on-dark and dark-on-light images are handled; polarity is detected a
 
 ## Known limitations
 
-- Automatic detection was validated on DNA agarose gels (iBright imagers) and on synthetic gels of every type. If detection fails on your images, use *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
+- Automatic detection was validated on DNA agarose gels (iBright imagers), on a photographed Coomassie SDS-PAGE (three ladders, torn corner, keystone) and on synthetic gels of every type. If detection fails on your images, use *+ Add lane*, *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
 - Strips come from one image. Panels from different exposures or re-probed membranes are separate figures; stack them in your layout program.
 - 2D gels, dot blots and capillary systems are not supported.
 - Safari, and every browser on iPhone and iPad, cannot draw a PNG above about 16.7 million pixels (a double-column figure at 1200 dpi). The Layout step shows the export's pixel size and the pre-flight check offers the largest resolution that fits; TIFF, SVG and PDF are not affected.

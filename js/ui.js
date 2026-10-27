@@ -515,6 +515,8 @@
     });
   }
   $('btnAutoLanes').onclick = done(() => { App.autoLanes(); App.afterRangeChange(); toast(`Detected ${S().lanes.length} wells on the whole gel`); });
+  // "+ Add lane": the next click on the raw image places a lane line there (js/editor.js, mode 'lane')
+  $('btnAddLane').onclick = () => { if (needImage()) return; G.FigEdit.setMode(App.mode === 'lane' ? null : 'lane'); };
   // after lanes inside the crop are rebuilt, find the marker lanes again but keep the ladder the
   // user chose for a marker that is still at (about) the same position
   function relaneMarkers(fn) {
@@ -571,7 +573,7 @@
   $('spliceGap').addEventListener('input', live(e => { S().style.spliceGapPt = +e.target.value; $('spliceGapV').textContent = e.target.value + ' pt'; }));
   $('spliceGap').addEventListener('change', done());
 
-  /* ---------- 3 names (bulk) ---------- */
+  /* ---------- lane names pasted as a row (step 2) ---------- */
   function applyBulk() {
     const raw = $('laneBulk').value.replace(/\r/g, '').trim();
     if (!raw) return;
@@ -595,7 +597,7 @@
   $('laneBulk').addEventListener('change', applyBulk);
   $('laneBulk').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); applyBulk(); } });
 
-  /* ---------- 4 markers ---------- */
+  /* ---------- 3 markers ---------- */
   $('btnAutoMarkers').onclick = done(() => {
     App.autoMarkers();
     const n = S().markers.length;
@@ -627,7 +629,7 @@
       App.commit();
       const n = S().markers.length;
       toast(n ? `Found ${n} marker lane${n > 1 ? 's' : ''} on the marker image`
-        : 'No clear ladder lane on the marker image; add the marker lane in step 4', 4200);
+        : 'No clear ladder lane on the marker image; add the marker lane in step 3', 4200);
     } catch (err) { alertDlg(err.message); } finally { App.busy(false); }
   });
   $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Marker image removed; marker bands are read from the blot itself again'); });
@@ -840,11 +842,10 @@
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
     $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
-    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${fl.length} lanes` : ''));
-    set('stNames', `${named}/${fl.length}`);
+    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
-    const state = [true, !!r, named >= fl.length && fl.length > 0, visMk.length > 0 && !lowMk.length];
+    const state = [true, !!r && named >= fl.length && fl.length > 0, visMk.length > 0 && !lowMk.length];
     secs.forEach((s, i) => { s.classList.toggle('done', !!state[i]); s.classList.remove('todo'); });
     const firstTodo = state.findIndex(v => !v);
     if (firstTodo >= 0 && secs[firstTodo]) secs[firstTodo].classList.add('todo');
@@ -853,11 +854,11 @@
     if (!r) msg = 'Drag the red box on the image, or choose wells under "Lanes in figure"';
     else if (named < fl.length) msg = `Next: <b>click a grey lane number</b> on the figure and type its name; Enter moves on (${fl.length - named} to go)`;
     else if (!visMk.length) msg = App.gelType().western
-      ? 'No marker in the figure: add the marker lane in step 4, or load the white-light marker image'
-      : 'No marker in the figure: add the marker lane in step 4 on the left';
+      ? 'No marker in the figure: add the marker lane in step 3, or load the white-light marker image'
+      : 'No marker in the figure: add the marker lane in step 3 on the left';
     else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
-    else { msg = 'Ready — <b>Export figure</b> above the figure, or <b>Export all</b> at the top right; add groups, arrows or strips on the left, band boxes in step 7'; ok = true; }
+    else { msg = 'Ready — <b>Export figure</b> above the figure, or <b>Export all</b> at the top right; add groups, arrows or strips on the left, band boxes in step 6'; ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
     $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);

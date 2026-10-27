@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- **Lane detection rebuilt for photographed gels.** The lane pitch comes from a comb fit of the lane-presence profile (the sum at the comb's teeth minus the sum between them, measured inside the crop), not from the gaps between the peaks it happened to find, so it no longer doubles when weak lanes sit between strong ones; every analysis parameter scales with the crop (the gel), not with the frame the gel was photographed in; the presence profile adds the 75th and 50th row percentiles, which separate stained lanes (lysates, Coomassie) that touch, and a small horizontal opening first, which drops the slanted cut edge of a gel, folds and dust; the gel slab is the first strong step down to the background outward from the loaded lanes; a well template found on background (a photograph with the "well row" above the slab) is rejected unless the loaded lanes agree with it; teeth in the gel margin are not wells. On a photographed SDS-PAGE with three ladders, a torn corner and keystone the app now finds its 13 wells (before: 14 at twice the pitch, mostly beside the gel); the 19 synthetic marker-bench variants are all exactly right (three lost lanes before). `node tools/lane-bench.mjs` runs the detector on the synthetic gels (and on a raw 8-bit image with `--raw`).
+- **+ Add lane** (step 2): click it, then click on the raw image where the missing lane runs; the blue line follows the pointer, Shift+click adds several, Esc ends. Double-clicking empty space still works.
 - Several lane lines at once: Shift+click (or Ctrl+click) adds a line to the selection on the raw image; a drag or the arrow keys move every selected line together, Delete removes them all. "Spread between the two selected" (step 2, "Lanes detected wrongly?") spaces the lanes between two selected lines evenly, so a run of lanes is fixed by placing its first and last line (idea from BlotFigure).
 - A typed target-band size moves the arrow: entering "35 kDa" or "1.5 kb" in the arrow window puts the arrow where the markers place that size, and the magenta line on the image follows; dragging the arrow afterwards goes back to the measured size.
 - NEB ladders are listed with their catalogue numbers including the pack-size suffix (P7719S / P7719V, N3232S / N3232L …), so a search for the number on the tube finds them.
@@ -35,6 +37,7 @@
 - Densitometry: the chart plotted values relative to the reference lane even when that lane had no band in a box, which divided by background noise and made the real bands vanish next to values in the thousands. A relative value is now given only when the reference lane has a real band in that box (at least 5 % of the strongest lane); otherwise the table shows "–" for it, the chart shows the values themselves, and a note asks for another reference lane.
 
 ### Changed
+- The **Lane names** step is gone: step 2, *Lanes*, holds the wells range, the lane list with a name box per well (Show / delete), the paste box for a row of names, and the fixing tools; the later steps are renumbered (3 Marker, 4 Annotations, 5 Layout, 6 Densitometry). Clicking the grey numbers on the figure still names lanes.
 - The app no longer opens a worked example by itself: it starts on the empty workspace, or on your library when it has gels. The examples stay one click away on the start screen.
 
 ### Changed
