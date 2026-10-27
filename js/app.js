@@ -512,15 +512,33 @@
     });
     return E.vanishing(lines, xc, c.w);
   };
+  /* After the lanes are rebuilt (fn), find the marker lanes again but keep the ladder the user chose
+   * for a marker that is still at (about) the same position. Returns what fn returned. */
+  App.relaneMarkers = function (fn) {
+    const S = App.S, tol = (S.lanePitch || 40) * 0.5;
+    const prev = S.markers.map(m => ({ x: S.lanes[m.lane] ? S.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
+    const n = fn();
+    App.autoMarkers();
+    let changed = false;
+    S.markers.forEach(m => {
+      const q = prev.find(q => Math.abs(q.x - S.lanes[m.lane].x) < tol);
+      if (q) { if (m.ladderId !== q.ladderId) changed = true; Object.assign(m, { ladderId: q.ladderId, unit: q.unit, side: q.side }); }
+    });
+    if (changed) App.matchMarkers(true);
+    return n;
+  };
   /* Estimate the perspective from the lane lines (and the ladder bands when two or more markers
-   * are matched), apply it, and repeat on the corrected image until the lanes no longer converge
-   * (at most 4 rounds). Returns { applied, lanesPct, bandsPct, message }. */
+   * are matched) and apply it; then, since a distorted gel often yields only some of its lanes at
+   * first, detect the lanes again on the corrected image and estimate again, until the lane count
+   * and positions no longer change and nothing significant is left (at most 5 rounds). The
+   * markers are then found again, keeping any ladder the user chose. Returns
+   * { applied, lanesPct, bandsPct, rounds, lanes, message }. */
   App.autoKeystone = function () {
-    const S = App.S;
-    let applied = false, lines = 0, lastV = null;
-    for (let round = 0; round < 4; round++) {
+    const S = App.S, lanes0 = S.lanes.length;
+    let applied = false, lines = 0, lastV = null, rounds = 0, converged = false;
+    for (; rounds < 5; rounds++) {
       const img = App.ensureRot(), c = S.crop, xs = S.lanes.map(l => l.x), P = S.lanePitch || (S.laneHalfW / 0.3);
-      if (xs.length < 5) return { applied, message: 'The perspective is measured on the lane lines: it needs at least five lanes' };
+      if (xs.length < 5) { if (!applied) return { applied, rounds, lanes: S.lanes.length, message: 'The perspective is measured on the lane lines: it needs at least five lanes (add the missing ones with "+ Add lane" or "Space evenly", then try again)' }; break; }
       const L = E.laneLines(img, S.bright, c, xs, P);
       lines = L.filter(Boolean).length;
       const v = E.vanishing(L, c.y + c.h / 2, c.h), u = App.bandRowVanishing();
@@ -528,19 +546,27 @@
       if (!v) break;
       const V = v.point ? { x: v.point.across, y: v.point.along } : null;
       const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
-      if (!V && !U) break;
+      if (!V && !U) { converged = true; break; }
       const Hi = E.keystoneH(V, U, { x: c.x + c.w / 2, y: c.y + c.h / 2 });
       App.setKeystone({ on: true, H: E.M3.mul(Hi, App.keystoneH(S)), source: 'auto', lanesPct: 0, bandsPct: 0, bands: !!U || !!(S.keystone && S.keystone.bands) });
       applied = true;
+      // the lanes again on the corrected image: lanes the distortion hid come in, names stay by position
+      const before = S.lanes.map(l => l.x);
+      App.autoLanes();
+      const after = S.lanes.map(l => l.x), pitch = S.lanePitch || P;
+      const same = before.length === after.length && before.every((x, i) => Math.abs(x - after[i]) < pitch * 0.1);
+      if (same && Math.abs(v.change) < 0.01) { converged = true; break; }
     }
+    if (applied) App.relaneMarkers(() => 0);
     if (S.keystone && S.keystone.on) Object.assign(S.keystone, App.keystoneReport());
     if (!applied) {
       const msg = !lastV ? `Too few lanes with a clear, straight line to measure the perspective (${lines} of ${S.lanes.length})`
         : `No keystone found: the lane lines do not converge consistently (${lines} lanes measured; spacing change ${(lastV.change * 100).toFixed(1)} % is within the scatter). Lanes that drift on their own are the gel's own distortion, which a perspective correction must not touch.`;
-      return { applied: false, message: msg };
+      return { applied: false, rounds, lanes: S.lanes.length, message: msg };
     }
-    const k = S.keystone;
-    return { applied: true, lanesPct: k.lanesPct, bandsPct: k.bandsPct, message: `Perspective corrected: the lane spacing at the bottom of the box was ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top${k.bands ? `, the band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left` : ''} (from ${lines} lane lines${k.bands ? ' and the ladder bands' : ''})` };
+    const k = S.keystone, dl = S.lanes.length - lanes0;
+    return { applied: true, lanesPct: k.lanesPct, bandsPct: k.bandsPct, rounds, lanes: S.lanes.length, converged,
+      message: `Perspective corrected in ${rounds} round${rounds === 1 ? '' : 's'}: the lane spacing at the bottom of the box was ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top${k.bands ? `, the band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left` : ''}; lanes detected again on the corrected image: ${S.lanes.length} wells${dl ? ` (${dl > 0 ? '+' : ''}${dl})` : ''}, markers re-fitted${converged ? '' : ' (not fully settled after 5 rounds)'}` };
   };
   /* A keystone typed by hand, symmetric about the box: lanesPct = lane spacing at the bottom of
    * the box relative to the top (+10 = 10 % wider), bandsPct = band spacing at the right relative

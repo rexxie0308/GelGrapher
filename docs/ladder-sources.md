@@ -6,6 +6,8 @@ the gel and buffer system; the vendor page is the reference for the lot in use.
 
 | id | Ladder | Source |
 |---|---|---|
+| nebp7718 | NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7718S / P7718L) | NEB product sheet, band list supplied by the owner from the tube's datasheet (250, 180, 130, 95, 72, 55, 43, 34, 26, 17, 10 kDa; 72 and 26 kDa coloured reference bands). NEB's website refuses automated reading, so the page could not be fetched here. |
+| nebp7712 | NEB Color Prestained Protein Standard, Broad Range 11–245 kDa (P7712S / P7712L) | NEB product sheet (245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11 kDa). Until 2026-10 this list was filed under the id `nebp7719` and labelled P7719; the id stays as an alias so saved projects open. |
 | pr26632 | Thermo PageRuler Unstained Low Range (26632) | https://www.thermofisher.com/order/catalog/product/26632 ("100, 30, 25, 20, 15, 10, 5, 3.4 kDa"; 25 kDa band stronger; Tricine gels) |
 | spectra26625 | Thermo Spectra Multicolor High Range (26625) | https://www.thermofisher.com/order/catalog/product/26625 ("300, 250, 180, 130, 100, 70, 50, 40 kDa"; blue, orange and green bands, not assigned on the page) |
 | spectra26628 | Thermo Spectra Multicolor Low Range (26628) | https://www.thermofisher.com/order/catalog/product/26628 ("40, 25, 15, 10, 4.6, 1.7 kDa"; Tricine gels) |

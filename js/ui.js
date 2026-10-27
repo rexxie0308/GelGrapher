@@ -470,7 +470,7 @@
     App.busy(true, 'Measuring the perspective…');
     setTimeout(() => {
       const r = App.autoKeystone(); App.busy(false);
-      if (r.applied) { App.afterKeystone(); App.commit(); G.Editor.fitCrop(); }
+      if (r.applied) { App.afterKeystone(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
       toast(r.message, r.applied ? 5000 : 6000);
     }, 20);
   };
@@ -536,21 +536,7 @@
   $('btnAutoLanes').onclick = done(() => { App.autoLanes(); App.afterRangeChange(); toast(`Detected ${S().lanes.length} wells on the whole gel`); });
   // "+ Add lane": the next click on the raw image places a lane line there (js/editor.js, mode 'lane')
   $('btnAddLane').onclick = () => { if (needImage()) return; G.FigEdit.setMode(App.mode === 'lane' ? null : 'lane'); };
-  // after lanes inside the crop are rebuilt, find the marker lanes again but keep the ladder the
-  // user chose for a marker that is still at (about) the same position
-  function relaneMarkers(fn) {
-    const st = S(), tol = (st.lanePitch || 40) * 0.5;
-    const prev = st.markers.map(m => ({ x: st.lanes[m.lane] ? st.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
-    const n = fn();
-    App.autoMarkers();
-    let changed = false;
-    st.markers.forEach(m => {
-      const p = prev.find(q => Math.abs(q.x - st.lanes[m.lane].x) < tol);
-      if (p) { if (m.ladderId !== p.ladderId) changed = true; Object.assign(m, { ladderId: p.ladderId, unit: p.unit, side: p.side }); }
-    });
-    if (changed) App.matchMarkers(true);
-    return n;
-  }
+  const relaneMarkers = App.relaneMarkers;
   $('btnRedetectCrop').onclick = done(() => {
     const n = relaneMarkers(() => App.redetectLanesInCrop());
     toast(n ? `Found ${n} lanes in the box` : 'No lanes found in the box; enter the number and click "Space evenly"');

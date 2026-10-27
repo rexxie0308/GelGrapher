@@ -783,18 +783,20 @@
       $('btnKsOff').click(); const off = !st.keystone && !$('ksLanes').value;
       while (App.hist.length > hist0) App.undo();
       const restored = !App.S.keystone && App.S.lanes.every((l, i) => Math.abs(l.x - lanes0[i]) < 0.01);   // App.S is a new object after undo
-      // the engine on a known keystone (the interface test runs on the practice gel, which has none)
+      // the app on a known keystone: a synthetic SDS gel sent through a perspective, loaded as a file; Auto must
+      // correct it within 2 points, detect the lanes again on the corrected image (all 10) and settle
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
       const gg = G.Demo.makeGel({ preset: 'sds', tilt: 0 }), img0 = { w: gg.width, h: gg.height, data: gg.data };
       const Hk = M3.inv(E.keystoneH({ x: 700, y: -2500 }, null, { x: 700, y: 500 }));
-      const imgK = E.warp(img0, Hk); let img = imgK, H = M3.I(), crop = null;
-      for (let r = 0; r < 4; r++) {
-        const br = E.detectBright(img); crop = E.autoCrop(img, br);
-        const L = E.detectLaneLattice(img, br, crop, E.autoCrop.meta); if (!L) break;
-        const v = E.vanishing(E.laneLines(img, br, crop, L.centers, L.pitch), crop.y + crop.h / 2, crop.h); if (!v || !v.point) break;
-        H = M3.mul(E.keystoneH({ x: v.point.across, y: v.point.along }, null, { x: crop.x + crop.w / 2, y: crop.y + crop.h / 2 }), H); img = E.warp(imgK, H);
-      }
-      const got = E.keystoneReport(H, crop), truth = E.keystoneReport(M3.inv(Hk), crop), engine = Math.abs(got.lanesPct - truth.lanesPct) <= 2;
-      R.keystone = { leftAlone, msg: none.message, typed, moved, disclosed, note, rotatedOn, off, restored, got, truth, engine,
+      const imgK = E.warp(img0, Hk);
+      await App.load(new File([G.Demo.encodeTiff16({ width: imgK.w, height: imgK.h, data: imgK.data })], 'keystone_gel.tif'), 'sds-page');
+      const lanesFirst = App.S.lanes.length;
+      const auto = App.autoKeystone();
+      const truth = E.keystoneReport(Hk, App.S.crop), got = App.keystoneReport();   // both: the raw distortion (bottom spacing vs top)
+      const engine = auto.applied && Math.abs(got.lanesPct - truth.lanesPct) <= 2 && App.S.lanes.length === 10 && auto.rounds >= 1 && auto.converged;
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.keystone = { leftAlone, msg: none.message, typed, moved, disclosed, note, rotatedOn, off, restored, got, truth, lanesFirst, auto: { applied: auto.applied, rounds: auto.rounds, lanes: auto.lanes, converged: auto.converged }, engine,
         ok: leftAlone && typed && moved && disclosed && note && rotatedOn && off && restored && engine };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view

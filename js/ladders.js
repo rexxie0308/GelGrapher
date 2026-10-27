@@ -57,7 +57,8 @@
     P('biokaleido', 'Bio-Rad Precision Plus Kaleidoscope (1610375)', BIORAD),
     P('biounstained', 'Bio-Rad Precision Plus Unstained (1610363)', BIORAD, [75, 50, 25]),
     P('biowesternc', 'Bio-Rad Precision Plus WesternC (1610376)', BIORAD, [75, 50, 25]),
-    P('nebp7719', 'NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7719S / P7719V)', [245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11]),
+    P('nebp7712', 'NEB Color Prestained Protein Standard, Broad Range 11–245 kDa (P7712S / P7712L)', [245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11]),
+    P('nebp7718', 'NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7718S / P7718L)', [250, 180, 130, 95, 72, 55, 43, 34, 26, 17, 10], [72, 26]),
     P('nebp7717', 'NEB Unstained Protein Standard, Broad Range 10–200 kDa (P7717S / P7717V)', [250, 150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 10]),
     P('novexsharp', 'Invitrogen Novex Sharp Pre-stained (LC5800)', [260, 160, 110, 80, 60, 50, 40, 30, 20, 15, 10, 3.5]),
     P('seeblueTG', 'Invitrogen SeeBlue Plus2, Tris-glycine (LC5925)', [250, 148, 98, 64, 50, 36, 22, 16, 6, 4]),
@@ -119,7 +120,9 @@
   }
   // kind: optional filter ('dna' | 'rna' | 'protein' | 'native')
   function all(kind) { const a = L.concat(loadCustom()); return kind ? a.filter(l => l.kind === kind) : a; }
-  function get(id) { return all().find(l => l.id === id); }
+  // ids of earlier versions: 'nebp7719' carried the 11–245 kDa list, which is P7712's
+  const ALIAS = { nebp7719: 'nebp7712' };
+  function get(id) { id = ALIAS[id] || id; return all().find(l => l.id === id); }
   // portable definitions of the custom ladders among `ids` (built-ins never need to travel)
   function defsFor(ids) { return [...new Set(ids)].map(get).filter(l => l && l.custom).map(l => ({ id: l.id, name: l.name, sizes: l.sizes, ref: l.ref || [], kind: l.kind })); }
 
