@@ -767,6 +767,36 @@
       const status = /named/.test($('stRange').textContent);
       R.addLane = { armed, ghost, added, disarmed, stillArmed, inStep2, marker3, typed, status, ok: armed && ghost && added && disarmed && stillArmed && inStep2 && marker3 && typed && status };
     }
+    // 48. perspective (keystone) correction: a gel without keystone is left alone, a typed keystone is applied, disclosed, carried
+    // through a rotation and undone; a synthetic keystoned gel is corrected automatically within 2 points of the truth
+    {
+      const $ = id => document.getElementById(id), E = G.Engine, M3 = E.M3;
+      const st = App.S, lanes0 = st.lanes.map(l => l.x), hist0 = App.hist.length;
+      const none = App.autoKeystone(); const leftAlone = !none.applied && !st.keystone && /No keystone|Too few/.test(none.message);
+      $('ksLanes').value = '12'; $('ksLanes').dispatchEvent(new Event('change', { bubbles: true }));
+      const k = st.keystone, typed = !!k && k.on && k.source === 'manual' && k.lanesPct === 12 && Math.abs(App.keystoneReport().lanesPct - 12) < 1.5;
+      const moved = st.lanes.some((l, i) => Math.abs(l.x - lanes0[i]) > 0.5) && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
+      const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Perspective-corrected/.test(h) && /\+12 %/.test(h)) && !!G.Export.processingLog(st).keystone;
+      const note = /typed · lanes \+12 %/.test($('ksNote').textContent);
+      const frameBefore = App.frameKey(st); App.setRotation(st.rotation + 1); App.afterRotation(); App.commit();
+      const rotatedOn = !!st.keystone && st.keystone.on && App.frameKey(st) !== frameBefore && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
+      $('btnKsOff').click(); const off = !st.keystone && !$('ksLanes').value;
+      while (App.hist.length > hist0) App.undo();
+      const restored = !App.S.keystone && App.S.lanes.every((l, i) => Math.abs(l.x - lanes0[i]) < 0.01);   // App.S is a new object after undo
+      // the engine on a known keystone (the interface test runs on the practice gel, which has none)
+      const gg = G.Demo.makeGel({ preset: 'sds', tilt: 0 }), img0 = { w: gg.width, h: gg.height, data: gg.data };
+      const Hk = M3.inv(E.keystoneH({ x: 700, y: -2500 }, null, { x: 700, y: 500 }));
+      const imgK = E.warp(img0, Hk); let img = imgK, H = M3.I(), crop = null;
+      for (let r = 0; r < 4; r++) {
+        const br = E.detectBright(img); crop = E.autoCrop(img, br);
+        const L = E.detectLaneLattice(img, br, crop, E.autoCrop.meta); if (!L) break;
+        const v = E.vanishing(E.laneLines(img, br, crop, L.centers, L.pitch), crop.y + crop.h / 2, crop.h); if (!v || !v.point) break;
+        H = M3.mul(E.keystoneH({ x: v.point.across, y: v.point.along }, null, { x: crop.x + crop.w / 2, y: crop.y + crop.h / 2 }), H); img = E.warp(imgK, H);
+      }
+      const got = E.keystoneReport(H, crop), truth = E.keystoneReport(M3.inv(Hk), crop), engine = Math.abs(got.lanesPct - truth.lanesPct) <= 2;
+      R.keystone = { leftAlone, msg: none.message, typed, moved, disclosed, note, rotatedOn, off, restored, got, truth, engine,
+        ok: leftAlone && typed && moved && disclosed && note && rotatedOn && off && restored && engine };
+    }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

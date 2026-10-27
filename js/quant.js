@@ -126,7 +126,8 @@
     const normS = R.control >= 0 ? `Each band was normalized to the ${R.rows[R.control].name} band of the same lane (loading control)` : R.normMode === 'lane' ? 'Each band was normalized to the total density of its lane inside the figure area (total-protein normalization)' : 'Values were not normalized';
     const relS = R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}${R.names[R.lanes.indexOf(R.ref)] && R.names[R.lanes.indexOf(R.ref)] !== String(R.ref + 1) ? ` (${R.names[R.lanes.indexOf(R.ref)].replace(/\*/g, '')})` : ''}, set to 1.00` : '';
     const sat = R.saturatedLanes.length ? ` Lanes ${R.saturatedLanes.map(i => i + 1).join(', ')} contained saturated pixels and are underestimated.` : ' No pixel in the measured boxes was saturated.';
-    return `Band intensities were quantified in ${A.NAME} ${A.VERSION} on the raw ${bits}image (rotation only; no contrast adjustment entered the measurement). ` +
+    const geom = S.keystone && S.keystone.on ? 'straightened and perspective-corrected in one resampling of the whole image' : 'rotation only';
+    return `Band intensities were quantified in ${A.NAME} ${A.VERSION} on the raw ${bits}image (${geom}; no contrast adjustment entered the measurement). ` +
       `Boxes ${Math.round(R.halfWidthPx * 2)} px wide (${Math.round((S.quant.wFrac || 0.7) * 100)} % of the lane spacing) were placed at the same height in every lane (${R.rows.map(r => r.name).join(', ')}); the value of a box is ${how}, with ${BG_TEXT[R.method] || R.method}. ` +
       `${normS}${relS}.${sat} Values are arbitrary units and compare lanes of this image only.`;
   }

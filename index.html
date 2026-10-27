@@ -123,6 +123,14 @@
             <button class="btn sm" id="btnFlipH" title="Mirrored image? Flip left to right">⇄ Flip horizontal</button>
             <span class="h3-note" id="flipNote"></span>
           </div>
+          <div class="cl-head" style="margin-top:10px">Perspective <span class="h3-note" id="ksNote">off</span></div>
+          <div class="inline mt">
+            <button class="btn sm" id="btnKsAuto" title="Measure the convergence of the lane lines (and of the ladder bands when two or more markers are matched) and correct it with one projective transform of the whole image">Auto</button>
+            <button class="btn sm ghost" id="btnKsOff" title="Back to the uncorrected image; annotations follow">Off</button>
+            <label class="inline-label" title="Lane spacing at the bottom of the red box relative to the top, in percent (+10 = 10 % wider at the bottom); typed values build a symmetric keystone"><span>lanes</span> <input type="number" id="ksLanes" step="0.5" class="num" style="width:58px"> %</label>
+            <label class="inline-label" title="Band spacing at the right of the red box relative to the left, in percent"><span>bands</span> <input type="number" id="ksBands" step="0.5" class="num" style="width:58px"> %</label>
+          </div>
+          <p class="hint">For a gel photographed at an angle: converging lanes (keystone) are made parallel by one projective transform of the whole image, applied together with the straightening in a single resampling. Off by default; stated in the legend notes, the log and the methods. Measurements use the same pixels as the figure.</p>
         </div>
         <div class="field"><label><span>Black point</span> <b id="lvBlackV"></b></label><input type="range" id="lvBlack" min="0" max="1000"></div>
         <div class="field"><label><span>White point</span> <b id="lvWhiteV"></b></label><input type="range" id="lvWhite" min="0" max="1000"></div>

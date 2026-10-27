@@ -157,6 +157,7 @@
       groups: [], conditions: [], arrows: [], strips: [],
       quant: defaultQuant(), markerImage: null, flip: { h: false, v: false },
       gelRows: null, gelRow: 0, rowStash: {},
+      keystone: null,
       style: Object.assign(defaultStyle(), p.style || {}),
       saturatedInCrop: 0
     };
@@ -323,11 +324,22 @@
     App.afterRotation();
   };
 
+  /* The working frame: the source rotated by S.rotation and, when the perspective correction is
+   * on, sent through S.keystone.H (a 3 x 3 homography in the rotated frame), composed into one
+   * matrix so the pixels are resampled once. Every annotation lives in this frame. */
+  App.keystoneH = function (S) { S = S || App.S; return S.keystone && S.keystone.on && S.keystone.H ? S.keystone.H : E.M3.I(); };
+  App.frameMatrix = function (S) {
+    S = S || App.S;
+    const W = App.src.w, H = App.src.h;
+    return E.M3.mul(App.keystoneH(S), E.M3.rotation(S.rotation, (W - 1) / 2, (H - 1) / 2));
+  };
+  App.frameKey = function (S) { S = S || App.S; return `${S.rotation}|${S.keystone && S.keystone.on ? S.keystone.H.map(v => v.toFixed(9)).join(',') : ''}`; };
   App.ensureRot = function () {
     App.applyFlip();
-    if (!App.rot || App.rotFor !== App.S.rotation) {
-      App.rot = E.rotate(App.src, App.S.rotation);
-      App.rotFor = App.S.rotation;
+    const key = App.frameKey(App.S);
+    if (!App.rot || App.rotFor !== key) {
+      App.rot = E.warp(App.src, App.frameMatrix(App.S));
+      App.rotFor = key;
       App.satCanvas = null;
       App._display = null;
     }
@@ -380,7 +392,7 @@
 
   App.renderFull = function () {
     const rot = App.ensureRot(), lv = App.S.levels;
-    const key = [App.S.rotation, lv.black, lv.white, lv.gamma, lv.invert].join('|');
+    const key = [App.frameKey(App.S), lv.black, lv.white, lv.gamma, lv.invert].join('|');
     if (App._display === key) return;
     App._display = key;
     const c = App.fullCanvas;
@@ -425,27 +437,123 @@
     const d = deg - S.rotation;
     if (!d) return;
     const W = App.src.w, H = App.src.h, cx = (W - 1) / 2, cy = (H - 1) / 2;
-    const t = d * Math.PI / 180, co = Math.cos(t), si = Math.sin(t);
-    const T = (x, y) => { const dx = x - cx, dy = y - cy; return { x: co * dx - si * dy + cx, y: si * dx + co * dy + cy }; };
+    const Rd = E.M3.rotation(d, cx, cy);
+    // with the perspective correction on, the homography follows the rotation (conjugated), so
+    // the frame everything lives in turns by exactly Rd
+    if (S.keystone && S.keystone.on) S.keystone.H = E.M3.mul(Rd, E.M3.mul(S.keystone.H, E.M3.inv(Rd)));
+    App.carryFrame(Rd);
+    S.rotation = deg;
+    App.sortLanesIfNeeded();
+    App.ensureRot();
+  };
+  // move every annotation from the current working frame to a new one by the point map T (3 x 3)
+  App.carryFrame = function (T) {
+    const S = App.S, W = App.src.w, H = App.src.h, cx = (W - 1) / 2;
+    const P = (x, y) => E.M3.apply(T, x, y);
     // one set of annotations (the shown row, or a stashed one): everything moves with its crop
     const carry = A => {
       const c = A.crop, ccx = c.x + c.w / 2, ccy = c.y + c.h / 2;
       const laneX0 = A.lanes.map(l => l.x);
-      A.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = T(lx, b.y).y; }); });
-      A.arrows.forEach(a => { a.y = T(ccx, a.y).y; });
+      A.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = P(lx, b.y).y; }); });
+      A.arrows.forEach(a => { a.y = P(ccx, a.y).y; });
       // strips and band boxes span the crop: carried at its horizontal centre like arrows
-      A.strips.concat(A.quant.rows).forEach(r => { r.y0 = T(ccx, r.y0).y; r.y1 = T(ccx, r.y1).y; });
-      A.lanes.forEach(l => { l.x = T(l.x, ccy).x; });
-      const nc = T(ccx, ccy);
+      A.strips.concat(A.quant.rows).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
+      A.lanes.forEach(l => { l.x = P(l.x, ccy).x; });
+      const nc = P(ccx, ccy);
+      // the crop keeps its size: a homography scales the centre by 1, a rotation not at all
       const w = Math.min(c.w, W), h = Math.min(c.h, H);
       A.crop = { x: Math.round(Math.max(0, Math.min(W - w, nc.x - w / 2))), y: Math.round(Math.max(0, Math.min(H - h, nc.y - h / 2))), w: Math.round(w), h: Math.round(h) };
     };
     carry(S);
     Object.values(S.rowStash || {}).forEach(carry);
-    if (S.gelRows) S.gelRows.forEach(r => { r.y0 = T(cx, r.y0).y; r.y1 = T(cx, r.y1).y; });
-    S.rotation = deg;
+    if (S.gelRows) S.gelRows.forEach(r => { r.y0 = P(cx, r.y0).y; r.y1 = P(cx, r.y1).y; });
+  };
+
+  /* ---------- perspective (keystone) correction ----------
+   * S.keystone = null (off) or { on: true, H: [9], source: 'auto' | 'manual', lanesPct, bandsPct, bands }:
+   * H maps the rotated frame to the working frame; lanesPct / bandsPct say how the raw image
+   * was distorted (lane spacing at the bottom of the box relative to the top, band spacing at
+   * the right relative to the left), for the panel, the legend notes and the log. */
+  App.setKeystone = function (next) {
+    const S = App.S, K0 = App.keystoneH(S), K1 = next && next.on ? next.H : E.M3.I();
+    App.carryFrame(E.M3.mul(K1, E.M3.inv(K0)));
+    S.keystone = next && next.on ? next : null;
     App.sortLanesIfNeeded();
     App.ensureRot();
+  };
+  // after a change of the perspective: the same refresh as after a rotation
+  App.afterKeystone = function () { App.afterRotation(); };
+  App.keystoneReport = function () {
+    const S = App.S;
+    if (!S.keystone || !S.keystone.on) return { lanesPct: 0, bandsPct: 0 };
+    return E.keystoneReport(E.M3.inv(S.keystone.H), S.crop);
+  };
+  /* The band rows of the ladders: every size matched in two or more marker lanes gives a line
+   * y = a + b (x - xc) through those bands; their vanishing point (or null). */
+  App.bandRowVanishing = function () {
+    const S = App.S, c = S.crop, xc = c.x + c.w / 2;
+    const mk = S.markers.filter(m => S.lanes[m.lane]);
+    if (mk.length < 2) return null;
+    const bySize = new Map();
+    mk.forEach(m => m.bands.forEach(b => {
+      if (!(b.matched || b.manual) || b.bp == null) return;
+      if (!bySize.has(b.bp)) bySize.set(b.bp, []);
+      bySize.get(b.bp).push({ x: S.lanes[m.lane].x, y: b.y });
+    }));
+    const lines = [];
+    bySize.forEach(pts => {
+      if (pts.length < 2) return;
+      let n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+      pts.forEach(q => { const dx = q.x - xc; sx += dx; sy += q.y; sxx += dx * dx; sxy += dx * q.y; });
+      const den = n * sxx - sx * sx;
+      if (den <= 0) return;
+      const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
+      lines.push({ a, b, n });
+    });
+    return E.vanishing(lines, xc, c.w);
+  };
+  /* Estimate the perspective from the lane lines (and the ladder bands when two or more markers
+   * are matched), apply it, and repeat on the corrected image until the lanes no longer converge
+   * (at most 4 rounds). Returns { applied, lanesPct, bandsPct, message }. */
+  App.autoKeystone = function () {
+    const S = App.S;
+    let applied = false, lines = 0, lastV = null;
+    for (let round = 0; round < 4; round++) {
+      const img = App.ensureRot(), c = S.crop, xs = S.lanes.map(l => l.x), P = S.lanePitch || (S.laneHalfW / 0.3);
+      if (xs.length < 5) return { applied, message: 'The perspective is measured on the lane lines: it needs at least five lanes' };
+      const L = E.laneLines(img, S.bright, c, xs, P);
+      lines = L.filter(Boolean).length;
+      const v = E.vanishing(L, c.y + c.h / 2, c.h), u = App.bandRowVanishing();
+      lastV = v;
+      if (!v) break;
+      const V = v.point ? { x: v.point.across, y: v.point.along } : null;
+      const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
+      if (!V && !U) break;
+      const Hi = E.keystoneH(V, U, { x: c.x + c.w / 2, y: c.y + c.h / 2 });
+      App.setKeystone({ on: true, H: E.M3.mul(Hi, App.keystoneH(S)), source: 'auto', lanesPct: 0, bandsPct: 0, bands: !!U || !!(S.keystone && S.keystone.bands) });
+      applied = true;
+    }
+    if (S.keystone && S.keystone.on) Object.assign(S.keystone, App.keystoneReport());
+    if (!applied) {
+      const msg = !lastV ? `Too few lanes with a clear, straight line to measure the perspective (${lines} of ${S.lanes.length})`
+        : `No keystone found: the lane lines do not converge consistently (${lines} lanes measured; spacing change ${(lastV.change * 100).toFixed(1)} % is within the scatter). Lanes that drift on their own are the gel's own distortion, which a perspective correction must not touch.`;
+      return { applied: false, message: msg };
+    }
+    const k = S.keystone;
+    return { applied: true, lanesPct: k.lanesPct, bandsPct: k.bandsPct, message: `Perspective corrected: the lane spacing at the bottom of the box was ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top${k.bands ? `, the band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left` : ''} (from ${lines} lane lines${k.bands ? ' and the ladder bands' : ''})` };
+  };
+  /* A keystone typed by hand, symmetric about the box: lanesPct = lane spacing at the bottom of
+   * the box relative to the top (+10 = 10 % wider), bandsPct = band spacing at the right relative
+   * to the left. Built from the rotated frame, so typing replaces an automatic estimate. */
+  App.setKeystoneManual = function (lanesPct, bandsPct) {
+    const S = App.S;
+    App.setKeystone(null);
+    const c = S.crop, xc = c.x + c.w / 2, yc = c.y + c.h / 2;
+    const rL = 1 + (+lanesPct || 0) / 100, rB = 1 + (+bandsPct || 0) / 100;
+    const V = Math.abs(rL - 1) < 1e-4 ? null : { x: xc, y: (rL * c.y - (c.y + c.h)) / (rL - 1) };
+    const U = Math.abs(rB - 1) < 1e-4 ? null : { x: (rB * c.x - (c.x + c.w)) / (rB - 1), y: yc };
+    if (!V && !U) return;
+    App.setKeystone({ on: true, H: E.keystoneH(V, U, { x: xc, y: yc }), source: 'manual', lanesPct: +lanesPct || 0, bandsPct: +bandsPct || 0, bands: !!U });
   };
   // after a rotation is committed: refresh things that depend on pixels
   App.afterRotation = function () {
@@ -1287,6 +1395,7 @@
     if (S.gelRows === undefined) S.gelRows = null;
     if (S.gelRow == null) S.gelRow = 0;
     S.rowStash = S.rowStash || {};
+    if (!S.keystone || !S.keystone.on || !Array.isArray(S.keystone.H) || S.keystone.H.length !== 9) S.keystone = null;
     return S;
   }
   App.normalizeState = normalize;

@@ -1,6 +1,11 @@
 # Geometric correction of photographed gels: design and rules
 
-Status: **planned, not implemented.** This document is the design the app will follow, written before the code so the rules are fixed first. The lane detector it builds on (comb pitch, slab edges, margin rules) is in `js/engine.js` since 2026-10 and is scored by `node tools/lane-bench.mjs`.
+Status: **level A (projective keystone) implemented** in step 1 → *Perspective* (2026-10): automatic from the lane lines and the ladder bands, or typed; composed with the rotation into one resampling; carried through rotation and undo; disclosed in the legend notes, the log and the methods. Level C (smooth non-rigid warp for smiles and contraction) and the four draggable slab corners are not built. Two findings from building it changed the plan below:
+
+- **Densitometry uses the same resampled pixels as the figure**, as it already did for the rotation (one bilinear resampling of the whole image, the methods paragraph says so). Mapping band boxes back to the unrotated source is a separate change for both rotation and keystone.
+- **A photographed gel that is distorted by itself is not a keystone.** On the sanity-check gel (three ladders, torn corner, lysate smears) the three ladders drift by −1.2 %, −4.1 % and −1.9 % of their length, with no trend across the gel: the per-lane slopes scatter, so the estimator must say "no keystone" rather than fit a plane through the scatter. Hence the rules in `E.vanishing`: at least five lane lines, a 3 σ test against the scatter of the slopes about the slope-versus-position line, no trimming of outliers (trimming the lanes that disagree is exactly what would turn distortion into a fake perspective), and the same test again on the corrected image until nothing significant remains. Synthetic gels with a true keystone of 22–34 % are corrected to within 0.3 points.
+
+The lane detector it builds on (comb pitch, slab edges, margin rules) is in `js/engine.js` and is scored by `node tools/lane-bench.mjs`.
 
 ## The problem
 
@@ -43,7 +48,7 @@ Three levels, applied in this order, each one only when the previous cannot expl
 
 Artefact rules, applied to every level:
 
-1. **Densitometry never uses corrected pixels.** Band boxes and lane profiles are measured on the raw image; the box corners are mapped back through the inverse transform. A warp changes the area of a pixel differently across the image, so the integral of a band would depend on where it sits. (Segre 2022 shows standard warps do not conserve intensity sums.)
+1. **Densitometry on the least-processed pixels.** Today the measurement runs on the once-resampled working image (rotation and keystone composed), as it did for the rotation alone, and the methods paragraph says so; the next step is to map band boxes back through the inverse transform and measure on the unrotated source. A warp changes the area of a pixel differently across the image, so the integral of a band depends on where it sits (Segre 2022 shows standard warps do not conserve pixel sums); the keystone's scale is 1 at the centre of the figure area and the percentages in the legend bound the effect.
 2. **One resampling, bilinear.** No bicubic or Lanczos (ringing at band edges), no sharpening, no upsampling beyond the native pixel size; the corrected image has the same pixel pitch as the raw one along the longer edge.
 3. **Global or smooth only.** No per-lane shifts, no local cloning; the mesh is continuous and its Jacobian is bounded (a node may move at most 0.4 pitch from its lattice position).
 4. **Default off; opt-in with a preview.** The raw image stays what the editor shows; "Geometry" in step 1 has *Keystone: off / auto / corners* and *Straighten smile: off / on* with a before-after preview. A figure without correction is always one click away.
@@ -78,7 +83,7 @@ Step 1, Image → **Geometry** fold:
 - Preview toggle above the figure: raw ↔ corrected.
 - Both switches write to the processing log, the legend notes and the methods text; both are carried in the project file and the Library.
 
-## Order of work
+## Order of work (1–3 done for level A, see Status)
 
 1. Slab corners (x edges exist; add y edges, corner handles, robust line fit). Test: synthetic gels with a known homography applied (`Demo.makeGel` + `Engine.warp`), corners recovered within 2 px.
 2. Homography composed with the rotation; `App.ensureRot` becomes `App.ensureGeom`; annotations stay in the raw frame; the renderer samples through the transform. Test: the lane lattice on the corrected user gel finds 13 wells with the right ladder as a marker.

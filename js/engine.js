@@ -95,6 +95,176 @@
     return { w, h, data: out };
   }
 
+  /* ---------- projective geometry (keystone correction) ----------
+   * 3 x 3 matrices as row-major arrays of 9; points are (x, y, 1). */
+  const M3 = {
+    I: () => [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    mul(A, B) {
+      const o = new Array(9);
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o[r * 3 + c] = A[r * 3] * B[c] + A[r * 3 + 1] * B[3 + c] + A[r * 3 + 2] * B[6 + c];
+      return o;
+    },
+    inv(m) {
+      const [a, b, c, d, e, f, g, h, i] = m;
+      const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+      const det = a * A + b * B + c * C;
+      if (!det) return null;
+      return [A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det, -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det];
+    },
+    apply(m, x, y) {
+      const w = m[6] * x + m[7] * y + m[8];
+      return { x: (m[0] * x + m[1] * y + m[2]) / w, y: (m[3] * x + m[4] * y + m[5]) / w };
+    },
+    // the rotation that rotate(img, deg) applies, as the forward map from source to output pixels
+    rotation(deg, cx, cy) {
+      const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+      return [c, -s, cx - c * cx + s * cy, s, c, cy - s * cx - c * cy, 0, 0, 1];
+    },
+    isIdentity: m => m.every((v, i) => Math.abs(v - (i % 4 === 0 ? 1 : 0)) < 1e-9)
+  };
+
+  // Resample img through the forward map M (source -> output), same canvas size, edges clamped,
+  // bilinear: the one resampling of the whole pipeline (rotation and keystone composed in M)
+  function warp(img, M) {
+    if (M3.isIdentity(M)) return img;
+    const { w, h, data } = img, out = new Float32Array(w * h), inv = M3.inv(M);
+    if (!inv) return img;
+    const [a, b, c, d, e, f, g, hh, i] = inv;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ww = g * x + hh * y + i;
+        let sx = (a * x + b * y + c) / ww, sy = (d * x + e * y + f) / ww;
+        sx = clamp(sx, 0, w - 1.001); sy = clamp(sy, 0, h - 1.001);
+        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, k = y0 * w + x0;
+        out[y * w + x] = (data[k] * (1 - fx) + data[k + 1] * fx) * (1 - fy) + (data[k + w] * (1 - fx) + data[k + w + 1] * fx) * fy;
+      }
+    }
+    return { w, h, data: out };
+  }
+
+  /* The direction of every lane: in nBands horizontal bands of the crop the lane's centre is the
+   * centroid of the band's presence profile within 0.45 pitch of its line; a weighted
+   * least-squares line x = a + b (y - yc) through them. Passes: the first searches at the lane's
+   * x, the next near the line's prediction, so a lane that drifts over the crop (a keystoned
+   * photograph) is followed. Bands without signal (above or below the gel) and lanes with fewer
+   * than 4 bands or scattering more than 0.12 pitch about their line give null. */
+  function laneLines(img, bright, crop, laneXs, pitch, nBands) {
+    nBands = nBands || 12;
+    const yc = crop.y + crop.h / 2, bh = crop.h / nBands;
+    const rows = [];
+    for (let k = 0; k < nBands; k++) {
+      const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
+      const sig = signal(band, bright);
+      const q = gaussSmooth(presenceProfile(sig, crop.w), Math.max(1, crop.w / 250));
+      let mx = 0; for (const v of q) mx = Math.max(mx, v);
+      rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
+    }
+    // a band of the crop above or below the gel has no lane in it: its weak centroids are noise
+    const gmx = Math.max(1e-9, ...rows.map(r => r.mx));
+    const centroidNear = (r, xp) => {
+      if (r.mx < gmx * 0.15) return null;
+      const a = clamp(Math.round(xp - crop.x - pitch * 0.45), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * 0.45), 0, r.q.length - 1);
+      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
+      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
+      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
+      const cx = sxw / sw + crop.x;
+      return Math.abs(cx - xp) > pitch * 0.4 ? null : { y: r.y, x: cx, w: sw };
+    };
+    const fit = pts => {
+      if (pts.length < 4) return null;
+      let W = 0, sy = 0, sx = 0, syy = 0, sxy = 0;
+      pts.forEach(p => { const dy = p.y - yc; W += p.w; sy += p.w * dy; sx += p.w * p.x; syy += p.w * dy * dy; sxy += p.w * dy * p.x; });
+      const den = W * syy - sy * sy;
+      if (den <= 0) return null;
+      const b = (W * sxy - sy * sx) / den, a = (sx - b * sy) / W;
+      let res = 0; pts.forEach(p => { res = Math.max(res, Math.abs(p.x - (a + b * (p.y - yc)))); });
+      return { a, b, n: pts.length, res };
+    };
+    return laneXs.map(x0 => {
+      let line = fit(rows.map(r => centroidNear(r, x0)).filter(Boolean));
+      for (let pass = 0; line && pass < 4; pass++) {
+        const next = fit(rows.map(r => centroidNear(r, line.a + line.b * (r.y - yc))).filter(Boolean));
+        if (!next) break;
+        const same = next.n === line.n && Math.abs(next.b - line.b) < 1e-4;
+        line = next;
+        if (same) break;
+      }
+      return line && line.res <= pitch * 0.12 ? line : null;
+    });
+  }
+
+  /* Vanishing point of a family of nearly parallel lines x = a + b (y - yc) (lanes) or
+   * y = a + b (x - xc) (band rows): the slope grows linearly with the position, b = b0 + b1 a,
+   * and the lines meet at distance -1/b1 from the centre. Returns null when there are fewer than
+   * five lines, and point: null when the convergence is not significant (|b1| below three times its standard error
+   * or below 0.5 % of spacing change over the extent). */
+  function vanishing(lines, centre, extent) {
+    const L = lines.filter(Boolean);
+    if (L.length < 5) return null;
+    const reg = P => {
+      const n = P.length;
+      let sa = 0, sb = 0, saa = 0, sab = 0;
+      P.forEach(l => { sa += l.a; sb += l.b; saa += l.a * l.a; sab += l.a * l.b; });
+      const den = n * saa - sa * sa;
+      if (den <= 0) return null;
+      const b1 = (n * sab - sa * sb) / den, b0 = (sb - b1 * sa) / n;
+      let ss = 0; P.forEach(l => { ss += (l.b - (b0 + b1 * l.a)) ** 2; });
+      return { b0, b1, se: n > 2 ? Math.sqrt(ss / (n - 2) / (saa - sa * sa / n)) : Infinity, n };
+    };
+    const r = reg(L);
+    if (!r) return null;
+    // lanes bent by the gel itself (smears, a torn corner, contraction) are kept, not trimmed:
+    // their scatter is what tells a real keystone (every lane converging alike) from a gel that
+    // is simply distorted, which must come out as "not significant"
+    const { b0, b1, se, n } = r;
+    // spacing change over the extent: lines spaced s at the centre are spaced s (1 ± b1 extent / 2) at the ends
+    const change = b1 * extent;
+    if (Math.abs(change) < 0.005 || Math.abs(b1) < 3 * se) return { point: null, b0, b1, se, change, n };
+    // the point: along the family's axis at centre - 1/b1, across it at -b0/b1
+    return { point: { along: centre - 1 / b1, across: -b0 / b1 }, b0, b1, se, change, n };
+  }
+
+  /* The homography that makes the lane family vertical and the band family horizontal: V is the
+   * lanes' vanishing point (x, y) or null (already parallel), U the band rows' (x, y) or null.
+   * The line through U and V becomes the line at infinity; an affine part then turns the two
+   * directions vertical and horizontal, keeps the centre c where it is and the scale there 1. */
+  function keystoneH(V, U, c) {
+    const Vh = V ? [V.x, V.y, 1] : [0, 1, 0], Uh = U ? [U.x, U.y, 1] : [1, 0, 0];
+    if (!V && !U) return M3.I();
+    // line at infinity l = U x V, scaled so l . c = 1 (the centre keeps w = 1)
+    let l = [Uh[1] * Vh[2] - Uh[2] * Vh[1], Uh[2] * Vh[0] - Uh[0] * Vh[2], Uh[0] * Vh[1] - Uh[1] * Vh[0]];
+    const lc = l[0] * c.x + l[1] * c.y + l[2];
+    if (Math.abs(lc) < 1e-12) return M3.I();
+    l = l.map(v => v / lc);
+    const Hp = [1, 0, 0, 0, 1, 0, l[0], l[1], l[2]];
+    // directions after Hp (points at infinity): columns of D
+    const dir = P => { const r = [Hp[0] * P[0] + Hp[1] * P[1] + Hp[2] * P[2], Hp[3] * P[0] + Hp[4] * P[1] + Hp[5] * P[2]]; const n = Math.hypot(r[0], r[1]) || 1; return [r[0] / n, r[1] / n]; };
+    let dv = dir(Vh), du = dir(Uh);
+    if (dv[1] < 0) dv = [-dv[0], -dv[1]];
+    if (du[0] < 0) du = [-du[0], -du[1]];
+    // A maps du -> (1, 0) and dv -> (0, 1): A = inverse of [du dv]
+    const det = du[0] * dv[1] - dv[0] * du[1];
+    if (Math.abs(det) < 1e-6) return M3.I();
+    const A = [dv[1] / det, -dv[0] / det, 0, -du[1] / det, du[0] / det, 0, 0, 0, 1];
+    let H = M3.mul(A, Hp);
+    // unit scale at the centre: the Jacobian's determinant there becomes 1
+    const e = 1e-3, p0 = M3.apply(H, c.x, c.y), px = M3.apply(H, c.x + e, c.y), py = M3.apply(H, c.x, c.y + e);
+    const J = ((px.x - p0.x) * (py.y - p0.y) - (py.x - p0.x) * (px.y - p0.y)) / (e * e);
+    const sc = 1 / Math.sqrt(Math.abs(J) || 1);
+    H = M3.mul([sc, 0, 0, 0, sc, 0, 0, 0, 1], H);
+    const q = M3.apply(H, c.x, c.y);
+    return M3.mul([1, 0, c.x - q.x, 0, 1, c.y - q.y, 0, 0, 1], H);
+  }
+
+  // how much the correction does, for the legend and the panel: the change of horizontal spacing
+  // between the top and the bottom of the crop and of vertical spacing between its left and right
+  function keystoneReport(H, crop) {
+    const e = 1, sx = y => { const a = M3.apply(H, crop.x + crop.w / 2, y), b = M3.apply(H, crop.x + crop.w / 2 + e, y); return Math.hypot(b.x - a.x, b.y - a.y); };
+    const sy = x => { const a = M3.apply(H, x, crop.y + crop.h / 2), b = M3.apply(H, x, crop.y + crop.h / 2 + e); return Math.hypot(b.x - a.x, b.y - a.y); };
+    const top = sx(crop.y), bot = sx(crop.y + crop.h), left = sy(crop.x), right = sy(crop.x + crop.w);
+    return { lanesPct: +((bot / top - 1) * 100).toFixed(1), bandsPct: +((right / left - 1) * 100).toFixed(1) };
+  }
+
   function cropImg(img, r) {
     const x0 = clamp(Math.round(r.x), 0, img.w - 1), y0 = clamp(Math.round(r.y), 0, img.h - 1);
     const w = clamp(Math.round(r.w), 1, img.w - x0), h = clamp(Math.round(r.h), 1, img.h - y0);
@@ -1156,6 +1326,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport
   };
 })(window);

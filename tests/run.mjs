@@ -88,6 +88,7 @@ const UI_CHECKS = [
   ['analysis window under the figure: divider, closing, reopening, active window; plot options, normalization modes, package ZIP', r => r.analysis.ok, ['analysis']],
   ['several lane lines selected and moved together, spread between two; a typed arrow size moves the arrow', r => r.multiSel.ok, ['multiSel']],
   ['"+ Add lane" places a lane at the click, Shift keeps it armed; lane names and the paste box are in step 2, Marker is step 3', r => r.addLane.ok, ['addLane']],
+  ['perspective correction: a gel without keystone is left alone, a typed keystone is applied, disclosed, carried through a rotation and undone; a known keystone is corrected within 2 points', r => r.keystone.ok, ['keystone']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 
