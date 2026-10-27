@@ -53,8 +53,8 @@ From GelFigure:
 
 - **Automatic first draft**: straightening (±15°), crop, lane detection, ladder identification and size labels, linear contrast.
 - **Edit on the figure**: click a lane name and type, Enter jumps to the next lane; drag across lane names for a group line; click cells to cycle `+` / `−`. A group label wider than its line wraps onto even lines (or shrinks, or stays on one line: Layout → Long group labels); Shift+Enter starts a new line by hand.
-- **Lanes numbered by well**: cropping only chooses which wells are shown, so names and annotations survive any crop.
-- **Target-band arrows with sizes** estimated from the ladder(s); values outside the ladder are marked `≈`.
+- **Lanes numbered by well**: cropping only chooses which wells are shown, so names and annotations survive any crop. Shift+click selects several lane lines on the raw image to move them together; two selected lines can have the lanes between them spread evenly.
+- **Target-band arrows with sizes** estimated from the ladder(s); values outside the ladder are marked `≈`. Typing a size in the arrow window moves the arrow to where the markers place that size.
 - **Several exposures at once**: the best one (least saturation, best signal-to-noise) is chosen.
 - **Lane removal with splice marks**, empty-lane suggestions, rotation that carries every annotation.
 - **Pre-flight check before export**: camera saturation, contrast clipping, effective resolution below 300 dpi, small fonts, extrapolated sizes.

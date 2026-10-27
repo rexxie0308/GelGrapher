@@ -168,7 +168,16 @@
     pop.querySelector('#pName').addEventListener('input', e => { a.text = e.target.value; upd(); });
     pop.querySelector('#pName').addEventListener('keydown', e => { if (e.key === 'Enter' && !composing(e)) closePop(); });
     pop.querySelector('#pSize').addEventListener('change', e => { a.size = e.target.checked; upd(); });
-    pop.querySelector('#pSizeText').addEventListener('input', e => { a.sizeText = e.target.value.trim(); if (a.sizeText) { a.size = true; pop.querySelector('#pSize').checked = true; } upd(); });
+    pop.querySelector('#pSizeText').addEventListener('input', e => {
+      a.sizeText = e.target.value.trim();
+      if (a.sizeText) { a.size = true; pop.querySelector('#pSize').checked = true; }
+      // bilateral: a typed size moves the arrow to where the markers put that size (the magenta line on the image follows)
+      if (a.sizeText && App.arrowToSize(k, a.sizeText)) {
+        const i2 = App.estimateInfo(a.y);
+        pop.querySelector('.est').innerHTML = i2 ? `Moved to ${App.fmtSize(i2.bp)} on the marker scale${i2.extrap ? ' <span class="warn-t">(outside the marker range)</span>' : ''}` : estHtml;
+      }
+      upd();
+    });
     pop.querySelector('#pSide').addEventListener('change', e => { a.side = e.target.value; upd(); });
     pop.querySelector('#pOk').onclick = closePop;
     pop.querySelector('#pDel').onclick = () => { S().arrows.splice(k, 1); App.selArrow = -1; popK = -1; pop.classList.add('hidden'); App.commit(); };

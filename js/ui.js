@@ -540,6 +540,14 @@
   });
   G.UI_relane = relaneMarkers;
   $('btnEvenCrop').onclick = evenCrop;
+  // two selected lanes (Shift+click), dragged onto their lanes: the lanes between them spread evenly
+  $('btnSpread').onclick = () => {
+    if (needImage()) return;
+    const sel = [...App.selLanes];
+    if (sel.length !== 2) { toast('Shift+click two lane lines on the image first (e.g. the first and the last of a run), drag them onto their lanes, then click Spread'); return; }
+    if (!App.spreadBetween(sel[0], sel[1])) { toast('No lanes between the two selected ones'); return; }
+    App.commit(); toast(`Spread the lanes between wells ${Math.min(...sel) + 1} and ${Math.max(...sel) + 1} evenly`);
+  };
   $('cropLaneN').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); evenCrop(); } });
 
   // empty lanes inside the range: suggest cutting them (never done silently)
@@ -718,7 +726,7 @@
     const emptyShown = st.lanes.some((l, i) => empty.has(i) && !l.hidden && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]);
     $('laneList').innerHTML = `<div class="pick">${'Show:'} <a href="#" data-pick="all">${'all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the empty wells'}</a>` : ''}</div>` + st.lanes.map((l, i) => {
       const out = !r || i < r[0] || i > r[1];
-      return `<div class="item${i === App.selLane ? ' sel' : ''}${out ? ' out' : ''}">
+      return `<div class="item${App.selLanes.has(i) ? ' sel' : ''}${out ? ' out' : ''}">
         <span class="idx">${i + 1}</span>
         <input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${isMarkerLane(i) ? 'M' : 'Name'}">
         ${empty.has(i) ? `<span class="tag" title="${'almost no bands'}">${'empty'}</span>` : ''}

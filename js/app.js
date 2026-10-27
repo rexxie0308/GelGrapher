@@ -25,7 +25,7 @@
     satCanvas: null,
     listeners: [],
     hist: [], future: [],
-    selLane: -1, selArrow: -1,
+    _selLane: -1, selLanes: new Set(), selArrow: -1,   // selected lane(s) on the raw image: selLane is the primary, selLanes every one
   };
 
   // preferences live in localStorage when the browser allows it, in memory otherwise
@@ -959,7 +959,63 @@
     const lo = Math.min(...used.map(p => p.bp)), hi = Math.max(...used.map(p => p.bp));
     return { bp, extrap: !inside.length, disagree: used.length > 1 && hi / lo > 1.1, perMarker: per, used: used.map(p => p.lane) };
   };
+  Object.defineProperty(App, 'selLane', { configurable: true, get() { return App._selLane; }, set(v) { App._selLane = v; App.selLanes = v >= 0 ? new Set([v]) : new Set(); } });
+  // several lanes at once (Shift / Ctrl + click on the raw image): `primary` is the one the keyboard and the list follow
+  App.selectLanes = function (list, primary) {
+    const l = [...new Set(list)].filter(i => i >= 0 && i < App.S.lanes.length);
+    App.selLanes = new Set(l); App._selLane = primary != null && l.includes(primary) ? primary : (l.length ? l[l.length - 1] : -1);
+  };
+  // the lanes strictly between two selected ones get even spacing (drag the ends onto their lanes first)
+  App.spreadBetween = function (i, j) {
+    const S = App.S, a = Math.min(i, j), b = Math.max(i, j), n = b - a;
+    if (n < 2) return false;
+    const x0 = S.lanes[a].x, x1 = S.lanes[b].x;
+    for (let k = 1; k < n; k++) S.lanes[a + k].x = x0 + (x1 - x0) * k / n;
+    return true;
+  };
   App.estimateBp = function (yAbs) { const r = App.estimateInfo(yAbs); return r ? r.bp : null; };
+
+  /* The inverse: the image row where a size would run, from the same marker bands (piecewise-linear in ln(size),
+   * extrapolated beyond the outermost bands), averaged over the markers that bracket it. Null without two bands. */
+  App.yForSize = function (bp) {
+    if (!(bp > 0)) return null;
+    const ys = [], inside = [];
+    App.S.markers.forEach(m => {
+      const B = m.bands.filter(b => (b.matched || b.manual) && b.y != null).slice().sort((a, b) => a.y - b.y);
+      if (B.length < 2) return;
+      let i = 0;
+      while (i < B.length - 2 && bp < B[i + 1].bp) i++;   // sizes fall down the lane
+      const a = B[i], b = B[i + 1];
+      if (a.bp === b.bp) return;
+      const t = (Math.log(bp) - Math.log(a.bp)) / (Math.log(b.bp) - Math.log(a.bp)), y = a.y + t * (b.y - a.y);
+      ys.push(y); if (bp <= B[0].bp && bp >= B[B.length - 1].bp) inside.push(y);
+    });
+    const use = inside.length ? inside : ys;
+    return use.length ? use.reduce((s, v) => s + v, 0) / use.length : null;
+  };
+  // a typed size ("12", "12 kDa", "1.5 kb", "452 bp", "300 nt") in the base unit of the experiment, or null
+  App.parseSize = function (text) {
+    const m = /^\s*[~≈]?\s*([\d.,]+)\s*([a-zA-Zµ]*)\s*$/.exec(String(text || ''));
+    if (!m) return null;
+    const v = parseFloat(m[1].replace(',', '.'));
+    if (!(v > 0)) return null;
+    const u = m[2].toLowerCase(), base = App.baseUnit();
+    if (!u) return v;
+    if (base === 'kDa') return u === 'kda' || u === 'kd' ? v : u === 'da' ? v / 1000 : null;
+    if (u === 'kb' || u === 'knt') return v * 1000;
+    if (u === 'bp' || u === 'nt' || u === 'b') return v;
+    if (u === 'mb') return v * 1e6;
+    return null;
+  };
+  // the arrow follows a typed size when the markers can place it; returns true when it moved
+  App.arrowToSize = function (k, text) {
+    const a = App.S.arrows[k]; if (!a) return false;
+    const bp = App.parseSize(text), y = bp != null ? App.yForSize(bp) : null;
+    if (y == null) return false;
+    const c = App.S.crop;
+    a.y = Math.max(c.y, Math.min(c.y + c.h, y));
+    return true;
+  };
 
   /* Lanes in the figure range with no real band signal (excluding markers and lanes already cut).
    * Only a suggestion: empty wells are usually part of the experiment (NTC, blank). */

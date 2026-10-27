@@ -86,6 +86,7 @@ const UI_CHECKS = [
   ['raster exports checked against the canvas limit; banded TIFF render matches', r => r.raster.ok, ['raster']],
   ['editable PowerPoint: text boxes per label, cropped gel pictures per block, valid package', r => r.pptx.ok, ['pptx']],
   ['analysis window under the figure: divider, closing, reopening, active window; plot options, normalization modes, package ZIP', r => r.analysis.ok, ['analysis']],
+  ['several lane lines selected and moved together, spread between two; a typed arrow size moves the arrow', r => r.multiSel.ok, ['multiSel']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 

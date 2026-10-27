@@ -136,7 +136,7 @@
     const crowded = every > 1;
     if (crowded) ctx.font = '600 10px -apple-system, Segoe UI, Arial, sans-serif';
     S.lanes.forEach((l, i) => {
-      const p = toScr(l.x, c.y), sel = i === App.selLane, hov = hover && hover.type === 'lane' && hover.i === i;
+      const p = toScr(l.x, c.y), sel = App.selLanes.has(i), hov = hover && hover.type === 'lane' && hover.i === i;
       const isM = mkLanes.has(i), out = l.x < c.x || l.x > c.x + c.w;
       ctx.globalAlpha = out ? 0.45 : 1;
       if (sel) { ctx.fillStyle = 'rgba(47,111,235,.10)'; ctx.fillRect(p.x - half * view.s, a.y, 2 * half * view.s, b.y - a.y); }
@@ -311,7 +311,16 @@
     }
     const h = hitTest(sx, sy, e.shiftKey);
     drag = { h, sx, sy, p0: p, crop0: Object.assign({}, App.S.crop), moved: false, view0: Object.assign({}, view) };
-    if (h.type === 'lane') { App.selLane = h.i; App.selArrow = -1; drag.x0 = App.S.lanes[h.i].x; App.emit('select'); }
+    if (h.type === 'lane') {
+      // Shift / Ctrl + click adds the lane to the selection (or takes it out); a drag moves every selected lane together
+      const multi = e.shiftKey || e.ctrlKey || e.metaKey;
+      if (multi) { const s = new Set(App.selLanes); if (s.has(h.i)) s.delete(h.i); else s.add(h.i); App.selectLanes([...s], h.i); }
+      else if (!App.selLanes.has(h.i)) App.selLane = h.i;
+      else App._selLane = h.i;
+      App.selArrow = -1;
+      drag.lanes = (App.selLanes.has(h.i) ? [...App.selLanes] : [h.i]).map(i => [App.S.lanes[i], App.S.lanes[i].x]);
+      App.emit('select');
+    }
     else if (h.type === 'arrow') { App.selArrow = h.i; App.selLane = -1; drag.y0 = App.S.arrows[h.i].y; App.emit('select'); }
     else if (h.type === 'band') { drag.y0 = App.S.markers[h.m].bands[h.i].y; }
     else if (h.type === 'qedge') { drag.y0 = App.S.quant.rows[h.k][h.e]; }
@@ -380,7 +389,7 @@
       }
       S.crop = { x: Math.round(x0), y: Math.round(y0), w: Math.round(x1 - x0), h: Math.round(y1 - y0) };
     } else if (h.type === 'lane') {
-      S.lanes[h.i].x = Math.max(0, Math.min(rot.w, drag.x0 + dx));
+      drag.lanes.forEach(([l, x0]) => { l.x = Math.max(0, Math.min(rot.w, x0 + dx)); });
     } else if (h.type === 'band') {
       const b = S.markers[h.m].bands[h.i];
       b.y = Math.max(0, Math.min(rot.h, drag.y0 + dy)); b.manual = true; b.matched = false;
@@ -416,7 +425,9 @@
       return;
     }
     if (d.h.type === 'crop' || d.h.type === 'cropmove') { App.updateSaturation(); if (App.afterRangeChange) App.afterRangeChange(); }
-    if (d.h.type === 'lane') { const moved = S.lanes[d.h.i]; App.sortLanesIfNeeded(); App.selLane = S.lanes.indexOf(moved); }
+    if (d.h.type === 'lane') { const prim = S.lanes[d.h.i], objs = d.lanes.map(([l]) => l); App.sortLanesIfNeeded(); App.selectLanes(objs.map(o => S.lanes.indexOf(o)), S.lanes.indexOf(prim)); }
+    // a dragged arrow takes its size from where it now sits: a typed size no longer applies
+    if (d.h.type === 'arrow') { const a = S.arrows[d.h.i]; if (a && a.sizeText && App.parseSize(a.sizeText) != null) a.sizeText = ''; }
     if (d.h.type === 'band') App.matchMarkers(false);
     if (d.h.type !== 'pan' && d.h.type !== 'inside') App.commit();
     cv.style.cursor = cursorFor(hover);
@@ -456,7 +467,7 @@
   box.addEventListener('keydown', (e) => {
     if (!App.S || e.target !== box) return;
     if (e.key === 'Delete') {
-      if (App.selLane >= 0) { App.removeLane(App.selLane); App.selLane = -1; App.commit(); e.preventDefault(); }
+      if (App.selLanes.size) { [...App.selLanes].sort((a, b) => b - a).forEach(i => App.removeLane(i)); App.selLane = -1; App.commit(); e.preventDefault(); }
       else if (App.selArrow >= 0) { App.S.arrows.splice(App.selArrow, 1); App.selArrow = -1; App.commit(); e.preventDefault(); }
     }
     // H: cut the selected lane from the figure / bring it back (splice gap added automatically)
@@ -465,8 +476,9 @@
       App.toggleLaneHidden(App.selLane, !l.hidden).then(ok => { if (ok) App.commit(); });
       e.preventDefault();
     }
-    if (App.selLane >= 0 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-      App.S.lanes[App.selLane].x += (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 5 : 1);
+    if (App.selLanes.size && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const d = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 5 : 1);
+      App.selLanes.forEach(i => { App.S.lanes[i].x += d; });
       App.commit(); e.preventDefault();
     }
   });

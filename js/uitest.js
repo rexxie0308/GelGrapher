@@ -724,6 +724,25 @@
       R.analysis = { only, both, split, figClosed, empty, figBack, segOpens, clickActivates, numbered, label, title, pts, bars, titled, laneNorm, csvNorm, methodsOk, noneNorm, names, pkOk, back,
         ok: page && numbered && label && title && pts > 0 && titled && laneNorm && csvNorm && methodsOk && noneNorm && pkOk && back };
     }
+    // 46. several lane lines at once (Shift-select): moved together by the keyboard, spread between two; a typed arrow size moves the arrow
+    {
+      const st = App.S, keepLanes = JSON.stringify(st.lanes), keepArrows = JSON.stringify(st.arrows), box = document.getElementById('editorBox');
+      App.selectLanes([1, 3], 3);
+      const two = App.selLanes.size === 2 && App.selLane === 3;
+      const x1 = st.lanes[1].x, x3 = st.lanes[3].x, x2 = st.lanes[2].x;
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+      const movedTogether = st.lanes[1].x === x1 + 5 && st.lanes[3].x === x3 + 5 && st.lanes[2].x === x2;
+      st.lanes[2].x = x1; const spread = App.spreadBetween(1, 3) && Math.abs(st.lanes[2].x - (st.lanes[1].x + st.lanes[3].x) / 2) < 1e-6;
+      App.selLane = 2; const single = App.selLanes.size === 1 && App.selLanes.has(2);
+      st.arrows.push({ y: st.crop.y + 10, text: '', size: true, side: '' }); const k = st.arrows.length - 1;
+      const parse = App.parseSize('12') === 12 && App.parseSize('35 kDa') === 35 && App.parseSize('1.5 kb') === null && App.parseSize('abc') === null;
+      const moved = App.arrowToSize(k, '35 kDa'), est = App.estimateBp(st.arrows[k].y), close = est != null && Math.abs(est - 35) / 35 < 0.03;
+      const round = Math.abs(App.yForSize(est) - st.arrows[k].y) < 0.5;
+      const clamped = App.arrowToSize(k, '1000 kDa') && st.arrows[k].y >= st.crop.y && st.arrows[k].y <= st.crop.y + st.crop.h;
+      st.lanes = JSON.parse(keepLanes); st.arrows = JSON.parse(keepArrows); App.selLane = -1; App.commit();
+      R.multiSel = { two, movedTogether, spread, single, parse, moved, est: est && +est.toFixed(1), close, round, clamped,
+        ok: two && movedTogether && spread && single && parse && moved && close && round && clamped };
+    }
     // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();
