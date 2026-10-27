@@ -104,13 +104,12 @@
         </div>
         <p class="hint" id="invNote"></p>
         <div class="cl-head" style="margin-top:8px">Perspective / distortion <span class="h3-note" id="ksNote">off</span></div>
-        <div class="inline">
-          <button class="btn sm" id="btnKsAuto" title="Measure the convergence of the lane lines (and of the ladder bands when two or more markers are matched) and correct it with one projective transform of the whole image">Auto</button>
-          <button class="btn sm ghost" id="btnKsOff" title="Back to the uncorrected image; annotations follow">Off</button>
-          <label class="inline-label" title="Lane spacing at the bottom of the red box relative to the top, in percent (+10 = 10 % wider at the bottom); typed values build a symmetric keystone"><span>lanes</span> <input type="number" id="ksLanes" step="0.5" class="num" style="width:58px"> %</label>
-          <label class="inline-label" title="Band spacing at the right of the red box relative to the left, in percent"><span>bands</span> <input type="number" id="ksBands" step="0.5" class="num" style="width:58px"> %</label>
+        <div class="seg" id="geomSeg">
+          <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
+          <button data-geom="manual" title="A box with four free corners on the raw image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
+          <button data-geom="off" title="The uncorrected image; annotations follow">Off</button>
         </div>
-        <p class="hint">A gel photographed at an angle (lanes converging): <b>Auto</b> finds the perspective from the lane lines and corrects it with one transform of the whole image; or type how much wider the lanes are at the bottom than at the top. Off by default, stated in the legend notes and the log. A gel that is bent or shrunk unevenly is not perspective; Auto says so and leaves it alone.</p>
+        <p class="hint" id="geomHint">Runs automatically when an image is opened. <b>Auto</b> corrects a camera angle (converging lanes) and bent lanes, from the lane traces and the ladder bands only, never from sample bands. <b>Manual</b> shows a box with four free corners on the raw image: drag each onto a corner of the gel. Everything is stated in the legend notes and the log; after a correction the lanes and markers are detected again (a ladder you chose is kept).</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">

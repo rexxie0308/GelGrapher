@@ -1,9 +1,9 @@
 # Geometric correction of photographed gels: design and rules
 
-Status: **level A (projective keystone) implemented** in step 1 → *Perspective* (2026-10): automatic from the lane lines and the ladder bands, or typed; composed with the rotation into one resampling; carried through rotation and undo; disclosed in the legend notes, the log and the methods. Level C (smooth non-rigid warp for smiles and contraction) and the four draggable slab corners are not built. Two findings from building it changed the plan below:
+Status: **levels A and C implemented** (2026-10) as one displacement grid (`E.Grid`): the projective keystone from the lane lines and ladder band rows, and the per-lane straightening from lane traces (horizontal) and the ladder band rows across well-fitting markers (vertical), sample bands never used as anchors. Auto runs at load and on demand, recursively with the lanes detected again between rounds; Manual is a four-corner box; Off restores. Two findings from building it changed the plan below:
 
-- **Densitometry uses the same resampled pixels as the figure**, as it already did for the rotation (one bilinear resampling of the whole image, the methods paragraph says so). Mapping band boxes back to the unrotated source is a separate change for both rotation and keystone.
-- **A photographed gel that is distorted by itself is not a keystone.** On the sanity-check gel (three ladders, torn corner, lysate smears) the three ladders drift by −1.2 %, −4.1 % and −1.9 % of their length, with no trend across the gel: the per-lane slopes scatter, so the estimator must say "no keystone" rather than fit a plane through the scatter. Hence the rules in `E.vanishing`: at least five lane lines, a 3 σ test against the scatter of the slopes about the slope-versus-position line, no trimming of outliers (trimming the lanes that disagree is exactly what would turn distortion into a fake perspective), and the same test again on the corrected image until nothing significant remains. Synthetic gels with a true keystone of 22–34 % are corrected to within 0.3 points.
+- **Densitometry uses the same resampled pixels as the figure**, as it already did for the rotation (one bilinear resampling of the whole image, the methods paragraph says so). Mapping band boxes back to the unrotated source is a separate change for both rotation and geometry.
+- **A photographed gel that is distorted by itself is not a keystone.** On the sanity-check gel (three ladders, torn corner, lysate smears) the three ladders drift by −1.2 %, −4.1 % and −1.9 % of their length, with no trend across the gel: the per-lane slopes scatter, so the keystone estimator says "no keystone" (at least five lane lines, a 3 σ test against the scatter, no trimming) and the per-lane straightening does the work (largest shift 23 px on that gel). The keystone is only estimated while no straightening has been applied: straightened lanes are parallel by construction, and a keystone fitted after them would only re-bend the gel. A round that would shift anything by more than a lane pitch is a wrong trace and is rejected; every trace is held constant beyond the rows where its lane was seen.
 
 The lane detector it builds on (comb pitch, slab edges, margin rules) is in `js/engine.js` and is scored by `node tools/lane-bench.mjs`.
 
@@ -83,7 +83,7 @@ Step 1, Image → **Geometry** fold:
 - Preview toggle above the figure: raw ↔ corrected.
 - Both switches write to the processing log, the legend notes and the methods text; both are carried in the project file and the Library.
 
-## Order of work (1–3 done for level A, see Status)
+## Order of work (1–3 and 5 done, see Status; 4 is `E.vanishing` on the lane lines)
 
 1. Slab corners (x edges exist; add y edges, corner handles, robust line fit). Test: synthetic gels with a known homography applied (`Demo.makeGel` + `Engine.warp`), corners recovered within 2 px.
 2. Homography composed with the rotation; `App.ensureRot` becomes `App.ensureGeom`; annotations stay in the raw frame; the renderer samples through the transform. Test: the lane lattice on the corrected user gel finds 13 wells with the right ladder as a marker.

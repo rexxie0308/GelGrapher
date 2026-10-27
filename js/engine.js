@@ -265,6 +265,197 @@
     return { lanesPct: +((bot / top - 1) * 100).toFixed(1), bandsPct: +((right / left - 1) * 100).toFixed(1) };
   }
 
+  /* ---------- displacement grid: the general geometry of a corrected image ----------
+   * A grid of nx x ny nodes over the output canvas (W x H); node (i, j) holds the SOURCE
+   * coordinate (in the rotated frame) of output point (i W/(nx-1), j H/(ny-1)). Between nodes the
+   * source coordinate is bilinear. One grid holds a keystone (sampled from a homography), the
+   * per-lane straightening (a smooth displacement field), or both composed; the image is
+   * resampled once through it. {nx, ny, W, H, pts: [sx0, sy0, sx1, sy1, ...]} */
+  const Grid = {
+    identity(W, H, nx, ny) {
+      nx = nx || 33; ny = ny || 33;
+      const pts = new Array(nx * ny * 2);
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { pts[(j * nx + i) * 2] = i * W / (nx - 1); pts[(j * nx + i) * 2 + 1] = j * H / (ny - 1); }
+      return { nx, ny, W, H, pts };
+    },
+    // the source coordinate of output point (x, y)
+    at(g, x, y) {
+      const fx = clamp(x / g.W * (g.nx - 1), 0, g.nx - 1 - 1e-9), fy = clamp(y / g.H * (g.ny - 1), 0, g.ny - 1 - 1e-9);
+      const i = fx | 0, j = fy | 0, tx = fx - i, ty = fy - j, p = g.pts, k = (j * g.nx + i) * 2, k2 = k + g.nx * 2;
+      return {
+        x: (p[k] * (1 - tx) + p[k + 2] * tx) * (1 - ty) + (p[k2] * (1 - tx) + p[k2 + 2] * tx) * ty,
+        y: (p[k + 1] * (1 - tx) + p[k + 3] * tx) * (1 - ty) + (p[k2 + 1] * (1 - tx) + p[k2 + 3] * tx) * ty
+      };
+    },
+    // the output point of source point (x, y): the inverse, by iteration (the displacements are
+    // smooth and small compared with the node spacing, so a few steps converge)
+    inv(g, x, y) {
+      let qx = x, qy = y;
+      for (let k = 0; k < 12; k++) {
+        const s = Grid.at(g, qx, qy), ex = x - s.x, ey = y - s.y;
+        qx += ex; qy += ey;
+        if (Math.abs(ex) + Math.abs(ey) < 1e-3) break;
+      }
+      return { x: qx, y: qy };
+    },
+    // the grid of a homography H (source -> output): nodes hold H^-1(output)
+    fromH(H, W, Hh, nx, ny) {
+      const g = Grid.identity(W, Hh, nx, ny), inv = M3.inv(H);
+      if (!inv) return g;
+      for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) { const k = (j * g.nx + i) * 2, p = M3.apply(inv, g.pts[k], g.pts[k + 1]); g.pts[k] = p.x; g.pts[k + 1] = p.y; }
+      return g;
+    },
+    // output -> source through g2 after g1: the grid of "g1 applied first, then g2" (g2's source frame is g1's output frame)
+    compose(g1, g2) {
+      const g = Grid.identity(g2.W, g2.H, g2.nx, g2.ny);
+      for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) { const k = (j * g.nx + i) * 2, m = Grid.at(g2, g.pts[k], g.pts[k + 1]), p = Grid.at(g1, m.x, m.y); g.pts[k] = p.x; g.pts[k + 1] = p.y; }
+      return g;
+    },
+    // the same geometry after the frame turned by the point map T (3 x 3): T . grid . T^-1
+    conjugate(g, T) {
+      const inv = M3.inv(T), out = Grid.identity(g.W, g.H, g.nx, g.ny);
+      for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) { const k = (j * g.nx + i) * 2, q = M3.apply(inv, out.pts[k], out.pts[k + 1]), p = Grid.at(g, q.x, q.y), r = M3.apply(T, p.x, p.y); out.pts[k] = r.x; out.pts[k + 1] = r.y; }
+      return out;
+    },
+    isIdentity(g) { for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) { const k = (j * g.nx + i) * 2; if (Math.abs(g.pts[k] - i * g.W / (g.nx - 1)) > 1e-6 || Math.abs(g.pts[k + 1] - j * g.H / (g.ny - 1)) > 1e-6) return false; } return true; },
+    // the largest local scale change of the grid (max |d source / d output| - 1), a plausibility bound
+    maxScale(g) {
+      let mx = 0;
+      for (let j = 0; j < g.ny; j++) for (let i = 1; i < g.nx; i++) { const k = (j * g.nx + i) * 2; mx = Math.max(mx, Math.abs(Math.hypot(g.pts[k] - g.pts[k - 2], g.pts[k + 1] - g.pts[k - 1]) / (g.W / (g.nx - 1)) - 1)); }
+      for (let j = 1; j < g.ny; j++) for (let i = 0; i < g.nx; i++) { const k = (j * g.nx + i) * 2, k0 = ((j - 1) * g.nx + i) * 2; mx = Math.max(mx, Math.abs(Math.hypot(g.pts[k] - g.pts[k0], g.pts[k + 1] - g.pts[k0 + 1]) / (g.H / (g.ny - 1)) - 1)); }
+      return mx;
+    }
+  };
+
+  // Resample img through the grid g (output -> source in the frame of img) composed with the
+  // point map M (that frame -> img's own frame, e.g. the inverse rotation), bilinear, edges clamped
+  function warpGrid(img, g, M) {
+    const { w, h, data } = img, out = new Float32Array(w * h);
+    const useM = M && !M3.isIdentity(M);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let s = Grid.at(g, x, y);
+        if (useM) s = M3.apply(M, s.x, s.y);
+        const sx = clamp(s.x, 0, w - 1.001), sy = clamp(s.y, 0, h - 1.001);
+        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, k = y0 * w + x0;
+        out[y * w + x] = (data[k] * (1 - fx) + data[k + 1] * fx) * (1 - fy) + (data[k + w] * (1 - fx) + data[k + w + 1] * fx) * fy;
+      }
+    }
+    return { w, h, data: out };
+  }
+
+  /* The homography that sends a quadrilateral (TL, TR, BR, BL, source) to the rectangle of the
+   * same centre whose width and height are the means of the quad's opposite sides (DLT, 4 points). */
+  function homographyFromQuad(q) {
+    const cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4, cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
+    const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const w = (d(q[0], q[1]) + d(q[3], q[2])) / 2, h = (d(q[0], q[3]) + d(q[1], q[2])) / 2;
+    const r = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]];
+    // solve the 8 x 8 system A h = b for h = [h11 h12 h13 h21 h22 h23 h31 h32], h33 = 1
+    const A = [], b = [];
+    for (let k = 0; k < 4; k++) {
+      const [x, y] = q[k], [u, v] = r[k];
+      A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+      A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+    }
+    const n = 8;
+    for (let c = 0; c < n; c++) {
+      let piv = c; for (let rr = c + 1; rr < n; rr++) if (Math.abs(A[rr][c]) > Math.abs(A[piv][c])) piv = rr;
+      [A[c], A[piv]] = [A[piv], A[c]]; [b[c], b[piv]] = [b[piv], b[c]];
+      if (Math.abs(A[c][c]) < 1e-12) return null;
+      for (let rr = 0; rr < n; rr++) if (rr !== c) { const f = A[rr][c] / A[c][c]; for (let cc = c; cc < n; cc++) A[rr][cc] -= f * A[c][cc]; b[rr] -= f * b[c]; }
+    }
+    const hh = b.map((v, i) => v / A[i][i]);
+    return [hh[0], hh[1], hh[2], hh[3], hh[4], hh[5], hh[6], hh[7], 1];
+  }
+
+  /* Lane traces: the path of every lane down the crop as points {y, x} in nBands bands (the
+   * centroid of the band's presence profile near the lane, tracked band by band from the centre
+   * outward), smoothed by a quadratic in y. Lanes with fewer than 4 points give null. */
+  function laneTraces(img, bright, crop, laneXs, pitch, nBands) {
+    nBands = nBands || 16;
+    const yc = crop.y + crop.h / 2, bh = crop.h / nBands, rows = [];
+    for (let k = 0; k < nBands; k++) {
+      const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
+      const q = gaussSmooth(presenceProfile(signal(band, bright), crop.w), Math.max(1, crop.w / 250));
+      let mx = 0; for (const v of q) mx = Math.max(mx, v);
+      rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
+    }
+    const gmx = Math.max(1e-9, ...rows.map(r => r.mx));
+    const centroidNear = (r, xp) => {
+      if (r.mx < gmx * 0.15) return null;
+      const a = clamp(Math.round(xp - crop.x - pitch * 0.4), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * 0.4), 0, r.q.length - 1);
+      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
+      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
+      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
+      const cx = sxw / sw + crop.x;
+      return Math.abs(cx - xp) > pitch * 0.3 ? null : { y: r.y, x: cx, w: sw };
+    };
+    const mid = rows.length >> 1;
+    return laneXs.map(x0 => {
+      // track outward from the middle band, each step predicted by the last centroid
+      const pts = [];
+      for (const dir of [1, -1]) {
+        let xp = x0;
+        for (let k = dir > 0 ? mid : mid - 1; k >= 0 && k < rows.length; k += dir) {
+          const c = centroidNear(rows[k], xp);
+          if (c) { pts.push(c); xp = c.x; }
+        }
+      }
+      if (pts.length < 4) return null;
+      // weighted quadratic x = a + b t + c t^2, t = y - yc
+      let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
+      pts.forEach(p => { const t = p.y - yc, w = p.w; S0 += w; S1 += w * t; S2 += w * t * t; S3 += w * t * t * t; S4 += w * t * t * t * t; T0 += w * p.x; T1 += w * t * p.x; T2 += w * t * t * p.x; });
+      const M = [S0, S1, S2, S1, S2, S3, S2, S3, S4], inv = M3.inv(M);
+      if (!inv) return null;
+      const a = inv[0] * T0 + inv[1] * T1 + inv[2] * T2, b = inv[3] * T0 + inv[4] * T1 + inv[5] * T2, c = inv[6] * T0 + inv[7] * T1 + inv[8] * T2;
+      let res = 0; pts.forEach(p => { const t = p.y - yc; res = Math.max(res, Math.abs(p.x - (a + b * t + c * t * t))); });
+      if (res > pitch * 0.15) return null;
+      // the trace is only known where the lane was seen: beyond its first and last point it is held
+      const t0 = Math.min(...pts.map(p => p.y)) - yc, t1 = Math.max(...pts.map(p => p.y)) - yc;
+      return { a, b, c, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, at: y => { const t = clamp(y - yc, t0, t1); return a + b * t + c * t * t; } };
+    });
+  }
+
+  /* The grid that straightens the lanes: every traced lane is moved to a vertical line at its
+   * position in the middle of the crop; between lanes the shift is interpolated linearly in x,
+   * beyond the outermost lanes it is held; above and below the crop it fades to zero over half
+   * the crop height. rows: optional ladder band rows [{at: x => y, yc}] (the same for y, from
+   * the markers only). Returns {grid, maxShift}. */
+  function straightenGrid(W, H, crop, traces, rows, nx, ny) {
+    const g = Grid.identity(W, H, nx, ny), yc = crop.y + crop.h / 2, xc = crop.x + crop.w / 2;
+    const T = traces.filter(Boolean).sort((p, q) => p.a - q.a);
+    const R = (rows || []).filter(Boolean).sort((p, q) => p.yc - q.yc);
+    const fadeY = y => { const d = Math.max(0, Math.max(crop.y - y, y - crop.y - crop.h)); return Math.max(0, 1 - d / (crop.h / 2)); };
+    const fadeX = x => { const d = Math.max(0, Math.max(crop.x - x, x - crop.x - crop.w)); return Math.max(0, 1 - d / (crop.w / 2)); };
+    const dxAt = (x, y) => {
+      if (!T.length) return 0;
+      const sh = T.map(t => t.at(y) - t.a);
+      if (x <= T[0].a) return sh[0];
+      if (x >= T[T.length - 1].a) return sh[sh.length - 1];
+      let i = 0; while (i < T.length - 1 && T[i + 1].a < x) i++;
+      const f = (x - T[i].a) / (T[i + 1].a - T[i].a);
+      return sh[i] * (1 - f) + sh[i + 1] * f;
+    };
+    const dyAt = (x, y) => {
+      if (!R.length) return 0;
+      const sh = R.map(r => r.at(x) - r.yc);
+      if (y <= R[0].yc) return sh[0];
+      if (y >= R[R.length - 1].yc) return sh[sh.length - 1];
+      let i = 0; while (i < R.length - 1 && R[i + 1].yc < y) i++;
+      const f = (y - R[i].yc) / (R[i + 1].yc - R[i].yc);
+      return sh[i] * (1 - f) + sh[i + 1] * f;
+    };
+    let maxShift = 0;
+    for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+      const k = (j * g.nx + i) * 2, x = g.pts[k], y = g.pts[k + 1];
+      const dx = dxAt(x, y) * fadeY(y), dy = dyAt(x, y) * fadeX(x);
+      maxShift = Math.max(maxShift, Math.abs(dx), Math.abs(dy));
+      g.pts[k] = x + dx; g.pts[k + 1] = y + dy;
+    }
+    return { grid: g, maxShift, lanes: T.length, rows: R.length, xc, yc };
+  }
+
   function cropImg(img, r) {
     const x0 = clamp(Math.round(r.x), 0, img.w - 1), y0 = clamp(Math.round(r.y), 0, img.h - 1);
     const w = clamp(Math.round(r.w), 1, img.w - x0), h = clamp(Math.round(r.h), 1, img.h - y0);
@@ -1326,6 +1517,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, laneTraces, straightenGrid
   };
 })(window);

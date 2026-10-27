@@ -464,25 +464,34 @@
     }, 20);
   };
   $('btnResetRot').onclick = () => { if (!S()) return; App.resetRotation(); App.commit(); toast(`Back to the automatic angle ${S().rotation}°`); };
-  // perspective (keystone): automatic from the lane lines, typed percentages, or off
-  $('btnKsAuto').onclick = () => {
-    if (!S()) return;
-    App.busy(true, 'Measuring the perspective…');
-    setTimeout(() => {
-      const r = App.autoKeystone(); App.busy(false);
-      if (r.applied) { App.afterKeystone(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
-      toast(r.message, r.applied ? 5000 : 6000);
-    }, 20);
-  };
-  $('btnKsOff').onclick = () => { if (!S() || !S().keystone) return; App.setKeystone(null); App.afterKeystone(); App.commit(); G.Editor.fitCrop(); toast('Perspective correction off; annotations followed'); };
-  const ksTyped = () => {
-    if (!S()) return;
-    const a = +$('ksLanes').value || 0, b = +$('ksBands').value || 0;
-    if (!a && !b) { if (S().keystone) { App.setKeystone(null); App.afterKeystone(); App.commit(); } return; }
-    App.setKeystoneManual(a, b); App.afterKeystone(); App.commit(); G.Editor.fitCrop();
-    toast(`Perspective set by hand: lanes ${a > 0 ? '+' : ''}${a} %, bands ${b > 0 ? '+' : ''}${b} % (stated in the legend notes)`);
-  };
-  $('ksLanes').addEventListener('change', ksTyped); $('ksBands').addEventListener('change', ksTyped);
+  // geometry: automatic (perspective + lane straightening, recursive), a manual four-corner box, or off
+  function geomMode() { const g = S() && S().geom; return g ? g.mode : 'off'; }
+  function geomSeg() { document.querySelectorAll('#geomSeg button').forEach(b => b.classList.toggle('on', b.dataset.geom === geomMode())); G.Editor.setCorners(geomMode() === 'manual'); }
+  document.querySelectorAll('#geomSeg button').forEach(b => b.onclick = () => {
+    if (needImage()) return;
+    const m = b.dataset.geom;
+    if (m === 'auto') {
+      App.busy(true, 'Measuring the geometry…');
+      setTimeout(() => {
+        if (S().geom && S().geom.mode === 'manual') App.setGeom(null);
+        const r = App.autoGeometry(); App.busy(false);
+        if (r.applied) { App.afterGeom(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
+        geomSeg(); toast(r.message, 6000);
+      }, 20);
+    } else if (m === 'manual') {
+      if (S().geom && S().geom.mode === 'auto') App.setGeom(null);
+      if (!S().geom) { App.setGeomCorners(App.geomCornersWork()); }
+      App.afterGeom(); App.commit(); geomSeg();
+      toast('Drag the four corners of the blue box onto the corners of the gel; the lanes and markers are detected again when you release', 6000);
+    } else {
+      if (S().geom) { App.setGeom(null); App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
+      geomSeg(); toast('Geometry correction off; lanes and markers detected again');
+    }
+  });
+  // a manual corner was released: map, then the lanes and markers again
+  App.onCornersDone = () => { App.afterGeom(); App.redetectAll(); App.afterRangeChange(); G.Editor.fitCrop(); };   // the editor commits
+  App.onCropDone = () => { App.redetectAll(); App.afterRangeChange(); };
+  G.UI_geomSeg = geomSeg;
   const flipBtn = (id, axis) => { $(id).onclick = () => {
     if (!S()) return;
     App.busy(true, 'Flipping…');
@@ -846,7 +855,7 @@
       + (st.levels.invert ? 'inverted' : 'raw')
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
-    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.keystone && st.keystone.on ? ' · perspective' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
+    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.geom ? ' · geometry' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
     set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
@@ -882,11 +891,9 @@
     $('rotAuto').textContent = App.autoRotation != null ? `auto ${App.autoRotation}°` : '';
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
-    const k = st.keystone && st.keystone.on ? st.keystone : null;
-    $('ksNote').textContent = k ? `${k.source === 'manual' ? 'typed' : 'auto'} · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.bands || k.bandsPct ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : 'off';
-    if (document.activeElement !== $('ksLanes')) $('ksLanes').value = k ? k.lanesPct : '';
-    if (document.activeElement !== $('ksBands')) $('ksBands').value = k ? k.bandsPct : '';
-    $('btnKsOff').disabled = !k;
+    const k = st.geom;
+    $('ksNote').textContent = !k ? 'off' : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}`;
+    geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;

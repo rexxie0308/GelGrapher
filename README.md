@@ -143,7 +143,7 @@ Inside Claude, each export asks you to confirm the save. Claude accepts PNG, PDF
 
 ## Image integrity
 
-A gel photographed at an angle can be **perspective-corrected** (step 1 → *Perspective*): one projective transform of the whole image, found automatically from the converging lane lines (and ladder bands) or typed as percentages, composed with the straightening so the pixels are resampled once. It is off by default, refused when the lanes do not converge consistently (that is the gel's own distortion, not perspective), carried through rotation and undo, and stated in the legend notes, the processing log (with the matrix) and the methods paragraph. `docs/geometry-correction.md` has the design, the artefact rules and the literature.
+A photographed gel is **geometry-corrected** automatically when it opens (step 1 → *Perspective / distortion*, Auto / Manual / Off): a camera angle (converging lanes) by one projective transform found from the lane lines and the ladder bands, and bent lanes by a smooth displacement field that straightens the traced lanes and levels the ladder band rows, never using sample bands as anchors; lanes and markers are detected again on the corrected image until they settle. *Manual* is a box with four free corners dragged onto the gel's corners; *Off* shows the raw image. Rotation and geometry are composed into one resampling, the correction is carried through undo and project files, and it is stated in the legend notes, the processing log (with the displacement grid) and the methods paragraph. `docs/geometry-correction.md` has the design, the artefact rules and the literature.
 
 GelGrapher follows common journal image policies (e.g. Nature, PLOS, JBC; Rossner & Yamada, *J Cell Biol* 2004):
 

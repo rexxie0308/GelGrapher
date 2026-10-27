@@ -6,7 +6,7 @@
   const box = document.getElementById('editorBox');
   const ctx = cv.getContext('2d');
   const view = { s: 1, ox: 0, oy: 0 };
-  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null;
+  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null, cornersOn = false;
   const HIT = 7;
 
   const toImg = (sx, sy) => ({ x: (sx - view.ox) / view.s, y: (sy - view.oy) / view.s });
@@ -117,6 +117,13 @@
       ctx.fillRect(a.x, ya, b.x - a.x, yb - ya);
     }
 
+    // the manual geometry box: four free corners dragged onto the gel's corners
+    if (cornersOn) {
+      const q = (drag && drag.h.type === 'corner') ? drag.corners : App.geomCornersWork();
+      ctx.strokeStyle = '#2f6feb'; ctx.lineWidth = 2; ctx.setLineDash([]);
+      ctx.beginPath(); q.forEach(([x, y], i) => { const p = toScr(x, y); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }); ctx.closePath(); ctx.stroke();
+      q.forEach(([x, y]) => { const p = toScr(x, y); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); });
+    }
     // crop rect + handles
     ctx.strokeStyle = '#ff4d4f'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
     ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
@@ -243,6 +250,7 @@
     const S = App.S; if (!S) return null;
     const c = S.crop, p = toImg(sx, sy), tol = HIT / view.s;
     if (spaceDown) return { type: 'pan' };
+    if (cornersOn) { const q = App.geomCornersWork(); for (let k = 0; k < 4; k++) if (Math.hypot(p.x - q[k][0], p.y - q[k][1]) <= tol * 1.6) return { type: 'corner', k }; }
     for (const [hx, hy, k] of handles()) if (Math.abs(p.x - hx) <= tol * 1.3 && Math.abs(p.y - hy) <= tol * 1.3) return { type: 'crop', k };
     const inX = p.x >= c.x - tol && p.x <= c.x + c.w + tol, inY = p.y >= c.y - tol && p.y <= c.y + c.h + tol;
     for (let k = 0; k < S.arrows.length; k++) if (Math.abs(p.y - S.arrows[k].y) <= tol && inX) return { type: 'arrow', i: k };
@@ -275,6 +283,7 @@
   function cursorFor(h) {
     if (!h) return 'default';
     if (h.type === 'crop') return CURSORS[h.k];
+    if (h.type === 'corner') return 'move';
     if (h.type === 'lane') return 'ew-resize';
     if (h.type === 'band' || h.type === 'arrow' || h.type === 'qedge' || h.type === 'sedge') return 'ns-resize';
     if (h.type === 'qbody') return 'move';
@@ -329,6 +338,7 @@
     }
     const h = hitTest(sx, sy, e.shiftKey);
     drag = { h, sx, sy, p0: p, crop0: Object.assign({}, App.S.crop), moved: false, view0: Object.assign({}, view) };
+    if (h.type === 'corner') drag.corners = App.geomCornersWork().map(c => c.slice());
     if (h.type === 'lane') {
       // Shift / Ctrl + click adds the lane to the selection (or takes it out); a drag moves every selected lane together
       const multi = e.shiftKey || e.ctrlKey || e.metaKey;
@@ -392,6 +402,7 @@
     if (Math.abs(sx - drag.sx) + Math.abs(sy - drag.sy) > 2) drag.moved = true;
     const S = App.S, h = drag.h, rot = App.rot;
     if (h.type === 'pan' || h.type === 'inside') { view.ox = drag.view0.ox + (sx - drag.sx); view.oy = drag.view0.oy + (sy - drag.sy); draw(); return; }
+    if (h.type === 'corner') { drag.corners[h.k] = [E_clamp(p.x, 0, rot.w), E_clamp(p.y, 0, rot.h)]; draw(); return; }
     if (h.type === 'crop' || h.type === 'cropmove') {
       const c0 = drag.crop0;
       let x0 = c0.x, y0 = c0.y, x1 = c0.x + c0.w, y1 = c0.y + c0.h;
@@ -443,7 +454,8 @@
       cv.style.cursor = cursorFor(hover);
       return;
     }
-    if (d.h.type === 'crop' || d.h.type === 'cropmove') { App.updateSaturation(); if (App.afterRangeChange) App.afterRangeChange(); }
+    if (d.h.type === 'crop' || d.h.type === 'cropmove') { App.updateSaturation(); if (App.onCropDone) App.onCropDone(); else if (App.afterRangeChange) App.afterRangeChange(); }
+    if (d.h.type === 'corner') { App.setGeomCorners(d.corners); if (App.onCornersDone) App.onCornersDone(); }
     if (d.h.type === 'lane') { const prim = S.lanes[d.h.i], objs = d.lanes.map(([l]) => l); App.sortLanesIfNeeded(); App.selectLanes(objs.map(o => S.lanes.indexOf(o)), S.lanes.indexOf(prim)); }
     // a dragged arrow takes its size from where it now sits: a typed size no longer applies
     if (d.h.type === 'arrow') { const a = S.arrows[d.h.i]; if (a && a.sizeText && App.parseSize(a.sizeText) != null) a.sizeText = ''; }
@@ -516,5 +528,5 @@
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
   // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null) };
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null), setCorners: on => { cornersOn = !!on; draw(); } };
 })(window);

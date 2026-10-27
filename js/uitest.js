@@ -767,37 +767,38 @@
       const status = /named/.test($('stRange').textContent);
       R.addLane = { armed, ghost, added, disarmed, stillArmed, inStep2, marker3, typed, status, ok: armed && ghost && added && disarmed && stillArmed && inStep2 && marker3 && typed && status };
     }
-    // 48. perspective (keystone) correction: a gel without keystone is left alone, a typed keystone is applied, disclosed, carried
-    // through a rotation and undone; a synthetic keystoned gel is corrected automatically within 2 points of the truth
+    // 48. geometry correction: Auto runs at load (a keystoned gel loaded as a file comes out corrected within 2 points,
+    // all lanes found), the seg shows the mode, Off restores, Manual shows a four-corner box whose corners map the gel,
+    // a rotation and undo carry it, and the legend / log disclose it
     {
       const $ = id => document.getElementById(id), E = G.Engine, M3 = E.M3;
-      const st = App.S, lanes0 = st.lanes.map(l => l.x), hist0 = App.hist.length;
-      const none = App.autoKeystone(); const leftAlone = !none.applied && !st.keystone && /No keystone|Too few/.test(none.message);
-      $('ksLanes').value = '12'; $('ksLanes').dispatchEvent(new Event('change', { bubbles: true }));
-      const k = st.keystone, typed = !!k && k.on && k.source === 'manual' && k.lanesPct === 12 && Math.abs(App.keystoneReport().lanesPct - 12) < 1.5;
-      const moved = st.lanes.some((l, i) => Math.abs(l.x - lanes0[i]) > 0.5) && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
-      const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Perspective-corrected/.test(h) && /\+12 %/.test(h)) && !!G.Export.processingLog(st).keystone;
-      const note = /typed · lanes \+12 %/.test($('ksNote').textContent);
-      const frameBefore = App.frameKey(st); App.setRotation(st.rotation + 1); App.afterRotation(); App.commit();
-      const rotatedOn = !!st.keystone && st.keystone.on && App.frameKey(st) !== frameBefore && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
-      $('btnKsOff').click(); const off = !st.keystone && !$('ksLanes').value;
-      while (App.hist.length > hist0) App.undo();
-      const restored = !App.S.keystone && App.S.lanes.every((l, i) => Math.abs(l.x - lanes0[i]) < 0.01);   // App.S is a new object after undo
-      // the app on a known keystone: a synthetic SDS gel sent through a perspective, loaded as a file; Auto must
-      // correct it within 2 points, detect the lanes again on the corrected image (all 10) and settle
       const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
       const gg = G.Demo.makeGel({ preset: 'sds', tilt: 0 }), img0 = { w: gg.width, h: gg.height, data: gg.data };
       const Hk = M3.inv(E.keystoneH({ x: 700, y: -2500 }, null, { x: 700, y: 500 }));
       const imgK = E.warp(img0, Hk);
       await App.load(new File([G.Demo.encodeTiff16({ width: imgK.w, height: imgK.h, data: imgK.data })], 'keystone_gel.tif'), 'sds-page');
-      const lanesFirst = App.S.lanes.length;
-      const auto = App.autoKeystone();
-      const truth = E.keystoneReport(Hk, App.S.crop), got = App.keystoneReport();   // both: the raw distortion (bottom spacing vs top)
-      const engine = auto.applied && Math.abs(got.lanesPct - truth.lanesPct) <= 2 && App.S.lanes.length === 10 && auto.rounds >= 1 && auto.converged;
+      const st = App.S, truth = E.keystoneReport(Hk, st.crop), g = st.geom;
+      const autoAtLoad = !!g && g.mode === 'auto' && Math.abs(g.lanesPct - truth.lanesPct) <= 3 && st.lanes.length === 10;
+      const segAuto = $('geomSeg').querySelector('[data-geom=auto]').classList.contains('on') && /auto/.test($('ksNote').textContent);
+      const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Geometry-corrected/.test(h) && /perspective/.test(h)) && !!G.Export.processingLog(st).geometry && G.Export.processingLog(st).geometry.grid.pts.length === st.geom.grid.nx * st.geom.grid.ny * 2;
+      const lanesOn = st.lanes.map(l => l.x), frame0 = App.frameKey(st);
+      App.setRotation(st.rotation + 1); App.afterRotation(); App.commit();
+      const rotatedOn = !!st.geom && App.frameKey(st) !== frame0 && st.lanes.length === lanesOn.length && st.lanes.every((l, i) => Math.abs(l.x - lanesOn[i]) < 30);   // the geometry follows the frame; lanes move only by the rotation
+      App.undo();
+      const undone = !!App.S.geom && App.S.lanes.every((l, i) => Math.abs(l.x - lanesOn[i]) < 0.01);
+      $('geomSeg').querySelector('[data-geom=off]').click(); await wait(100);
+      const off = !App.S.geom && $('geomSeg').querySelector('[data-geom=off]').classList.contains('on') && App.S.lanes.length >= 9;
+      $('geomSeg').querySelector('[data-geom=manual]').click(); await wait(100);
+      const corners = App.geomCornersWork(), c = App.S.crop;
+      const manualBox = !!App.S.geom && App.S.geom.mode === 'manual' && G.Editor.hoverType !== undefined && corners.length === 4 && Math.abs(corners[0][0] - c.x) < 3 && Math.abs(corners[2][1] - (c.y + c.h)) < 3;
+      // a corner dragged in: the box becomes a trapezoid, mapped to a rectangle, lanes still found
+      const q = corners.map(p => p.slice()); q[0][0] += 60; q[1][0] -= 60;
+      const okQ = App.setGeomCorners(q); App.redetectAll(); App.commit();
+      const trapezoid = okQ && App.S.geom.mode === 'manual' && App.S.geom.lanesPct > 5 && App.S.lanes.length >= 9 && /four slab corners/.test(G.Export.legendHints(App.S).join(' '));
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
-      R.keystone = { leftAlone, msg: none.message, typed, moved, disclosed, note, rotatedOn, off, restored, got, truth, lanesFirst, auto: { applied: auto.applied, rounds: auto.rounds, lanes: auto.lanes, converged: auto.converged }, engine,
-        ok: leftAlone && typed && moved && disclosed && note && rotatedOn && off && restored && engine };
+      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid,
+        ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
