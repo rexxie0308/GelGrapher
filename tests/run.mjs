@@ -80,7 +80,15 @@ const UI_CHECKS = [
   ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
   ['densitometry: band pixels above the noise floor are box-size independent; no relative value without a band in the reference lane', r => r.densMode.ok, ['densMode']],
   ['raw image edits one layer at a time: band boxes in the Densitometry view, strips with the figure', r => r.layers.ok, ['layers']],
-  ['the figure column follows the panel step: steps 1-6 the figure, step 7 the Densitometry view', r => r.followView.ok, ['followView']],
+  ['the figure column follows the panel step: steps 1-5 the figure, step 6 the Densitometry view', r => r.followView.ok, ['followView']],
+  ['long group labels wrap, shrink or stay on one line; typed line breaks', r => r.groupFit.ok, ['groupFit']],
+  ['typeface allowlist (SVG, measurement, PDF) and a custom lane-name angle', r => r.fonts.ok, ['fonts']],
+  ['raster exports checked against the canvas limit; banded TIFF render matches', r => r.raster.ok, ['raster']],
+  ['editable PowerPoint: text boxes per label, cropped gel pictures per block, valid package', r => r.pptx.ok, ['pptx']],
+  ['analysis window under the figure: divider, closing, reopening, active window; plot options, normalization modes, package ZIP', r => r.analysis.ok, ['analysis']],
+  ['several lane lines selected and moved together, spread between two; a typed arrow size moves the arrow', r => r.multiSel.ok, ['multiSel']],
+  ['"+ Add lane" places a lane at the click, Shift keeps it armed; lane names and the paste box are in step 2, Marker is step 3', r => r.addLane.ok, ['addLane']],
+  ['perspective correction: a gel without keystone is left alone, a typed keystone is applied, disclosed, carried through a rotation and undone; a known keystone is corrected within 2 points', r => r.keystone.ok, ['keystone']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];
 

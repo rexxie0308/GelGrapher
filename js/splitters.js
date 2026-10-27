@@ -6,7 +6,7 @@
 (function (G) {
   'use strict';
   const App = G.App, $ = id => document.getElementById(id);
-  const app = $('app'), stage = $('stage');
+  const app = $('app'), stage = $('stage'), figCol = $('figCol');
   const MIN_PANEL = 240, maxPanel = () => Math.min(600, window.innerWidth * 0.45);
 
   function apply() {
@@ -15,6 +15,9 @@
     const r = p.stageSplit;
     stage.style.setProperty('--raw-flex', r ? String(r) : '');
     stage.style.setProperty('--fig-flex', r ? String(1 - r) : '');
+    const f = p.figSplit;   // the figure window's share of the right column when the analysis window is open too
+    figCol.style.setProperty('--fig-top', f ? String(f) : '');
+    figCol.style.setProperty('--fig-bot', f ? String(1 - f) : '');
   }
   let raf = 0;
   const notify = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; window.dispatchEvent(new Event('resize')); }); };
@@ -22,6 +25,7 @@
 
   function setPanel(px) { App.setPref('panelW', Math.round(Math.min(maxPanel(), Math.max(MIN_PANEL, px)))); apply(); notify(); }
   function setSplit(ratio) { App.setPref('stageSplit', Math.round(Math.min(0.8, Math.max(0.2, ratio)) * 1000) / 1000); apply(); notify(); }
+  function setFigSplit(ratio) { App.setPref('figSplit', Math.round(Math.min(0.85, Math.max(0.15, ratio)) * 1000) / 1000); apply(); notify(); }
   const reset = key => { App.setPref(key, null); apply(); notify(); refit(); };
   // the raw image keeps its zoom while a divider moves and is fitted to the figure area once it settles
   const refit = () => { if (App.S && G.Editor) G.Editor.fitCrop(); };
@@ -62,6 +66,12 @@
     nudge: d => { const b = stage.getBoundingClientRect(), raw = $('rawCol').getBoundingClientRect(); setSplit(stacked() ? (raw.height + d) / b.height : (raw.width + d) / b.width); },
     reset: () => reset('stageSplit')
   });
+  gutter($('gutterFig'), {
+    grab: e => e.clientY - $('figPane').getBoundingClientRect().bottom,
+    drag: (e, g) => { const b = figCol.getBoundingClientRect(); setFigSplit((e.clientY - g - b.top) / b.height); },
+    nudge: d => { const b = figCol.getBoundingClientRect(), top = $('figPane').getBoundingClientRect(); setFigSplit((top.height + d) / b.height); },
+    reset: () => reset('figSplit')
+  });
   apply();
-  G.Splitters = { apply, setPanel, setSplit, reset };
+  G.Splitters = { apply, setPanel, setSplit, setFigSplit, reset };
 })(window);

@@ -4,7 +4,15 @@
 (function (G) {
   'use strict';
   const MM = 72 / 25.4;
-  const FONT = 'Arial, Helvetica, sans-serif';
+  /* Figure typefaces: names only, installed system fonts, never downloaded or embedded. One list serves
+   * measurement, the SVG, the PDF (Arial and Helvetica share metrics; Times New Roman = Times) and
+   * imported styles; anything else falls back to Arial. */
+  const FONTS = Object.freeze({ Arial: 'Arial, Helvetica, sans-serif', Helvetica: 'Helvetica, Arial, sans-serif', 'Times New Roman': '"Times New Roman", Times, serif' });
+  const fontName = n => (Object.prototype.hasOwnProperty.call(FONTS, n) ? n : 'Arial');
+  let family = 'Arial';   // the figure font of the last build(); measure() and the PDF writer follow it
+  const setFont = n => { family = fontName(n); };
+  // a lane-name angle: 'auto' or a whole number of degrees 0–90
+  const labelAngle = v => (v === 'auto' || v == null || v === '' || !isFinite(+v) ? 'auto' : Math.max(0, Math.min(90, Math.round(+v))));
 
   const mctx = document.createElement('canvas').getContext('2d');
   // label markup: *italic* segments
@@ -15,10 +23,53 @@
   function measure(text, pt, bold) {
     let w = 0;
     for (const r of parseRuns(text)) {
-      mctx.font = `${r.it ? 'italic ' : ''}${bold ? 'bold ' : ''}${pt * 4}px Arial`;
+      mctx.font = `${r.it ? 'italic ' : ''}${bold ? 'bold ' : ''}${pt * 4}px ${FONTS[family]}`;
       w += mctx.measureText(r.t).width / 4;
     }
     return w;
+  }
+  /* ---- group labels: typed line breaks, then wrap / shrink / keep one line (after GelFigure 0.6.5) ----
+   * Tokens: a CJK character breaks anywhere; other text breaks after a space, "-" or "/". */
+  const CJK = '\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef';
+  const TOKENS = new RegExp(`[${CJK}]|[^\\s\\-\\/${CJK}]+[-\\/]?|[-\\/]|\\s+`, 'g');
+  const MIN_PT = 5;
+  function greedyLines(text, maxW, pt) {
+    const out = [];
+    for (const para of String(text).split('\n')) {
+      const toks = para.match(TOKENS) || [];
+      let line = '', lw = 0;
+      for (const tk of toks) {
+        const sp = /^\s+$/.test(tk);
+        if (!line && sp) continue;
+        const tw = measure(tk.replace(/\*/g, ''), pt);
+        if (line && !sp && lw + tw > maxW + 1e-6) { out.push(line.trimEnd()); line = ''; lw = 0; }
+        line += tk; lw += tw;
+      }
+      out.push(line.trimEnd());
+    }
+    // *italic* markup continues across a break: close it at the end of a line and reopen on the next
+    let open = false;
+    return out.map(l => {
+      let t = open ? '*' + l : l;
+      if ((t.split('*').length - 1) % 2) { t += '*'; open = true; } else open = false;
+      return t;
+    });
+  }
+  // the fewest lines that fit, then the narrowest width that still gives that many, so the lines come out even
+  function wrapLines(text, maxW, pt) {
+    const k = greedyLines(text, maxW, pt).length;
+    if (k < 2) return greedyLines(text, maxW, pt);
+    let lo = maxW * 0.2, hi = maxW;
+    for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (greedyLines(text, mid, pt).length > k) lo = mid; else hi = mid; }
+    return greedyLines(text, hi, pt);
+  }
+  /* lines and font size for one group label of width `room` under `fit` ('wrap' | 'shrink' | 'line') */
+  function fitLabel(text, room, pt, fit) {
+    const typed = String(text).split('\n');
+    const widest = ls => Math.max(...ls.map(l => measure(l, pt)));
+    if (fit === 'wrap') return { lines: wrapLines(text, Math.max(room, pt * 1.5), pt), pt };
+    if (fit === 'shrink') { const w = widest(typed); return { lines: typed, pt: w > room ? Math.max(MIN_PT, pt * room / w) : pt }; }
+    return { lines: typed, pt };
   }
   function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function textEl(text, x, y, pt, anchor, extra) {
@@ -99,12 +150,12 @@
     return 90;
   }
 
-  // Assign tiers so overlapping groups stack
-  function groupTiers(groups) {
+  // Assign tiers so overlapping groups stack: by extent in points (the line, or the label when it is
+  // wider), narrowest first so it sits closest to the gel
+  function groupTiers(ext, pad) {
     const tiers = [];
-    const sorted = groups.map((g, i) => ({ g, i, a: Math.min(g.from, g.to), b: Math.max(g.from, g.to) }))
-      .sort((p, q) => (p.b - p.a) - (q.b - q.a));
-    const out = new Array(groups.length).fill(0);
+    const sorted = ext.map((e, i) => ({ i, a: e[0] - pad, b: e[1] + pad })).sort((p, q) => (p.b - p.a) - (q.b - q.a));
+    const out = new Array(ext.length).fill(0);
     for (const s of sorted) {
       let t = 0;
       while ((tiers[t] || []).some(o => !(s.b < o.a || s.a > o.b))) t++;
@@ -117,8 +168,10 @@
   /* Build SVG. imgHref = data URL / blob URL of composed gel raster. Returns {svg, w, h, warnings} */
   function build(S, gel, imgHref) {
     const st = S.style, pt = st.fontPt, lw = st.lineWidthPt;
+    setFont(st.font);
     const warnings = [], overlaps = [];
     const overlap = msg => { warnings.push(msg); overlaps.push(msg); };
+    let minPt = Infinity;   // the smallest text actually printed (a shrunk group label can go below the figure font)
     const Wpx = gel.canvas.width, Hpx = gel.canvas.height;
     const W = st.gelWidthMm * MM, sc = W / Wpx, H = Hpx * sc;
     const els = [];
@@ -183,7 +236,7 @@
     // baseline of the lane-name row: the (bp) unit header is aligned to this, not to the marker labels
     const unitRowY = yTop;
     if (hasNames) {
-      angle = st.labelAngle === 'auto' ? autoAngle(names, pitch, pt) : +st.labelAngle;
+      angle = labelAngle(st.labelAngle) === 'auto' ? autoAngle(names, pitch, pt) : labelAngle(st.labelAngle);
       const rad = angle * Math.PI / 180, sn = Math.sin(rad), cs = Math.cos(rad);
       let hMax = pt;
       vis.forEach((o, vi) => {
@@ -204,19 +257,17 @@
         }
       });
       if (angle !== 0 && pitch < pt * 1.15) overlap('Lanes are too narrow: even 90° labels overlap; use a smaller font or a wider figure');
-      if (angle === 0 && st.labelAngle !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
+      if (angle === 0 && labelAngle(st.labelAngle) !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
       yTop -= (angle === 0 ? pt * 1.3 : hMax + pt * 0.35);
     }
     // groups: line spanning lanes + shared text above
     const groups = (S.groups || []).filter(g => g.from != null && g.to != null && S.lanes[g.from] && S.lanes[g.to]);
     if (groups.length) {
-      const tiers = groupTiers(groups);
-      const tierH = pt * 1.7;
-      const base = yTop - pt * 0.15;
-      groups.forEach((g, k) => {
+      const base = yTop - pt * 0.15, fit = st.groupFit || 'wrap';
+      // geometry first: line pieces, then the label's lines and size, so wide labels can move up a tier
+      const geo = groups.map(g => {
         const a = Math.min(g.from, g.to), b = Math.max(g.from, g.to);
         const half = Math.min(pitch, W) * 0.42;
-        const y = base - tiers[k] * tierH;
         // one line over the whole group (the splice gap itself shows that a lane was removed), or, with
         // "Group lines break at splice gaps", one line piece per spliced segment
         const runs = [];
@@ -226,23 +277,39 @@
         });
         if (!runs.length) runs.push([X(a) - half, X(b) + half]);
         if (!st.groupSplit && runs.length > 1) runs.splice(0, runs.length, [runs[0][0], runs[runs.length - 1][1]]);
-        const x0 = runs[0][0], x1 = runs[runs.length - 1][1];
-        runs.forEach(([r0, r1]) => {
+        const x0 = runs[0][0], x1 = runs[runs.length - 1][1], cx = (x0 + x1) / 2;
+        const gt = g.text || (P ? 'Click to type' : '');
+        const lab = gt ? fitLabel(gt, x1 - x0 - pt * 0.3, pt, g.text ? fit : 'line') : { lines: [], pt };
+        const tw = lab.lines.length ? Math.max(...lab.lines.map(l => measure(l, lab.pt))) : 0;
+        const h = pt * 1.7 + Math.max(0, lab.lines.length - 1) * lab.pt * 1.15;   // one tier: line + one text line
+        return { runs, x0, x1, cx, gt, lines: lab.lines, gp: lab.pt, tw, h, ext: [Math.min(x0, cx - tw / 2), Math.max(x1, cx + tw / 2)] };
+      });
+      const tiers = groupTiers(geo.map(q => q.ext), pt * 0.25);
+      const tierH = [];
+      geo.forEach((q, k) => { tierH[tiers[k]] = Math.max(tierH[tiers[k]] || 0, q.h); });
+      const tierY = []; let acc = 0;
+      tierH.forEach((hh, t) => { tierY[t] = base - acc; acc += hh; });
+      groups.forEach((g, k) => {
+        const q = geo[k], y = tierY[tiers[k]];
+        q.runs.forEach(([r0, r1]) => {
           els.push(`<line x1="${f(r0)}" y1="${f(y)}" x2="${f(r1)}" y2="${f(y)}" stroke="#000" stroke-width="${f(lw)}"/>`);
           if (st.groupTicks) {
             els.push(`<line x1="${f(r0)}" y1="${f(y)}" x2="${f(r0)}" y2="${f(y + pt * 0.35)}" stroke="#000" stroke-width="${f(lw)}"/>`);
             els.push(`<line x1="${f(r1)}" y1="${f(y)}" x2="${f(r1)}" y2="${f(y + pt * 0.35)}" stroke="#000" stroke-width="${f(lw)}"/>`);
           }
         });
-        const gt = g.text || (P ? 'Click to type' : '');
-        if (gt) {
-          const tw = measure(gt, pt);
-          els.push(ed(`data-edit="group" data-k="${g.k != null ? g.k : k}"`, textEl(gt, (x0 + x1) / 2, y - pt * 0.3, pt, 'middle', g.text ? '' : phStyle)));
-          grow((x0 + x1) / 2 - tw / 2, y - pt * 1.3, (x0 + x1) / 2 + tw / 2, y);
+        if (q.lines.length) {
+          const n = q.lines.length, lh = q.gp * 1.15;
+          // one <text> per line, bottom line just above the group line (the PDF writer reads them as lines)
+          const txt = q.lines.map((l, j) => textEl(l, q.cx, y - pt * 0.3 - (n - 1 - j) * lh, q.gp, 'middle', g.text ? '' : phStyle)).join('');
+          els.push(ed(`data-edit="group" data-k="${g.k != null ? g.k : k}"`, txt));
+          grow(q.cx - q.tw / 2, y - pt * 0.3 - (n - 1) * lh - q.gp, q.cx + q.tw / 2, y);
+          if (q.gp < pt) minPt = Math.min(minPt, q.gp);
+          if (q.tw > q.x1 - q.x0 + pt) overlap(`Group label “${q.gt.replace(/\n/g, ' ')}” is wider than its line; choose "wrap" under Layout or shorten it`);
         }
-        grow(x0, y - pt, x1, y);
+        grow(q.x0, y - pt, q.x1, y);
       });
-      yTop = base - (Math.max(...tiers) + 1) * tierH;
+      yTop = base - acc;
     }
 
     // ---- marker size labels (one column per marker; left/right of the gel) ----
@@ -351,10 +418,10 @@
     const vx = box.x0 - m, vy = box.y0 - m, vw = box.x1 - box.x0 + 2 * m, vh = box.y1 - box.y0 + 2 * m;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
       `width="${f(vw / MM)}mm" height="${f(vh / MM)}mm" viewBox="${f(vx)} ${f(vy)} ${f(vw)} ${f(vh)}" ` +
-      `font-family="${FONT}" fill="#000">` +
+      `font-family="${esc(FONTS[family])}" fill="#000">` +
       `<rect x="${f(vx)}" y="${f(vy)}" width="${f(vw)}" height="${f(vh)}" fill="#fff"/>` +
       els.join('') + `</svg>`;
-    return { svg, w: vw, h: vh, angle, warnings, overlaps, scale: sc, vx, vy, gelW: W, gelH: H };
+    return { svg, w: vw, h: vh, angle, warnings, overlaps, minPt: Math.min(minPt, pt), scale: sc, vx, vy, gelW: W, gelH: H };
   }
 
   // the legend notes as a block of wrapped text under a built figure (for exports and printing when asked for)
@@ -377,5 +444,5 @@
       .replace(/<\/svg>$/, els + '</svg>');
     return Object.assign({}, fig, { svg, h: nh, notes: lines.length });
   }
-  G.Render = { build, composeGel, measure, MM, laneBounds, withNotes };
+  G.Render = { build, composeGel, measure, MM, laneBounds, withNotes, FONTS, fontName, setFont, font: () => family, labelAngle };
 })(window);

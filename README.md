@@ -52,9 +52,9 @@ The ladder, unit and band look you choose are remembered per experiment type.
 From GelFigure:
 
 - **Automatic first draft**: straightening (±15°), crop, lane detection, ladder identification and size labels, linear contrast.
-- **Edit on the figure**: click a lane name and type, Enter jumps to the next lane; drag across lane names for a group line; click cells to cycle `+` / `−`.
-- **Lanes numbered by well**: cropping only chooses which wells are shown, so names and annotations survive any crop.
-- **Target-band arrows with sizes** estimated from the ladder(s); values outside the ladder are marked `≈`.
+- **Edit on the figure**: click a lane name and type, Enter jumps to the next lane; drag across lane names for a group line; click cells to cycle `+` / `−`. A group label wider than its line wraps onto even lines (or shrinks, or stays on one line: Layout → Long group labels); Shift+Enter starts a new line by hand.
+- **Lanes numbered by well**: cropping only chooses which wells are shown, so names and annotations survive any crop. Shift+click selects several lane lines on the raw image to move them together; two selected lines can have the lanes between them spread evenly.
+- **Target-band arrows with sizes** estimated from the ladder(s); values outside the ladder are marked `≈`. Typing a size in the arrow window moves the arrow to where the markers place that size.
 - **Several exposures at once**: the best one (least saturation, best signal-to-noise) is chosen.
 - **Lane removal with splice marks**, empty-lane suggestions, rotation that carries every annotation.
 - **Pre-flight check before export**: camera saturation, contrast clipping, effective resolution below 300 dpi, small fonts, extrapolated sizes.
@@ -62,7 +62,7 @@ From GelFigure:
 
 Added in GelGrapher:
 
-- **Seven experiment types** with 50 built-in ladders (25 DNA, 5 RNA, 18 protein, 2 native protein).
+- **Seven experiment types** with 62 built-in ladders (25 DNA, 5 RNA, 30 protein, 2 native protein), each from the manufacturer's datasheet or product page.
 - **Densitometry**: band boxes, three background methods, normalization to a loading control, relative values, saturation flags, lane profiles, CSV and a publication bar chart.
 - **Band-size table**: every band in every lane sized against the ladder, as a table and CSV.
 - **Strips**: show only chosen regions of a blot (e.g. the target and the loading control), stacked with a gap, each labelled on the right.
@@ -90,22 +90,22 @@ Added in GelGrapher:
 Then:
 
 1. Choose the **experiment type** and drop the image. Everything is detected automatically.
-2. **Click the grey lane numbers** on the figure and type the names (Enter = next lane), or paste a row from Excel on the left.
-3. **Check the ladder** in section 4; a poor fit is flagged.
-4. Optional: group lines, arrows, +/− rows and strips (section 5), densitometry and band sizes (section 7).
+2. **Click the grey lane numbers** on the figure and type the names (Enter = next lane), or type them in the lane list of step 2 or paste a row from Excel there. A lane missing? *+ Add lane*, then click its place on the raw image.
+3. **Check the ladder** in step 3; a poor fit is flagged.
+4. Optional: group lines, arrows, +/− rows and strips (step 4), densitometry and band sizes (step 6).
 5. **Export** (top right). The pre-flight check runs first.
 
 On first visit the Western blot example is open, so you can see what a finished figure looks like. Drop your own image at any time to start.
 
 ## Western blots
 
-- **Strips** (section 5, *Strip*): drag down across a region of the raw image, for example the p53 band with the 70 and 55 kDa marker ticks, then the GAPDH band. The figure shows only the strips, stacked with a white gap, each with its name on the right and its own kDa ticks on the left. The legend notes say that the panels are regions of the same image and that the uncropped image shows the rest; the uncropped export marks every strip.
-- **Marker image** (section 4): if the prestained ladder does not show on the chemiluminescence image, load the white-light / colorimetric image the imager took in the same position. Ladder bands are read from it; the figure still shows the blot. It is stored in projects and drafts, and exported with the original data.
+- **Strips** (step 4, *Strip*): drag down across a region of the raw image, for example the p53 band with the 70 and 55 kDa marker ticks, then the GAPDH band. The figure shows only the strips, stacked with a white gap, each with its name on the right and its own kDa ticks on the left. The legend notes say that the panels are regions of the same image and that the uncropped image shows the rest; the uncropped export marks every strip.
+- **Marker image** (step 3): if the prestained ladder does not show on the chemiluminescence image, load the white-light / colorimetric image the imager took in the same position. Ladder bands are read from it; the figure still shows the blot. It is stored in projects and drafts, and exported with the original data.
 - **No marker image?** Mark the ladder lane as a marker and drag its yellow lines onto the bands you see on the membrane; the others re-fit around them.
 
 ## Densitometry
 
-Section 7 of the panel holds the controls; the results (chart, table, lane profile, band sizes) open in the **Densitometry** view beside "Figure" in the figure area as soon as the first box is added. The figure area follows the step you work in: any control of section 7 opens the Densitometry view and any control of sections 1–6 brings the figure back, so an annotation you add is always shown.
+Densitometry lives in the **analysis window** under the figure: "Figure" and "Analysis" in the top bar show or hide the two windows of the right column, a divider between them sets their share, and each has a × in its header. Adding the first band box opens the analysis window. The last window clicked is the active one (accent bar) and decides which overlay the raw image edits: strips with the figure, band boxes with the analysis. Step 7 of the panel holds the controls (boxes, background, measure, normalization, reference lane), the plot options (bars or points, values, title, axis label) and the methods text. "Export chart" in the analysis window saves the chart alone; **Export all** at the top right bundles figure, chart, CSVs, processing log and the methods paragraph in one ZIP.
 
 1. Click **+ Band box**, then click a band on the raw image (the box fits itself to the band) or drag across it. Add one box per protein or product. Tick **Loading control** on the box of the housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.
 2. Choose the **background**: a straight line between the box edges (the usual "close the peak" method of ImageJ's gel analyser), a rolling-ball baseline of the lane profile, or none. Choose the **measure**: *band pixels above the noise floor* (default: only pixels above the background noise count, so the value does not depend on the box size as long as the box contains the band) or *whole box* (every pixel of the box, ImageJ style).
@@ -117,7 +117,9 @@ Export the table as CSV or copy it into Excel or Prism; export the bar chart as 
 
 Densitometry values are only comparable within one image. For statistics, quantify replicate blots and combine the CSVs.
 
-*Band sizes* (a tab of the Densitometry view) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+*Band sizes* (a tab of the analysis window) lists every band in every lane with its estimated size (≈ = extrapolated beyond the ladder).
+
+Background: a straight line between the box edges (ImageJ gel analyser), the median of a 3-pixel border around the box (Image Studio, Image Lab), a rolling ball under the lane profile, or none. Normalization: the loading-control box of the same lane, the total lane density (total-protein normalization), or none; values are then expressed relative to a reference lane. One gel gives one value per lane; replicate gels and statistics belong in your analysis software, and the methods paragraph says exactly what was measured.
 
 ## Exports
 
@@ -126,6 +128,7 @@ Densitometry values are only comparable within one image. For statistics, quanti
 | PNG | Rendered at 300 / 600 / 1200 dpi, with `pHYs`, `sRGB` and an embedded processing summary. |
 | TIFF | 8-bit grayscale, LZW, with resolution tags and the processing summary. |
 | PDF | Vector text and lines in the standard PDF fonts (Greek letters such as β via the Symbol font); the gel embedded pixel for pixel. |
+| PPTX | One editable slide: labels as text boxes, lines and arrows as shapes, the gel as pictures that can be recropped on the slide. |
 | Copy figure | The figure as a PNG on the clipboard, at the chosen dpi. |
 | Print (printer button, Ctrl+P) | The figure with a caption (file, experiment, date) for a lab notebook; a PDF inside the Claude artifact. |
 | Include legend notes | Export-menu option, off by default: the legend notes are written under the figure in exports and prints. |
@@ -139,6 +142,8 @@ Densitometry values are only comparable within one image. For statistics, quanti
 Inside Claude, each export asks you to confirm the save. Claude accepts PNG, PDF, SVG, CSV and JSON directly; TIFF files, projects and original data are delivered inside a `.zip`. GelGrapher opens these `.zip` files directly.
 
 ## Image integrity
+
+A gel photographed at an angle can be **perspective-corrected** (step 1 → *Perspective*): one projective transform of the whole image, found automatically from the converging lane lines (and ladder bands) or typed as percentages, composed with the straightening so the pixels are resampled once. It is off by default, refused when the lanes do not converge consistently (that is the gel's own distortion, not perspective), carried through rotation and undo, and stated in the legend notes, the processing log (with the matrix) and the methods paragraph. `docs/geometry-correction.md` has the design, the artefact rules and the literature.
 
 GelGrapher follows common journal image policies (e.g. Nature, PLOS, JBC; Rossner & Yamada, *J Cell Biol* 2004):
 
@@ -180,10 +185,11 @@ Both bright-on-dark and dark-on-light images are handled; polarity is detected a
 
 ## Known limitations
 
-- Automatic detection was validated on DNA agarose gels (iBright imagers) and on synthetic gels of every type. If detection fails on your images, use *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
+- Automatic detection was validated on DNA agarose gels (iBright imagers), on a photographed Coomassie SDS-PAGE (three ladders, torn corner, keystone) and on synthetic gels of every type. If detection fails on your images, use *+ Add lane*, *Re-detect in box* or *Space evenly*, and please [open an issue](https://github.com/rexxie0308/GelGrapher/issues/new/choose).
 - Strips come from one image. Panels from different exposures or re-probed membranes are separate figures; stack them in your layout program.
 - 2D gels, dot blots and capillary systems are not supported.
-- Bio-Rad `.scn` / `.1sc` and other proprietary formats must be exported to TIFF first. BigTIFF and palette TIFFs are not supported. 16-bit PNGs are read as 8-bit by browsers.
+- Safari, and every browser on iPhone and iPad, cannot draw a PNG above about 16.7 million pixels (a double-column figure at 1200 dpi). The Layout step shows the export's pixel size and the pre-flight check offers the largest resolution that fits; TIFF, SVG and PDF are not affected.
+- Bio-Rad `.scn` / `.1sc` and other proprietary formats must be exported to TIFF first. BigTIFF is not supported. Palette (indexed) TIFFs load: a grey colour map gives the grey values, a false-colour map that runs one way is read back as the saved intensity, any other map is converted by luminance. 1-, 2- and 4-bit TIFFs have 2 to 16 grey levels only. 16-bit PNGs are read as 8-bit by browsers.
 
 ## Development
 

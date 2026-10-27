@@ -299,13 +299,18 @@
         saved(r.status, 'Exported vector PDF');
         return;
       }
+      if (kind === 'pptx') {
+        saved(await G.Export.exportPPTX(f.svg, `${baseName()}_figure.pptx`, S(), { crop: App._lastCrop, gel: App._lastGel }), 'Exported an editable PowerPoint slide');
+        return;
+      }
       const fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
       const st = kind === 'tiff' ? await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S())
         : await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
       saved(st, `Exported ${dpi} dpi ${fmt}` + (eff < dpi ? ` (the gel itself is ${eff} dpi)` : ''));
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPNG').onclick = () => exportFigure('png');
+  $('btnPNGItem').onclick = () => exportFigure('png');
+  $('btnFigExport').onclick = () => exportFigure($('figFmt').value);
   /* ---------- print (for a lab notebook) ----------
    * A page with the figure at a readable size and a caption: file, experiment, date, the legend notes. Printed from a
    * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
@@ -338,6 +343,19 @@
   $('btnPrintMenu').onclick = printFigure;
   $('btnTIFF').onclick = () => exportFigure('tiff');
   $('btnPDF').onclick = () => exportFigure('pdf');
+  $('btnPPTX').onclick = () => exportFigure('pptx');
+  /* everything in one ZIP: figure, chart, measurements, band sizes, log, methods (the Claude viewer saves ZIPs) */
+  async function exportPackage() {
+    if (needImage()) return;
+    if (!(await preflight())) return;
+    App.busy(true, 'Packing…');
+    try {
+      const f = figForExport(), ch = G.QuantUI ? G.QuantUI.chart() : null;
+      const r = await G.Export.packageBlob(S(), baseName(), f, ch, S().style.dpi);
+      saved(await G.Export.download(r.blob, baseName() + '_package.zip'), `Exported ${r.files.length} files in one ZIP`);
+    } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
+  }
+  $('btnPNG').onclick = exportPackage;   // the green button: everything in one ZIP
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
   $('btnCopyFig').onclick = async () => {
     if (needImage()) return;
@@ -350,7 +368,7 @@
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       toast(`Copied a ${dpi} dpi PNG; paste it anywhere`);
     } catch (e) {
-      toast('The clipboard is not available here; use Export PNG instead', 3600);
+      toast('The clipboard is not available here; use Export figure instead', 3600);
     } finally { App.busy(false); }
   };
   $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(figForExport().svg, baseName() + '_figure.svg'), 'Exported SVG'); };
@@ -381,7 +399,7 @@
   });
   // close: back to the start screen (the library, or the empty workspace)
   async function closeWorkspace() {
-    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden');
+    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden'); $('viewSeg').classList.add('hidden');
     $('imgChipName').textContent = 'Open image'; $('coachText').textContent = 'Drop a gel image into the window to start';
     $('preview').innerHTML = ''; showWarnings([]); dismissed.clear();
     $('floatEd').classList.add('hidden'); $('popover').classList.add('hidden'); $('modeBanner').classList.add('hidden');
@@ -446,6 +464,25 @@
     }, 20);
   };
   $('btnResetRot').onclick = () => { if (!S()) return; App.resetRotation(); App.commit(); toast(`Back to the automatic angle ${S().rotation}°`); };
+  // perspective (keystone): automatic from the lane lines, typed percentages, or off
+  $('btnKsAuto').onclick = () => {
+    if (!S()) return;
+    App.busy(true, 'Measuring the perspective…');
+    setTimeout(() => {
+      const r = App.autoKeystone(); App.busy(false);
+      if (r.applied) { App.afterKeystone(); App.commit(); G.Editor.fitCrop(); }
+      toast(r.message, r.applied ? 5000 : 6000);
+    }, 20);
+  };
+  $('btnKsOff').onclick = () => { if (!S() || !S().keystone) return; App.setKeystone(null); App.afterKeystone(); App.commit(); G.Editor.fitCrop(); toast('Perspective correction off; annotations followed'); };
+  const ksTyped = () => {
+    if (!S()) return;
+    const a = +$('ksLanes').value || 0, b = +$('ksBands').value || 0;
+    if (!a && !b) { if (S().keystone) { App.setKeystone(null); App.afterKeystone(); App.commit(); } return; }
+    App.setKeystoneManual(a, b); App.afterKeystone(); App.commit(); G.Editor.fitCrop();
+    toast(`Perspective set by hand: lanes ${a > 0 ? '+' : ''}${a} %, bands ${b > 0 ? '+' : ''}${b} % (stated in the legend notes)`);
+  };
+  $('ksLanes').addEventListener('change', ksTyped); $('ksBands').addEventListener('change', ksTyped);
   const flipBtn = (id, axis) => { $(id).onclick = () => {
     if (!S()) return;
     App.busy(true, 'Flipping…');
@@ -497,6 +534,8 @@
     });
   }
   $('btnAutoLanes').onclick = done(() => { App.autoLanes(); App.afterRangeChange(); toast(`Detected ${S().lanes.length} wells on the whole gel`); });
+  // "+ Add lane": the next click on the raw image places a lane line there (js/editor.js, mode 'lane')
+  $('btnAddLane').onclick = () => { if (needImage()) return; G.FigEdit.setMode(App.mode === 'lane' ? null : 'lane'); };
   // after lanes inside the crop are rebuilt, find the marker lanes again but keep the ladder the
   // user chose for a marker that is still at (about) the same position
   function relaneMarkers(fn) {
@@ -522,6 +561,14 @@
   });
   G.UI_relane = relaneMarkers;
   $('btnEvenCrop').onclick = evenCrop;
+  // two selected lanes (Shift+click), dragged onto their lanes: the lanes between them spread evenly
+  $('btnSpread').onclick = () => {
+    if (needImage()) return;
+    const sel = [...App.selLanes];
+    if (sel.length !== 2) { toast('Shift+click two lane lines on the image first (e.g. the first and the last of a run), drag them onto their lanes, then click Spread'); return; }
+    if (!App.spreadBetween(sel[0], sel[1])) { toast('No lanes between the two selected ones'); return; }
+    App.commit(); toast(`Spread the lanes between wells ${Math.min(...sel) + 1} and ${Math.max(...sel) + 1} evenly`);
+  };
   $('cropLaneN').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); evenCrop(); } });
 
   // empty lanes inside the range: suggest cutting them (never done silently)
@@ -545,7 +592,7 @@
   $('spliceGap').addEventListener('input', live(e => { S().style.spliceGapPt = +e.target.value; $('spliceGapV').textContent = e.target.value + ' pt'; }));
   $('spliceGap').addEventListener('change', done());
 
-  /* ---------- 3 names (bulk) ---------- */
+  /* ---------- lane names pasted as a row (step 2) ---------- */
   function applyBulk() {
     const raw = $('laneBulk').value.replace(/\r/g, '').trim();
     if (!raw) return;
@@ -569,7 +616,7 @@
   $('laneBulk').addEventListener('change', applyBulk);
   $('laneBulk').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); applyBulk(); } });
 
-  /* ---------- 4 markers ---------- */
+  /* ---------- 3 markers ---------- */
   $('btnAutoMarkers').onclick = done(() => {
     App.autoMarkers();
     const n = S().markers.length;
@@ -601,7 +648,7 @@
       App.commit();
       const n = S().markers.length;
       toast(n ? `Found ${n} marker lane${n > 1 ? 's' : ''} on the marker image`
-        : 'No clear ladder lane on the marker image; add the marker lane in step 4', 4200);
+        : 'No clear ladder lane on the marker image; add the marker lane in step 3', 4200);
     } catch (err) { alertDlg(err.message); } finally { App.busy(false); }
   });
   $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Marker image removed; marker bands are read from the blot itself again'); });
@@ -700,7 +747,7 @@
     const emptyShown = st.lanes.some((l, i) => empty.has(i) && !l.hidden && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]);
     $('laneList').innerHTML = `<div class="pick">${'Show:'} <a href="#" data-pick="all">${'all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the empty wells'}</a>` : ''}</div>` + st.lanes.map((l, i) => {
       const out = !r || i < r[0] || i > r[1];
-      return `<div class="item${i === App.selLane ? ' sel' : ''}${out ? ' out' : ''}">
+      return `<div class="item${App.selLanes.has(i) ? ' sel' : ''}${out ? ' out' : ''}">
         <span class="idx">${i + 1}</span>
         <input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${isMarkerLane(i) ? 'M' : 'Name'}">
         ${empty.has(i) ? `<span class="tag" title="${'almost no bands'}">${'empty'}</span>` : ''}
@@ -736,7 +783,7 @@
     const st = S(), rows = [];
     st.groups.forEach((g, k) => rows.push(`<div class="item"><span class="kind">${'Group'}</span>
       <span class="idx" style="width:auto">${Math.min(g.from, g.to) + 1}–${Math.max(g.from, g.to) + 1}</span>
-      <input type="text" data-g="${k}" value="${esc(g.text)}" placeholder="${'Group label'}"><button class="x" data-gdel="${k}">×</button></div>`));
+      <textarea class="ta" rows="${Math.max(1, g.text.split('\n').length)}" data-g="${k}" placeholder="${'Group label'}" title="Shift+Enter starts a new line">${esc(g.text)}</textarea><button class="x" data-gdel="${k}">×</button></div>`));
     st.arrows.forEach((a, k) => rows.push(`<div class="item${k === App.selArrow ? ' sel' : ''}"><span class="kind">${'Arrow'}</span>
       <button class="btn sm ghost" data-aed="${k}" style="flex:1;justify-content:flex-start">${esc(App.arrowLabel(a) || '(unnamed)')}</button><button class="x" data-adel="${k}">×</button></div>`));
     st.conditions.forEach((c, r) => rows.push(`<div class="item"><span class="kind">${'Condition'}</span>
@@ -747,7 +794,12 @@
     box.innerHTML = rows.join('');
     box.querySelectorAll('[data-st]').forEach(inp => { const t = st.strips[+inp.dataset.st]; inp.addEventListener('input', live(e => { t.label = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-stdel]').forEach(b => b.onclick = done(() => { st.strips.splice(+b.dataset.stdel, 1); }));
-    box.querySelectorAll('[data-g]').forEach(inp => { const g = st.groups[+inp.dataset.g]; inp.addEventListener('input', live(e => { g.text = e.target.value; })); inp.addEventListener('change', done()); });
+    box.querySelectorAll('[data-g]').forEach(inp => {
+      const g = st.groups[+inp.dataset.g];
+      inp.addEventListener('input', live(e => { g.text = e.target.value; inp.rows = Math.max(1, g.text.split('\n').length); }));
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); } });
+      inp.addEventListener('change', done());
+    });
     box.querySelectorAll('[data-c]').forEach(inp => { const c = st.conditions[+inp.dataset.c]; inp.addEventListener('input', live(e => { c.name = e.target.value; })); inp.addEventListener('change', done()); });
     box.querySelectorAll('[data-gdel]').forEach(b => b.onclick = done(() => st.groups.splice(+b.dataset.gdel, 1)));
     box.querySelectorAll('[data-cdel]').forEach(b => b.onclick = done(() => st.conditions.splice(+b.dataset.cdel, 1)));
@@ -760,7 +812,11 @@
   $('gelW').addEventListener('change', done(e => { S().style.gelWidthMm = E.clamp(+e.target.value || 45, 10, 180); S().style.autoWidth = false; }));
   $('fontPt').addEventListener('change', done(e => { S().style.fontPt = E.clamp(+e.target.value || 7, 4, 14); }));
   $('lineW').addEventListener('change', done(e => { S().style.lineWidthPt = E.clamp(+e.target.value || 0.5, 0.25, 2); }));
-  $('labelAngle').addEventListener('change', done(e => { S().style.labelAngle = e.target.value; }));
+  const PRESET_ANGLES = ['auto', '0', '45', '60', '90'];
+  $('labelAngle').addEventListener('change', done(e => { const v = e.target.value; S().style.labelAngle = v === 'custom' ? G.Render.labelAngle($('labelAngleNum').value || 0) : v; }));
+  $('labelAngleNum').addEventListener('change', done(e => { S().style.labelAngle = G.Render.labelAngle(e.target.value); }));
+  $('font').addEventListener('change', done(e => { S().style.font = G.Render.fontName(e.target.value); }));
+  $('groupFit').addEventListener('change', done(e => { S().style.groupFit = e.target.value; }));
   ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => $(id).addEventListener('change', done(e => { S().style[id] = e.target.checked; })));
   $('spliceStyle').addEventListener('change', done(e => { S().style.spliceStyle = e.target.value; }));
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
@@ -804,12 +860,11 @@
       + (st.levels.invert ? 'inverted' : 'raw')
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
-    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
-    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${fl.length} lanes` : ''));
-    set('stNames', `${named}/${fl.length}`);
+    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.keystone && st.keystone.on ? ' · perspective' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
+    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
-    const state = [true, !!r, named >= fl.length && fl.length > 0, visMk.length > 0 && !lowMk.length];
+    const state = [true, !!r && named >= fl.length && fl.length > 0, visMk.length > 0 && !lowMk.length];
     secs.forEach((s, i) => { s.classList.toggle('done', !!state[i]); s.classList.remove('todo'); });
     const firstTodo = state.findIndex(v => !v);
     if (firstTodo >= 0 && secs[firstTodo]) secs[firstTodo].classList.add('todo');
@@ -818,11 +873,11 @@
     if (!r) msg = 'Drag the red box on the image, or choose wells under "Lanes in figure"';
     else if (named < fl.length) msg = `Next: <b>click a grey lane number</b> on the figure and type its name; Enter moves on (${fl.length - named} to go)`;
     else if (!visMk.length) msg = App.gelType().western
-      ? 'No marker in the figure: add the marker lane in step 4, or load the white-light marker image'
-      : 'No marker in the figure: add the marker lane in step 4 on the left';
+      ? 'No marker in the figure: add the marker lane in step 3, or load the white-light marker image'
+      : 'No marker in the figure: add the marker lane in step 3 on the left';
     else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
-    else { msg = 'Ready — <b>Export PNG</b> at the top right; add groups, arrows, strips or densitometry on the left'; ok = true; }
+    else { msg = 'Ready — <b>Export figure</b> above the figure, or <b>Export all</b> at the top right; add groups, arrows or strips on the left, band boxes in step 6'; ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
     $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);
@@ -841,6 +896,11 @@
     $('rotAuto').textContent = App.autoRotation != null ? `auto ${App.autoRotation}°` : '';
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
+    const k = st.keystone && st.keystone.on ? st.keystone : null;
+    $('ksNote').textContent = k ? `${k.source === 'manual' ? 'typed' : 'auto'} · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.bands || k.bandsPct ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : 'off';
+    if (document.activeElement !== $('ksLanes')) $('ksLanes').value = k ? k.lanesPct : '';
+    if (document.activeElement !== $('ksBands')) $('ksBands').value = k ? k.bandsPct : '';
+    $('btnKsOff').disabled = !k;
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;
@@ -855,7 +915,10 @@
     updateClipLine(); updateDpiLine(); updateEmptyBar();
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
-    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('labelAngle').value = String(y.labelAngle);
+    $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('groupFit').value = y.groupFit || 'wrap'; $('font').value = G.Render.fontName(y.font);
+    const la = G.Render.labelAngle(y.labelAngle);
+    $('labelAngle').value = PRESET_ANGLES.includes(String(la)) ? String(la) : 'custom';
+    $('labelAngleNum').value = la === 'auto' ? '' : la; $('labelAngleNum').disabled = la === 'auto';
     ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
     $('dpiTop').value = String(y.dpi);
@@ -913,7 +976,10 @@
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.width = (f.w * k) + 'px'; svg.style.height = (f.h * k) + 'px';
     $('figSize').textContent = `${(f.w / G.Render.MM).toFixed(1)} × ${(f.h / G.Render.MM).toFixed(1)} mm`;
-    $('angleInfo').textContent = st.style.labelAngle === 'auto' ? `now ${f.angle}°` : '';
+    $('angleInfo').textContent = G.Render.labelAngle(st.style.labelAngle) === 'auto' ? `now ${f.angle}°` : '';
+    const rs = G.Export.rasterSize(f.w, f.h, st.style.dpi);
+    $('pxLine').innerHTML = rs.ok ? `${rs.w} × ${rs.h} px at ${st.style.dpi} dpi` : `<span class="bad">${rs.w} × ${rs.h} px at ${st.style.dpi} dpi: more than ${rs.browser} can draw as PNG</span>` + (rs.fitsDpi ? ` <button class="btn sm" id="btnFitDpi">Use ${rs.fitsDpi} dpi</button>` : '');
+    const fb = $('btnFitDpi'); if (fb) fb.onclick = done(() => { S().style.dpi = rs.fitsDpi; });
     showWarnings(f.warnings);
     // legend suggestions are English: they go into the manuscript
     const hints = G.Export.legendHints(st);
@@ -926,7 +992,7 @@
   App.on(what => {
     if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
@@ -935,7 +1001,7 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

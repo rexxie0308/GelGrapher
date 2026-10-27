@@ -1,0 +1,24 @@
+# Ladder sources
+
+Band lists in `js/ladders.js` come from the manufacturers' datasheets or product pages. Entries added after the
+GelFigure 0.5.0 import list their source here (read 2026-10). Prestained sizes are apparent sizes that shift with
+the gel and buffer system; the vendor page is the reference for the lot in use.
+
+| id | Ladder | Source |
+|---|---|---|
+| pr26632 | Thermo PageRuler Unstained Low Range (26632) | https://www.thermofisher.com/order/catalog/product/26632 ("100, 30, 25, 20, 15, 10, 5, 3.4 kDa"; 25 kDa band stronger; Tricine gels) |
+| spectra26625 | Thermo Spectra Multicolor High Range (26625) | https://www.thermofisher.com/order/catalog/product/26625 ("300, 250, 180, 130, 100, 70, 50, 40 kDa"; blue, orange and green bands, not assigned on the page) |
+| spectra26628 | Thermo Spectra Multicolor Low Range (26628) | https://www.thermofisher.com/order/catalog/product/26628 ("40, 25, 15, 10, 4.6, 1.7 kDa"; Tricine gels) |
+| epiwj101 | Epizyme WJ101 | https://www.epizyme.cn/Products/Details/1070 (15, 20, 25, 35, 40, 50, 70, 100, 150 kDa; 25 and 70 kDa coloured) |
+| epiwj102 | Epizyme WJ102 | https://www.epizyme.cn/Products/Details/1071 (10, 15, 20, 25, 35, 40, 50, 70, 100, 150, 250 kDa; 25 and 70 kDa coloured) |
+| epiwj103 | Epizyme WJ103 | https://www.epizyme.cn/Products/Details/1073 (same list as WJ102) |
+| epiwj106 | Epizyme WJ106 | https://www.epizyme.cn/Products/Details/1072 (same list as WJ102; near-infrared) |
+| epiwj107 | Epizyme WJ107 | https://www.epizyme.cn/Products/Details/25016 (10, 15, 25, 35, 40, 55, 70, 100, 130, 180 kDa; 10 and 70 kDa coloured) |
+| epiwj402 | Epizyme WJ402 | https://www.epizyme.cn/Products/Details/26632 (1.2, 4.2, 7.5, 15, 20, 30, 40 kDa; 20 kDa green; Tricine gels) |
+| yeasen26616 | Yeasen GoldBand Plus 3-color Regular Range (26616ES) | https://www.yeasen.com/products/detail/13366 (10, 15, 25, 35, 40, 55, 70, 100, 130, 180 kDa; 70 kDa orange-red, 10 kDa green) |
+| yeasen20350 | Yeasen GoldBand Plus 3-color Regular Range (20350ES) | https://www.yeasen.com/products/detail/1750 (8, 17, 25, 33, 43, 55, 72, 100, 130, 180 kDa; 72 kDa orange-red, 8 kDa green) |
+| yeasen20352 | Yeasen GoldBand 3-color High Range (20352ES) | https://www.yeasen.com/products/detail/592 (10, 15, 20, 35, 45, 60, 100, 140, 180, 245 kDa blue; 72 kDa orange; 25 kDa green) |
+
+Not added, because the vendor page shows the band list only as an image or could not be read: Beyotime P0068 / P0071 /
+P0075 / P0776 / P0773 / P0779 / P0771 / P0060 / P0063, GenScript M00624, Abcam ab116028, Bio-Rad 1610377, TransGen
+DM111 / DM141 / DM151 / DR201, Solarbio PR1910 / PR1920, Sangon C610110 / C610210.

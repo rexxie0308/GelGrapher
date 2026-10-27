@@ -19,6 +19,7 @@
   <div class="brand">GelGrapher</div>
   <button class="chip" id="imgChip" title="Open / replace image"><span class="chip-dot"></span><span id="imgChipName">Open image</span></button>
   <button class="icon-btn round hidden" id="btnClose" title="Close this gel (it stays in the Library with your edits)" aria-label="Close this gel">×</button>
+  <div class="seg view-seg hidden" id="viewSeg" title="The two windows of the right column: the figure, and the analysis (band measurements and their plot) below it. Click to show or hide each"><button data-view="figure" class="on" title="Show or hide the figure window">Figure</button><button data-view="quant" title="Show or hide the analysis window">Analysis</button></div>
   <div class="coach" id="coach"><span class="coach-dot"></span><span id="coachText">Drop a gel image into the window to start</span></div>
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
@@ -48,12 +49,15 @@
     <select id="dpiTop" title="Export resolution"><option value="300">300 dpi</option><option value="600" selected>600 dpi</option><option value="1200">1200 dpi</option></select>
     <div class="menu-wrap">
       <div class="split">
-        <button class="btn primary" id="btnPNG">Export PNG</button><button class="btn primary caret" id="btnExportMenu">▾</button>
+        <button class="btn primary" id="btnPNG" title="Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes (CSV), the processing log and the methods text">Export all</button><button class="btn primary caret" id="btnExportMenu">▾</button>
       </div>
       <button class="icon-btn round" id="btnPrint" title="Print the figure with a caption, for a lab notebook (Ctrl+P)" aria-label="Print the figure"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 6V2.5h8V6"/><rect x="1.5" y="6" width="13" height="5.5" rx="1"/><path d="M4 9.5h8v4H4z"/></svg></button>
       <div class="menu hidden right" id="exportMenu">
+        <div class="menu-head">The figure alone</div>
+        <button id="btnPNGItem"><span>PNG</span><small>At the chosen dpi, with the resolution and a processing summary embedded</small></button>
         <button id="btnTIFF"><span>TIFF (LZW, grayscale)</span><small>For journals that only accept TIFF (e.g. PLOS)</small></button>
         <button id="btnPDF"><span>PDF (vector)</span><small>Text and lines stay vector; the gel is embedded pixel for pixel</small></button>
+        <button id="btnPPTX"><span>PowerPoint (editable)</span><small>Text, lines and arrows stay editable; the gel can be recropped on the slide</small></button>
         <button id="btnSVG">SVG (vector, editable in Illustrator)</button>
         <button id="btnCopyFig"><span>Copy figure to clipboard</span><small>PNG at the chosen dpi, for pasting into slides or a lab notebook</small></button>
         <button id="btnPrintMenu"><span>Print…</span><small>The figure with a caption (file, date, notes), sized for a lab notebook page (Ctrl+P)</small></button>
@@ -119,6 +123,14 @@
             <button class="btn sm" id="btnFlipH" title="Mirrored image? Flip left to right">⇄ Flip horizontal</button>
             <span class="h3-note" id="flipNote"></span>
           </div>
+          <div class="cl-head" style="margin-top:10px">Perspective <span class="h3-note" id="ksNote">off</span></div>
+          <div class="inline mt">
+            <button class="btn sm" id="btnKsAuto" title="Measure the convergence of the lane lines (and of the ladder bands when two or more markers are matched) and correct it with one projective transform of the whole image">Auto</button>
+            <button class="btn sm ghost" id="btnKsOff" title="Back to the uncorrected image; annotations follow">Off</button>
+            <label class="inline-label" title="Lane spacing at the bottom of the red box relative to the top, in percent (+10 = 10 % wider at the bottom); typed values build a symmetric keystone"><span>lanes</span> <input type="number" id="ksLanes" step="0.5" class="num" style="width:58px"> %</label>
+            <label class="inline-label" title="Band spacing at the right of the red box relative to the left, in percent"><span>bands</span> <input type="number" id="ksBands" step="0.5" class="num" style="width:58px"> %</label>
+          </div>
+          <p class="hint">For a gel photographed at an angle: converging lanes (keystone) are made parallel by one projective transform of the whole image, applied together with the straightening in a single resampling. Off by default; stated in the legend notes, the log and the methods. Measurements use the same pixels as the figure.</p>
         </div>
         <div class="field"><label><span>Black point</span> <b id="lvBlackV"></b></label><input type="range" id="lvBlack" min="0" max="1000"></div>
         <div class="field"><label><span>White point</span> <b id="lvWhiteV"></b></label><input type="range" id="lvWhite" min="0" max="1000"></div>
@@ -139,9 +151,9 @@
         </details>
       </section>
 
-      <!-- range -->
+      <!-- lanes (wells, names, fixing) -->
       <section class="sec">
-        <div class="sec-head"><span class="sec-n">2</span><span>Lanes in figure</span><span class="sec-status" id="stRange"></span></div>
+        <div class="sec-head"><span class="sec-n">2</span><span>Lanes</span><span class="sec-status" id="stRange"></span></div>
         <div class="rows hidden" id="rowBox">
           <div class="cl-head">Rows of wells on this gel <span class="h3-note">one figure per row; names and annotations of each row are kept</span></div>
           <div class="seg full" id="rowSeg"></div>
@@ -151,6 +163,10 @@
           <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
         </div>
         <p class="hint">Or drag the red box on the image; its sides snap to the gaps between lanes (hold Alt to move freely). Names are never lost.</p>
+        <div class="field inline">
+          <button class="btn sm" id="btnAddLane" title="Then click on the raw image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
+          <span class="h3-note">A lane missing? Click, then click its place on the raw image. Drag a blue line to move it, Delete removes the selected one.</span>
+        </div>
         <details class="adv" id="fixLanes">
           <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
           <div class="crop-lanes">
@@ -160,37 +176,33 @@
               <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
             </div>
             <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”: this is almost always right. Only the image inside the box is used; names stay left to right.</p>
+            <div class="field inline"><button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image, drag them onto their lanes (every selected line moves together), then spread the lanes between them evenly">Spread between the two selected</button></div>
+            <p class="hint">Shift+click selects several lane lines on the image; a drag or the arrow keys move them together, Delete removes them. Select the first and the last line of a run, put them on their lanes, then <b>Spread</b>.</p>
+            <div class="field inline">
+              <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
+            </div>
           </div>
         </details>
         <div class="suggest hidden" id="emptyBar">
           <div id="emptyText"></div>
           <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
         </div>
+        <div class="cl-head" style="margin-top:10px">Lane names <span class="h3-note" id="laneCountNote"></span></div>
+        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter jumps to the next), or type it here. Untick “Show” (or press <code>H</code>) to leave a lane out; a splice gap marks the place. <code>*lacZ*</code> becomes italic.</p>
+        <div id="laneList" class="list"></div>
+        <textarea id="laneBulk" rows="1" placeholder="Paste a row of names: M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
         <details class="adv" id="laneAdv">
-          <summary><span>Individual lanes: remove / adjust</span><span class="h3-note" id="laneCountNote"></span></summary>
-          <div id="laneList" class="list"></div>
+          <summary><span>Splice gap</span><span class="h3-note">where a lane is left out</span></summary>
           <div class="field inline">
             <label class="inline-label"><span>Splice gap</span> <input type="range" id="spliceGap" min="0" max="5" step="0.25" style="width:110px"> <b id="spliceGapV"></b></label>
             <select id="spliceStyle" style="width:auto"><option value="gap">White gap</option><option value="line">Divider line</option></select>
           </div>
-          <p class="hint">Untick “Show” (or select the lane on the image and press <code>H</code>) to leave a lane out; a splice gap marks the place. On the image: drag a lane line to move it, double-click empty space to add a lane, Delete removes the selected one.</p>
-          <div class="field inline">
-            <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
-          </div>
         </details>
-      </section>
-
-      <!-- names -->
-      <section class="sec">
-        <div class="sec-head"><span class="sec-n">3</span><span>Lane names</span><span class="sec-status" id="stNames"></span></div>
-        <p class="lead"><b>Click a lane name</b> on the figure and type; Enter jumps to the next. Or paste a row of names:</p>
-        <textarea id="laneBulk" rows="2" placeholder="M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
-        <p class="hint">Filled into the lanes in the figure from left to right. <code>*lacZ*</code> becomes italic.</p>
       </section>
 
       <!-- marker -->
       <section class="sec">
-        <div class="sec-head"><span class="sec-n">4</span>Marker<span class="sec-status" id="stMarker"></span></div>
+        <div class="sec-head"><span class="sec-n">3</span>Marker<span class="sec-status" id="stMarker"></span></div>
         <div id="markerList"></div>
         <div class="field inline">
           <button class="btn sm" id="btnAddMarker">+ Add marker lane</button>
@@ -219,7 +231,7 @@
 
       <!-- annotations -->
       <section class="sec">
-        <div class="sec-head"><span class="sec-n">5</span><span>Annotations</span> <span class="h3-note">optional</span></div>
+        <div class="sec-head"><span class="sec-n">4</span><span>Annotations</span> <span class="h3-note">optional</span></div>
         <div class="tools">
           <button class="tool" id="btnAddGroup"><span class="ti">⎴</span><span>Group line</span><small>Drag across lane names</small></button>
           <button class="tool" id="btnAddArrow"><span class="ti">◀</span><span>Target band</span><small>Click a band; size estimated</small></button>
@@ -232,23 +244,32 @@
       <!-- layout -->
       <section class="sec">
         <details class="adv flush">
-          <summary class="sec-head as-summary"><span class="sec-n">6</span><span>Layout</span> <span class="h3-note" id="stLayout"></span></summary>
+          <summary class="sec-head as-summary"><span class="sec-n">5</span><span>Layout</span> <span class="h3-note" id="stLayout"></span></summary>
           <div class="field inline">
             <label class="switch"><input type="checkbox" id="autoWidth" checked><span>Auto width</span></label>
             <label class="inline-label"><span>Gel width</span> <input type="number" id="gelW" min="10" max="180" step="1" class="num"> mm</label>
             <select id="widthPreset" style="width:auto" title="Journal column width (total figure width, labels included)"><option value="">Column…</option><option value="85">Single column 85 mm</option><option value="120">1.5 columns 120 mm</option><option value="180">Double column 180 mm</option></select>
           </div>
           <div class="dpiline" id="dpiLine"></div>
+          <div class="dpiline" id="pxLine"></div>
           <div class="field inline">
             <label class="inline-label"><span>Font</span> <input type="number" id="fontPt" min="4" max="14" step="0.5" class="num"> pt</label>
+            <label class="inline-label"><span>Typeface</span> <select id="font" style="width:auto" title="Installed system fonts only; nothing is downloaded or embedded. Arial and Helvetica share their metrics; Times New Roman is set in Times in the PDF."><option>Arial</option><option>Helvetica</option><option>Times New Roman</option></select></label>
             <label class="inline-label"><span>Line</span> <input type="number" id="lineW" min="0.25" max="2" step="0.25" class="num"> pt</label>
           </div>
           <div class="field inline">
             <label class="inline-label">Label angle</label>
             <select id="labelAngle" style="width:auto">
-              <option value="auto">Auto</option><option value="0">0°</option><option value="45">45°</option><option value="60">60°</option><option value="90">90°</option>
+              <option value="auto">Auto</option><option value="0">0°</option><option value="45">45°</option><option value="60">60°</option><option value="90">90°</option><option value="custom">Custom</option>
             </select>
+            <input type="number" id="labelAngleNum" class="num" min="0" max="90" step="1" style="width:56px" title="Lane-name angle, 0–90°" aria-label="Lane-name angle in degrees">°
             <span class="h3-note" id="angleInfo"></span>
+          </div>
+          <div class="field inline">
+            <label class="inline-label" for="groupFit">Long group labels</label>
+            <select id="groupFit" style="width:auto" title="A group label wider than its line: wrap it onto several lines (even lengths), shrink the font (not below 5 pt) or keep one line and let it stick out. Shift+Enter in the label box starts a new line by hand.">
+              <option value="wrap">Wrap</option><option value="shrink">Shrink</option><option value="line">One line</option>
+            </select>
           </div>
           <div class="field inline wrap">
             <label class="switch"><input type="checkbox" id="unitHeader" checked><span>Unit header (kDa / bp)</span></label>
@@ -268,23 +289,44 @@
         </details>
       </section>
 
-      <!-- quantification -->
-      <section class="sec" id="quantSec">
+      <!-- quantification: step 6 is the analysis window's panel (boxes, measure, plot, methods) -->
+      <section class="sec ana-sec" id="quantSec">
         <details class="adv flush" id="quantDetails">
-          <summary class="sec-head as-summary"><span class="sec-n">7</span><span>Densitometry</span> <span class="h3-note" id="stQuant">band intensities, band sizes</span></summary>
-          <p class="lead">Add a <b>band box</b> for each band of interest, e.g. the target and the loading control: click <b>+ Band box</b>, then click the band on the raw image (or drag across it). The box is measured in every lane; the chart and table open in the <b>Densitometry</b> view of the figure area, which follows the step you work in: this step opens it, any control of steps 1–6 brings the figure back. While it is open the boxes are the layer you can drag on the raw image (strips fade to outlines).</p>
+          <summary class="sec-head as-summary"><span class="sec-n">6</span><span>Densitometry</span> <span class="h3-note" id="stQuant">band intensities, band sizes</span></summary>
+          <p class="lead">Add a <b>band box</b> for each band of interest, e.g. the target and the loading control: click <b>+ Band box</b>, then click the band on the raw image (or drag across it). The box is measured in every lane from the raw pixel values; the chart and table open in the <b>Analysis</b> window under the figure (also from <b>Analysis</b> in the top bar). While that window is the active one the boxes are the layer you can drag on the raw image (strips fade to outlines); click the figure to work on strips again.</p>
           <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><button class="btn sm ghost" id="btnShowQuant">Show results</button></div>
           <div id="boxList" class="list"></div>
           <p class="hint">Tick <b>Loading control</b> on the box of a housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.</p>
           <div class="field inline">
-            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto"><option value="edge">Straight line at box edges</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
+            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto" title="Edge line: a straight line between the lane profile at the top and bottom edge of the box (ImageJ gel analyser). Border median: the median of a 3-pixel border around the box (Image Studio style). Rolling ball: a baseline under the whole lane profile."><option value="edge">Straight line at box edges</option><option value="border">Median of the box border</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
           </div>
           <div class="field inline">
             <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Band pixels: only pixels above the noise floor of the background count, so the value does not change with the box size. Whole box: every pixel of the box (ImageJ gel analyser), which drifts with the box size and the noise."><option value="band">Band pixels above the noise floor</option><option value="box">Whole box (ImageJ style)</option></select></label>
           </div>
           <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
+          <div class="field inline">
+            <label class="inline-label"><span>Normalize to</span> <select id="qNorm" style="width:auto" title="Loading control: each band is divided by the ticked box in the same lane. Total lane: divided by the whole lane's density inside the figure area (total-protein normalization on a stain-free or stained gel). None: the volumes themselves."><option value="control">Loading-control box</option><option value="lane">Total lane density</option><option value="none">Nothing</option></select></label>
+          </div>
           <div class="field inline"><label class="inline-label"><span>Reference lane (= 1.00)</span> <select id="qRef" style="width:auto"></select></label></div>
-          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the loading-control correction).</p>
+          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the normalization).</p>
+          <details class="adv" id="plotAdv">
+            <summary><span>Plot</span><span class="h3-note">bars or points, values, title, axis label</span></summary>
+            <div class="field inline">
+              <label class="inline-label"><span>Type</span> <select id="plotType" style="width:auto"><option value="bar">Bars</option><option value="point">Points</option></select></label>
+            </div>
+            <div class="field inline wrap">
+              <label class="switch"><input type="checkbox" id="plotValues"><span>Write the values</span></label>
+              <label class="switch"><input type="checkbox" id="plotRef" checked><span>Line at the reference level (1.00)</span></label>
+            </div>
+            <div class="field"><label><span>Title</span></label><input type="text" id="plotTitle" placeholder="none"></div>
+            <div class="field"><label><span>Y-axis label</span></label><input type="text" id="plotY" placeholder="automatic (from the boxes and the normalization)"></div>
+            <p class="hint">One value per lane: the figure's lanes in order, markers left out. Error bars and significance need replicate gels, which this app does not pool. The chart is exported from the analysis window; <b>Export all</b> at the top right bundles it with the figure and the numbers.</p>
+          </details>
+          <details class="adv" id="methodsAdv">
+            <summary><span>Methods text</span><span class="h3-note">what was measured, for the manuscript</span></summary>
+            <div class="field"><textarea id="methodsText" rows="6" readonly></textarea></div>
+            <button class="btn sm ghost" id="btnMethodsCopy">Copy</button>
+          </details>
         </details>
       </section>
 
@@ -317,32 +359,41 @@
       </div>
     </section>
     <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
+    <!-- the right column holds two windows, the figure and the analysis below it, each closable; a divider sets their share -->
     <section class="pane-col" id="figCol">
-      <div class="col-head">
-        <div class="seg view-seg" id="viewSeg"><button data-view="figure" class="on">Figure</button><button data-view="quant">Densitometry</button></div>
-        <span class="col-sub" id="figSub">Click any text to edit it</span>
-        <span class="flex"></span>
-        <span class="zoomlabel" id="figSize"></span>
+      <div class="pane active" id="figPane">
+        <div class="col-head">
+          <span class="col-title" id="figTitle">Figure</span>
+          <span class="col-sub" id="figSub">Click any text to edit it</span>
+          <span class="flex"></span>
+          <span class="zoomlabel" id="figSize"></span>
+          <select id="figFmt" style="width:auto" title="Format of the figure export (resolution: the dpi in the top bar)"><option value="png">PNG</option><option value="tiff">TIFF</option><option value="pdf">PDF</option><option value="svg">SVG</option><option value="pptx">PowerPoint</option></select>
+          <button class="btn sm" id="btnFigExport" title="Export the figure alone in this format">Export figure</button>
+          <button class="icon-btn pane-close" id="btnCloseFig" title="Close the figure window (Figure in the top bar brings it back)" aria-label="Close the figure window">×</button>
+        </div>
+        <div id="previewBox">
+          <div id="preview"></div>
+          <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
+        </div>
       </div>
-      <div id="previewBox">
-        <div id="preview"></div>
-        <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
-      </div>
-      <!-- densitometry results: the chart, the table and the lane profile, next to the figure rather than in the settings -->
-      <div id="quantView" class="hidden">
+      <div class="gutter gutter-h hidden" id="gutterFig" role="separator" aria-orientation="horizontal" aria-label="Resize figure and analysis" tabindex="0" title="Drag to resize; double-click to reset"></div>
+      <!-- the analysis window: the chart, the table and the lane profile -->
+      <div class="pane hidden" id="quantView">
         <div class="qv-head">
+          <span class="col-title">Analysis</span>
           <div class="seg" id="quantTabs"><button data-tab="int" class="on">Band intensity</button><button data-tab="size">Band sizes</button></div>
           <span class="flex"></span>
           <div class="inline" id="quantActions">
             <button class="btn sm" id="btnQCopy">Copy table</button><button class="btn sm" id="btnQCSV">CSV</button>
-            <select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="svg">SVG</option><option value="pdf">PDF</option></select><button class="btn sm" id="btnQChart">Export chart</button>
+            <select id="qChartFmt" style="width:auto" title="Format of the chart export (resolution: the dpi in the top bar)"><option value="png">PNG</option><option value="tiff">TIFF</option><option value="pdf">PDF</option><option value="svg">SVG</option><option value="pptx">PowerPoint</option></select><button class="btn sm" id="btnQChart">Export chart</button>
           </div>
           <div class="inline hidden" id="sizeActions"><button class="btn sm" id="btnSCopy">Copy table</button><button class="btn sm" id="btnSCSV">CSV</button></div>
+          <button class="icon-btn pane-close" id="btnCloseAna" title="Close the analysis window (Analysis in the top bar brings it back)" aria-label="Close the analysis window">×</button>
         </div>
         <div class="qv-body">
           <div id="quantInt">
             <div id="quantEmpty" class="qv-empty hidden">
-              <b>No band boxes yet.</b><br>Click <b>+ Band box</b> (step 7 in the panel, or here), then click the band on the raw image. The box is measured in every lane of the figure; tick the loading control and the values are normalized to it.
+              <b>No band boxes yet.</b><br>Click <b>+ Band box</b> (step 6 in the panel, or here), then click the band on the raw image. The box is measured in every lane of the figure; tick the loading control and the values are normalized to it.
               <div><button class="btn primary" id="btnAddBox2">+ Band box</button></div>
             </div>
             <div id="quantChart" class="qchart"></div>
@@ -360,12 +411,13 @@
           </div>
         </div>
       </div>
+      <div id="paneEmpty" class="hidden"><p>Both windows are closed.</p><p><button class="btn sm" id="btnShowFig">Show the figure</button> <button class="btn sm" id="btnShowAna">Show the analysis</button></p></div>
     </section>
   </main>
 </div>
 
 <div id="popover" class="popover hidden"></div>
-<input id="floatEd" class="float-ed hidden" type="text" autocomplete="off" spellcheck="false">
+<textarea id="floatEd" class="float-ed hidden" rows="1" autocomplete="off" spellcheck="false"></textarea>
 <div id="arrowGuide" class="hidden"><span></span></div>
 <div id="warnings"></div>
 <div id="toasts"></div>
@@ -392,15 +444,15 @@
     <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
     <li><b>Click a lane name</b> on the figure and type; Enter jumps to the next (or paste a whole row on the left).</li>
     <li>Check the ladder on the left. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
-    <li>“Export PNG” at the top right (or PDF, TIFF, SVG). A pre-flight check points out problems first.</li>
+    <li>“Export all” at the top right saves everything in one ZIP (figure, chart, numbers, log, methods); each window has its own export control for the figure or the chart alone, and the arrow next to Export all lists the figure formats. A pre-flight check points out problems first.</li>
   </ol>
   <h3>Common tasks</h3>
   <ul>
     <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
     <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
     <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
-    <li><b>Densitometry</b>: step 7, “+ Band box”, click the band on the raw image. Tick the loading control (GAPDH, actin…) and every other band is divided by it in the same lane. The chart and table are in the <b>Densitometry</b> view next to “Figure”.</li>
-    <li><b>Band sizes in every lane</b>: the Densitometry view, “Band sizes”.</li>
+    <li><b>Analysis</b>: step 6, “+ Band box”, click the band on the raw image. Tick the loading control (GAPDH, actin…) and every other band is divided by it in the same lane, or normalize to the total lane density. The chart and the table open in the analysis window under the figure (Figure and Analysis in the top bar show or hide the two windows; drag the divider between them); plot options and the methods text are in step 7.</li>
+    <li><b>Band sizes in every lane</b>: the analysis window, “Band sizes”.</li>
     <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
@@ -467,6 +519,7 @@
 <script src="js/quant.js"></script>
 <script src="js/zip.js"></script>
 <script src="js/pdf.js"></script>
+<script src="js/pptx.js"></script>
 <script src="js/host.js"></script>
 <script src="js/export.js"></script>
 <script src="js/demo.js"></script>

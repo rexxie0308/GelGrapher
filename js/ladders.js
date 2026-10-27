@@ -24,10 +24,10 @@
     D('grlow', 'Thermo GeneRuler Low Range (SM1191)', [700, 500, 400, 300, 200, 150, 100, 75, 50, 25], [300, 100]),
     D('grulow', 'Thermo GeneRuler Ultra Low Range (SM1211)', [300, 200, 150, 100, 75, 50, 35, 25, 20, 15, 10], [50]),
     D('grexpress', 'Thermo GeneRuler Express (SM1553)', [5000, 3000, 2000, 1500, 1000, 750, 500, 300, 100], [1500, 500]),
-    D('neb1kb', 'NEB 1 kb DNA Ladder (N3232)', [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500], [3000]),
-    D('neb100', 'NEB 100 bp DNA Ladder (N3231)', [1517, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100], [1000, 500]),
-    D('neb1kbplus', 'NEB 1 kb Plus DNA Ladder (N3200)', [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100], [3000, 1000, 500]),
-    D('neblmw', 'NEB Low Molecular Weight DNA Ladder (N3233)', [766, 500, 350, 300, 250, 200, 150, 100, 75, 50, 25], [500]),
+    D('neb1kb', 'NEB 1 kb DNA Ladder (N3232S / N3232L)', [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500], [3000]),
+    D('neb100', 'NEB 100 bp DNA Ladder (N3231S / N3231L)', [1517, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100], [1000, 500]),
+    D('neb1kbplus', 'NEB 1 kb Plus DNA Ladder (N3200S / N3200L)', [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100], [3000, 1000, 500]),
+    D('neblmw', 'NEB Low Molecular Weight DNA Ladder (N3233S / N3233L)', [766, 500, 350, 300, 250, 200, 150, 100, 75, 50, 25], [500]),
     D('inv1kbplus', 'Invitrogen 1 Kb Plus DNA Ladder (10787018)', [15000, 10000, 8000, 7000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 850, 650, 500, 400, 300, 200, 100], [1500]),
     D('hyper1kb', 'Bioline HyperLadder 1kb (BIO-33053)', [10000, 8000, 6000, 5000, 4000, 3000, 2500, 2000, 1500, 1000, 800, 600, 400, 200]),
     D('lambdahind', 'Lambda DNA/HindIII', [23130, 9416, 6557, 4361, 2322, 2027, 564]),
@@ -43,9 +43,9 @@
     // ---- RNA ----
     R('ribohigh', 'Thermo RiboRuler High Range RNA (SM1821)', [6000, 4000, 3000, 2000, 1500, 1000, 500, 200]),
     R('ribolow', 'Thermo RiboRuler Low Range RNA (SM1831)', [1000, 800, 600, 400, 300, 200, 100]),
-    R('nebssrna', 'NEB ssRNA Ladder (N0362)', [9000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500]),
-    R('neblrssrna', 'NEB Low Range ssRNA Ladder (N0364)', [1000, 500, 300, 150, 80, 50]),
-    R('nebmirna', 'NEB microRNA Marker (N2102)', [25, 21, 17]),
+    R('nebssrna', 'NEB ssRNA Ladder (N0362S)', [9000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500]),
+    R('neblrssrna', 'NEB Low Range ssRNA Ladder (N0364S)', [1000, 500, 300, 150, 80, 50]),
+    R('nebmirna', 'NEB microRNA Marker (N2102S)', [25, 21, 17]),
     // ---- protein (SDS-PAGE, Western) ----
     P('pr26619', 'Thermo PageRuler Plus Prestained (26619)', [250, 130, 100, 70, 55, 35, 25, 15, 10], [70, 25]),
     P('pr26616', 'Thermo PageRuler Prestained (26616)', [180, 130, 100, 70, 55, 40, 35, 25, 15, 10], [70]),
@@ -57,8 +57,8 @@
     P('biokaleido', 'Bio-Rad Precision Plus Kaleidoscope (1610375)', BIORAD),
     P('biounstained', 'Bio-Rad Precision Plus Unstained (1610363)', BIORAD, [75, 50, 25]),
     P('biowesternc', 'Bio-Rad Precision Plus WesternC (1610376)', BIORAD, [75, 50, 25]),
-    P('nebp7719', 'NEB Color Prestained Broad Range (P7719)', [245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11]),
-    P('nebp7717', 'NEB Unstained Broad Range (P7717)', [250, 150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 10]),
+    P('nebp7719', 'NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7719S / P7719V)', [245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11]),
+    P('nebp7717', 'NEB Unstained Protein Standard, Broad Range 10–200 kDa (P7717S / P7717V)', [250, 150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 10]),
     P('novexsharp', 'Invitrogen Novex Sharp Pre-stained (LC5800)', [260, 160, 110, 80, 60, 50, 40, 30, 20, 15, 10, 3.5]),
     P('seeblueTG', 'Invitrogen SeeBlue Plus2, Tris-glycine (LC5925)', [250, 148, 98, 64, 50, 36, 22, 16, 6, 4]),
     P('seeblueMES', 'Invitrogen SeeBlue Plus2, Bis-Tris MES (LC5925)', [188, 98, 62, 49, 38, 28, 17, 14, 6, 3]),
@@ -66,6 +66,21 @@
     P('magicmark', 'Invitrogen MagicMark XP Western (LC5602)', [220, 120, 100, 80, 60, 50, 40, 30, 20]),
     P('benchmark', 'Invitrogen BenchMark Protein Ladder (10747012)', [220, 160, 120, 100, 90, 80, 70, 60, 50, 40, 30, 25, 20, 15, 10]),
     // ---- native protein ----
+    /* Added 2026-10, sizes read from the vendors' product pages (sources in docs/ladder-sources.md):
+     * Thermo 26632 / 26625 / 26628, Epizyme WJ101 / WJ102 / WJ103 / WJ106 / WJ107 / WJ402, Yeasen 26616ES /
+     * 20350ES / 20352ES. The Spectra pages name the colours but not which band carries which: no ref. */
+    P('pr26632', 'Thermo PageRuler Unstained Low Range (26632, Tricine gels)', [100, 30, 25, 20, 15, 10, 5, 3.4], [25]),
+    P('spectra26625', 'Thermo Spectra Multicolor High Range (26625)', [300, 250, 180, 130, 100, 70, 50, 40]),
+    P('spectra26628', 'Thermo Spectra Multicolor Low Range (26628, Tricine gels)', [40, 25, 15, 10, 4.6, 1.7]),
+    P('epiwj101', 'Epizyme Two-color Prestained 15–150 kDa (WJ101)', [150, 100, 70, 50, 40, 35, 25, 20, 15], [70, 25]),
+    P('epiwj102', 'Epizyme Two-color Prestained 10–250 kDa (WJ102)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj103', 'Epizyme Three-color Prestained 10–250 kDa (WJ103)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj106', 'Epizyme NIR Prestained 10–250 kDa (WJ106)', [250, 150, 100, 70, 50, 40, 35, 25, 20, 15, 10], [70, 25]),
+    P('epiwj107', 'Epizyme Three-color Prestained 10–180 kDa (WJ107)', [180, 130, 100, 70, 55, 40, 35, 25, 15, 10], [70, 10]),
+    P('epiwj402', 'Epizyme Two-color Prestained Low Range 1.2–40 kDa (WJ402, Tricine gels)', [40, 30, 20, 15, 7.5, 4.2, 1.2], [20]),
+    P('yeasen26616', 'Yeasen GoldBand Plus 3-color Regular Range 10–180 kDa (26616ES)', [180, 130, 100, 70, 55, 40, 35, 25, 15, 10], [70, 10]),
+    P('yeasen20350', 'Yeasen GoldBand Plus 3-color Regular Range 8–180 kDa (20350ES)', [180, 130, 100, 72, 55, 43, 33, 25, 17, 8], [72, 8]),
+    P('yeasen20352', 'Yeasen GoldBand 3-color High Range 10–245 kDa (20352ES)', [245, 180, 140, 100, 72, 60, 45, 35, 25, 20, 15, 10], [72, 25]),
     N('nativemark', 'Invitrogen NativeMark Unstained (LC0725)', [1236, 1048, 720, 480, 242, 146, 66, 20]),
     N('hmwnative', 'Cytiva HMW Native Marker Kit (28403842)', [669, 440, 232, 140, 66])
   ];

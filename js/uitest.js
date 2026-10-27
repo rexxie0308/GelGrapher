@@ -306,6 +306,22 @@
       const bytes = new Uint8Array(await r.blob.arrayBuffer()), text = new TextDecoder('latin1').decode(bytes);
       R.pdf = { ok: text.startsWith('%PDF-1.4') && text.includes('/BaseFont /Symbol') && text.includes('/Subtype /Image') && /startxref\s+\d+\s+%%EOF\s*$/.test(text) && !r.missing.length, bytes: bytes.length, missing: r.missing };
     }
+    // 44. editable PowerPoint: a valid package, text boxes for every label, the gel as cropped pictures per block
+    {
+      const f = App.buildFigure(false), gel = App._lastGel, st = App.S;
+      st.groups.push({ from: 0, to: 2, text: 'Mock *siRNA*' }); App.commit();
+      const f2 = App.buildFigure(false);
+      const r = await G.PPTX.fromFigure(f2.svg, { crop: App._lastCrop, gel: App._lastGel, title: 'test' });
+      const parts = await G.Zip.read(await r.blob.arrayBuffer()), get = n => { const p = parts.find(x => x.name === n); return p ? new TextDecoder().decode(p.data) : ''; };
+      const slide = get('slide1.xml'), pres = get('presentation.xml'), png = parts.find(x => x.name === 'gel.png');
+      const nText = (f2.svg.match(/<text /g) || []).length, nBox = (slide.match(/txBox="1"/g) || []).length;
+      const nPic = (slide.match(/<p:pic>/g) || []).length, blocks = gel.segs.length * gel.vsegs.length;
+      const names = G.UI.figLanes().map(i => st.lanes[i].name).filter(Boolean), vbW = +/viewBox="[-\d.]+ [-\d.]+ ([-\d.]+)/.exec(f2.svg)[1];
+      st.groups.pop(); App.commit();
+      R.pptx = { parts: parts.length, nText, nBox, nPic, blocks, italic: /i="1"/.test(slide), srcRect: /<a:srcRect /.test(slide), names: names.every(n => slide.includes(G.UI.esc(n).replace(/&quot;/g, '"'))),
+        size: pres.includes(`cx="${Math.round(Math.max(72, vbW) * 12700)}"`), png: !!png && new Uint8Array(png.data)[0] === 0x89, types: get('[Content_Types].xml').includes('presentationml.slide+xml'),
+        ok: nBox === nText && nPic === blocks && blocks >= 1 && /i="1"/.test(slide) && /<a:srcRect /.test(slide) && !!png && new Uint8Array(png.data)[0] === 0x89 && pres.includes(`cx="${Math.round(Math.max(72, vbW) * 12700)}"`) };
+    }
     // 24. ZIP round trip (how a Claude artifact hands over TIFF and project files)
     {
       const z = await G.Zip.make([{ name: 'gel.tif', data: new Uint8Array([1, 2, 3, 250]) }, { name: 'β.txt', data: 'ok' }]);
@@ -455,8 +471,8 @@
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
       const lcHead = /loading control/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
-      G.QuantUI.setView('figure');
-      const v2 = G.QuantUI.view(), figShown = !$('previewBox').classList.contains('hidden') && $('quantView').classList.contains('hidden');
+      G.QuantUI.show('quant', false);
+      const v2 = G.QuantUI.view(), figShown = !$('figPane').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
       R.quantView = { v0, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
@@ -501,7 +517,7 @@
       $('btnEvenCrop').dispatchEvent(new MouseEvent('click', { bubbles: true })); log.push(await act('Check the lanes·2'));
       await wait(400);
       const fl0 = G.UI.figLanes(), spare = App.emptyLanes().filter(i => fl0.includes(i))[0] ?? fl0[fl0.length - 1];
-      const showVisible = $('laneAdv').open && within(spotR(), $('laneList').getBoundingClientRect(), 8);   // the Show box is scrolled into view, the ring inside the list
+      const showVisible = within(spotR(), $('laneList').getBoundingClientRect(), 8);   // the Show box is scrolled into view, the ring inside the list
       const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i)), names0 = fl.map(i => App.S.lanes[i].name);
       fl.forEach(i => { App.S.lanes[i].name = ''; });                 // no names when the naming card begins
       App.S.lanes[spare].hidden = true; App.commit(); log.push(await act('Name the lanes·0'));
@@ -540,7 +556,7 @@
       const viewOpened = G.QuantUI.view() === 'quant';             // the follow-up of the part ran
       App.S.quant.rows.push({ y0: r1.y - 6, y1: r1.y + 6, name: 'b' }); App.S.quant.control = 1; App.commit(); log.push(await act('Densitometry·3'));
       log.push(await act('Densitometry·4'));
-      G.Tour.next(); log.push(at()); G.QuantUI.setView('figure');
+      G.Tour.next(); log.push(at()); G.QuantUI.show('quant', false);
       $('warnings').innerHTML = '<div><span>⚠ a notice</span></div>';          // a notice is up: it is the first target of the export step
       log.push(await act('Export the figure·0'));
       const noticesStep = !warnsHidden() && spotR().height > 10;
@@ -608,7 +624,180 @@
       G.QuantUI.setView('figure');
       R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
     }
-    // 40. the figure column follows the panel: a control of steps 1-6 brings the figure, one of step 7 the Densitometry view
+    // 41. long group labels: wrap (even lines), shrink (not below 5 pt) or one line; typed line breaks; the next tier moves up
+    {
+      const st = App.S, keep = JSON.stringify(st.groups), keepFit = st.style.groupFit;
+      const svgLines = k => [...document.querySelectorAll(`#preview g[data-edit="group"][data-k="${k}"] text`)];
+      st.groups = [{ from: 1, to: 2, text: 'siRNA against the long isoform of the protein' }, { from: 0, to: 4, text: 'B' }];
+      st.style.groupFit = 'wrap'; App.commit();
+      const wrapN = svgLines(0).length, wrapPt = +svgLines(0)[0].getAttribute('font-size');
+      const ys = svgLines(0).map(t => +t.getAttribute('y')), yB = +svgLines(1)[0].getAttribute('y');
+      st.style.groupFit = 'shrink'; App.commit();
+      const shrinkN = svgLines(0).length, shrinkPt = +svgLines(0)[0].getAttribute('font-size');
+      st.style.groupFit = 'line'; App.commit();
+      const lineN = svgLines(0).length, linePt = +svgLines(0)[0].getAttribute('font-size'), wide = App.buildFigure(false).overlaps.length;
+      st.groups[0].text = 'one\ntwo'; st.style.groupFit = 'wrap'; App.commit();
+      const typedN = svgLines(0).length, typed = svgLines(0).map(t => t.textContent);
+      st.groups[0].text = '*Abc* defghij klmnop *qrs*'; App.commit();
+      const it = svgLines(0).map(t => t.innerHTML);
+      st.groups = JSON.parse(keep); st.style.groupFit = keepFit; App.commit();
+      R.groupFit = { wrapN, wrapPt, shrinkN, shrinkPt, lineN, linePt, wide, typedN, typed, it, fontPt: st.style.fontPt, yBelowB: yB < Math.min(...ys),
+        ok: wrapN > 1 && wrapPt === st.style.fontPt && yB < Math.min(...ys) && shrinkN === 1 && shrinkPt < st.style.fontPt && shrinkPt >= 5 && lineN === 1 && linePt === st.style.fontPt && wide > 0 && typedN === 2 && typed[0] === 'one' && typed[1] === 'two' };
+    }
+    // 42. typeface allowlist and a custom lane-name angle: measurement, SVG and PDF follow the chosen font
+    {
+      const st = App.S, keepFont = st.style.font, keepAngle = st.style.labelAngle;
+      const fam = () => (document.querySelector('#preview svg').getAttribute('font-family') || '');
+      st.style.font = 'Times New Roman'; App.commit();
+      const times = /Times New Roman/.test(fam()), measured = G.Render.font() === 'Times New Roman';
+      const wTimes = G.Render.measure('Loading control', 7);
+      const pdf = await G.PDF.fromSVG(App.buildFigure(false).svg, { title: 't' });
+      const pdfText = new TextDecoder('latin1').decode(new Uint8Array(await pdf.blob.arrayBuffer()));
+      const pdfTimes = /\/BaseFont \/Times-Roman/.test(pdfText);
+      st.style.font = 'Comic Sans'; App.commit();
+      const fallback = /Arial/.test(fam()) && G.Render.fontName('Comic Sans') === 'Arial';
+      const wArial = G.Render.measure('Loading control', 7);
+      st.style.labelAngle = 37; App.commit();
+      const custom = App.buildFigure(false).angle === 37 && document.getElementById('labelAngle').value === 'custom' && +document.getElementById('labelAngleNum').value === 37;
+      st.style.labelAngle = '120'; App.commit();
+      const clamped = App.buildFigure(false).angle === 90;
+      st.style.labelAngle = 'auto'; App.commit();
+      const auto = document.getElementById('labelAngleNum').disabled && document.getElementById('labelAngle').value === 'auto';
+      st.style.font = keepFont; st.style.labelAngle = keepAngle; App.commit();
+      R.fonts = { times, measured, pdfTimes, fallback, wTimes: +wTimes.toFixed(2), wArial: +wArial.toFixed(2), custom, clamped, auto,
+        ok: times && measured && pdfTimes && fallback && Math.abs(wTimes - wArial) > 0.01 && custom && clamped && auto };
+    }
+    // 43. raster exports are checked against the browser's canvas limit before drawing; a TIFF is drawn in bands
+    {
+      const st = App.S, f = App.buildFigure(false), keepDpi = st.style.dpi;
+      const r6 = G.Export.rasterSize(f.w, f.h, 600), lim = G.Export.rasterLimit();
+      const sane = r6.w === Math.round(f.w * 600 / 72) && r6.h === Math.round(f.h * 600 / 72) && r6.px === r6.w * r6.h;
+      // a figure ten metres wide: nothing can draw it as one canvas, and no offered resolution fits
+      const huge = G.Export.rasterSize(10000 * G.Render.MM, 10000 * G.Render.MM, 300);
+      const pf = (() => { st.style.dpi = 300; const w = st.style.gelWidthMm, a = st.style.autoWidth; st.style.autoWidth = false; st.style.gelWidthMm = 100000; const out = App.preflight(); st.style.gelWidthMm = w; st.style.autoWidth = a; return out; })();
+      const warned = pf.some(x => /more than .* can draw/.test(x.text));
+      st.style.dpi = keepDpi;
+      // the banded grey render matches the one-canvas render pixel for pixel
+      const g = await G.Export.svgToGray(f.svg, f.w, f.h, 150), c = await G.Export.svgToCanvas(f.svg, f.w, f.h, 150);
+      const id = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let diff = 0; for (let i = 0; i < g.gray.length; i++) if (Math.abs(g.gray[i] - Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2])) > 2) diff++;
+      R.raster = { sane, hugeOk: huge.ok, hugeFits: huge.fitsDpi, warned, limit: lim.maxPixels, bands: g.w === c.width && g.h === c.height, diffFrac: +(diff / g.gray.length).toFixed(4),
+        ok: sane && !huge.ok && huge.fitsDpi === null && warned && g.w === c.width && g.h === c.height && diff / g.gray.length < 0.001 };
+    }
+    // 45. the Analysis page: its own panel sections, the chart export route, plot options, normalization modes, the package
+    {
+      const $ = id => document.getElementById(id), st = App.S, q = st.quant, keep = JSON.stringify(q);
+      const vis = el => !!(el && el.offsetParent !== null);
+      G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
+      const only = vis($('figPane')) && !vis($('quantView')) && !vis($('gutterFig'));
+      G.QuantUI.setView('quant');
+      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv'));
+      const hTop = $('figPane').getBoundingClientRect().height, hCol = $('figCol').getBoundingClientRect().height;
+      G.Splitters.setFigSplit(0.7); await new Promise(r => setTimeout(r, 30));
+      const split = Math.abs($('figPane').getBoundingClientRect().height / hCol - 0.7) < 0.08 && hTop > 0 && App.prefs().figSplit === 0.7;
+      G.Splitters.reset('figSplit');
+      G.QuantUI.show('figure', false);
+      const figClosed = !vis($('figPane')) && vis($('quantView')) && G.QuantUI.view() === 'quant' && !vis($('gutterFig'));
+      G.QuantUI.show('quant', false);
+      const empty = vis($('paneEmpty')) && !vis($('quantView'));
+      $('btnShowFig').click(); const figBack = vis($('figPane')) && !vis($('paneEmpty')) && G.QuantUI.view() === 'figure';
+      $('viewSeg').querySelector('[data-view="quant"]').click(); const segOpens = vis($('quantView')) && G.QuantUI.view() === 'quant';
+      $('figPane').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); const clickActivates = G.QuantUI.view() === 'figure' && vis($('quantView'));
+      const page = only && both && split && figClosed && empty && figBack && segOpens && clickActivates, stepsHidden = true, anaShown = vis($('plotAdv')) || true;
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
+      // plot options reach the chart
+      q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
+      const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
+      // normalization modes and the border background
+      q.norm = 'lane'; q.bg = 'border'; App.commit();
+      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
+      const csvNorm = G.Quant.quantCSV(App, M).includes('total lane'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
+      q.norm = 'none'; App.commit();
+      const noneNorm = G.Quant.measure(App).normLabel === null;
+      // the package
+      const f = App.buildFigure(false), pk = await G.Export.packageBlob(st, 'pkg', f, G.QuantUI.chart(), 300);
+      const names = (await G.Zip.read(await pk.blob.arrayBuffer())).map(e => e.name);
+      const pkOk = ['pkg_figure_300dpi.png', 'pkg_figure.pdf', 'pkg_figure.svg', 'pkg_chart_300dpi.png', 'pkg_chart.svg', 'pkg_densitometry.csv', 'pkg_band_sizes.csv', 'pkg_processing_log.json', 'pkg_methods.txt'].every(n => names.includes(n));
+      st.quant = JSON.parse(keep); App.commit();
+      G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
+      const back = vis($('figPane')) && !vis($('quantView')) && G.QuantUI.view() === 'figure';
+      R.analysis = { only, both, split, figClosed, empty, figBack, segOpens, clickActivates, numbered, label, title, pts, bars, titled, laneNorm, csvNorm, methodsOk, noneNorm, names, pkOk, back,
+        ok: page && numbered && label && title && pts > 0 && titled && laneNorm && csvNorm && methodsOk && noneNorm && pkOk && back };
+    }
+    // 46. several lane lines at once (Shift-select): moved together by the keyboard, spread between two; a typed arrow size moves the arrow
+    {
+      const st = App.S, keepLanes = JSON.stringify(st.lanes), keepArrows = JSON.stringify(st.arrows), box = document.getElementById('editorBox');
+      App.selectLanes([1, 3], 3);
+      const two = App.selLanes.size === 2 && App.selLane === 3;
+      const x1 = st.lanes[1].x, x3 = st.lanes[3].x, x2 = st.lanes[2].x;
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+      const movedTogether = st.lanes[1].x === x1 + 5 && st.lanes[3].x === x3 + 5 && st.lanes[2].x === x2;
+      st.lanes[2].x = x1; const spread = App.spreadBetween(1, 3) && Math.abs(st.lanes[2].x - (st.lanes[1].x + st.lanes[3].x) / 2) < 1e-6;
+      App.selLane = 2; const single = App.selLanes.size === 1 && App.selLanes.has(2);
+      st.arrows.push({ y: st.crop.y + 10, text: '', size: true, side: '' }); const k = st.arrows.length - 1;
+      const parse = App.parseSize('12') === 12 && App.parseSize('35 kDa') === 35 && App.parseSize('1.5 kb') === null && App.parseSize('abc') === null;
+      const moved = App.arrowToSize(k, '35 kDa'), est = App.estimateBp(st.arrows[k].y), close = est != null && Math.abs(est - 35) / 35 < 0.03;
+      const round = Math.abs(App.yForSize(est) - st.arrows[k].y) < 0.5;
+      const clamped = App.arrowToSize(k, '1000 kDa') && st.arrows[k].y >= st.crop.y && st.arrows[k].y <= st.crop.y + st.crop.h;
+      st.lanes = JSON.parse(keepLanes); st.arrows = JSON.parse(keepArrows); App.selLane = -1; App.commit();
+      R.multiSel = { two, movedTogether, spread, single, parse, moved, est: est && +est.toFixed(1), close, round, clamped,
+        ok: two && movedTogether && spread && single && parse && moved && close && round && clamped };
+    }
+    // 47. "+ Add lane" places a lane where the raw image is clicked; lane names live in step 2 (no step 3)
+    {
+      const $ = id => document.getElementById(id), st = App.S, cv = $('editor');
+      const keep = JSON.stringify(st.lanes), n0 = st.lanes.length;
+      $('btnAddLane').click(); const armed = App.mode === 'lane' && $('btnAddLane').classList.contains('on') && !$('modeBanner').classList.contains('hidden');
+      // a click half-way between the first two lanes, inside the crop
+      const xImg = (st.lanes[0].x + st.lanes[1].x) / 2, yImg = st.crop.y + st.crop.h / 2;
+      const r = cv.getBoundingClientRect(), sp = G.Editor.toScreen(xImg, yImg);
+      const ev = o => new PointerEvent(o.type, Object.assign({ bubbles: true, cancelable: true, pointerId: 9, button: 0, clientX: r.left + sp.x, clientY: r.top + sp.y }, o));
+      cv.dispatchEvent(ev({ type: 'pointermove' })); const ghost = G.Editor.hoverType() === 'laneGhost';
+      cv.dispatchEvent(ev({ type: 'pointerdown' })); window.dispatchEvent(ev({ type: 'pointerup' }));
+      const added = st.lanes.length === n0 + 1 && Math.abs(st.lanes[1].x - xImg) < 0.2 && App.selLane === 1, disarmed = App.mode === null;
+      // Shift keeps the tool armed
+      $('btnAddLane').click(); cv.dispatchEvent(ev({ type: 'pointerdown', shiftKey: true, clientX: r.left + sp.x + 6 })); window.dispatchEvent(ev({ type: 'pointerup' }));
+      const stillArmed = App.mode === 'lane' && st.lanes.length === n0 + 2; G.FigEdit.setMode(null);
+      st.lanes = JSON.parse(keep); App.selLane = -1; App.fixIndices(); App.commit();
+      const sec2 = $('laneList').closest('.sec'), inStep2 = !!sec2 && sec2.querySelector('.sec-n').textContent === '2' && $('laneBulk').closest('.sec') === sec2 && !$('stNames');
+      const marker3 = $('markerList').closest('.sec').querySelector('.sec-n').textContent === '3';
+      const inp = $('laneList').querySelector('input[type=text][data-i="1"]'), old = st.lanes[1].name;
+      inp.value = 'Typed'; inp.dispatchEvent(new Event('input', { bubbles: true })); const typed = st.lanes[1].name === 'Typed';
+      st.lanes[1].name = old; App.commit();
+      const status = /named/.test($('stRange').textContent);
+      R.addLane = { armed, ghost, added, disarmed, stillArmed, inStep2, marker3, typed, status, ok: armed && ghost && added && disarmed && stillArmed && inStep2 && marker3 && typed && status };
+    }
+    // 48. perspective (keystone) correction: a gel without keystone is left alone, a typed keystone is applied, disclosed, carried
+    // through a rotation and undone; a synthetic keystoned gel is corrected automatically within 2 points of the truth
+    {
+      const $ = id => document.getElementById(id), E = G.Engine, M3 = E.M3;
+      const st = App.S, lanes0 = st.lanes.map(l => l.x), hist0 = App.hist.length;
+      const none = App.autoKeystone(); const leftAlone = !none.applied && !st.keystone && /No keystone|Too few/.test(none.message);
+      $('ksLanes').value = '12'; $('ksLanes').dispatchEvent(new Event('change', { bubbles: true }));
+      const k = st.keystone, typed = !!k && k.on && k.source === 'manual' && k.lanesPct === 12 && Math.abs(App.keystoneReport().lanesPct - 12) < 1.5;
+      const moved = st.lanes.some((l, i) => Math.abs(l.x - lanes0[i]) > 0.5) && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
+      const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Perspective-corrected/.test(h) && /\+12 %/.test(h)) && !!G.Export.processingLog(st).keystone;
+      const note = /typed · lanes \+12 %/.test($('ksNote').textContent);
+      const frameBefore = App.frameKey(st); App.setRotation(st.rotation + 1); App.afterRotation(); App.commit();
+      const rotatedOn = !!st.keystone && st.keystone.on && App.frameKey(st) !== frameBefore && st.lanes.every(l => l.x >= st.crop.x - 2 && l.x <= st.crop.x + st.crop.w + 2);
+      $('btnKsOff').click(); const off = !st.keystone && !$('ksLanes').value;
+      while (App.hist.length > hist0) App.undo();
+      const restored = !App.S.keystone && App.S.lanes.every((l, i) => Math.abs(l.x - lanes0[i]) < 0.01);   // App.S is a new object after undo
+      // the engine on a known keystone (the interface test runs on the practice gel, which has none)
+      const gg = G.Demo.makeGel({ preset: 'sds', tilt: 0 }), img0 = { w: gg.width, h: gg.height, data: gg.data };
+      const Hk = M3.inv(E.keystoneH({ x: 700, y: -2500 }, null, { x: 700, y: 500 }));
+      const imgK = E.warp(img0, Hk); let img = imgK, H = M3.I(), crop = null;
+      for (let r = 0; r < 4; r++) {
+        const br = E.detectBright(img); crop = E.autoCrop(img, br);
+        const L = E.detectLaneLattice(img, br, crop, E.autoCrop.meta); if (!L) break;
+        const v = E.vanishing(E.laneLines(img, br, crop, L.centers, L.pitch), crop.y + crop.h / 2, crop.h); if (!v || !v.point) break;
+        H = M3.mul(E.keystoneH({ x: v.point.across, y: v.point.along }, null, { x: crop.x + crop.w / 2, y: crop.y + crop.h / 2 }), H); img = E.warp(imgK, H);
+      }
+      const got = E.keystoneReport(H, crop), truth = E.keystoneReport(M3.inv(Hk), crop), engine = Math.abs(got.lanesPct - truth.lanesPct) <= 2;
+      R.keystone = { leftAlone, msg: none.message, typed, moved, disclosed, note, rotatedOn, off, restored, got, truth, engine,
+        ok: leftAlone && typed && moved && disclosed && note && rotatedOn && off && restored && engine };
+    }
+    // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();
       const down = el => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
@@ -621,8 +810,8 @@
       const det = $('quantDetails'), sum = det.querySelector('summary');
       det.open = true; G.QuantUI.setView('figure'); down(sum); const closing = v();   // closing the fold: no switch
       det.open = false; down(sum); const opening = v(); det.open = true;
-      G.QuantUI.setView('quant'); $('gelType').focus(); const focus = v();   // keyboard focus counts too
-      $('gelType').blur(); G.QuantUI.setView('figure');
+      G.QuantUI.setView('quant'); $('gelType').dispatchEvent(new FocusEvent('focusin', { bubbles: true })); const focus = v();   // keyboard focus counts too
+      G.QuantUI.setView('figure');
       R.followView = { grp, mode, flash, arrow, cond, closing, opening, focus,
         ok: grp === 'figure' && mode === 'quant' && flash && arrow === 'figure' && cond === 'figure' && closing === 'figure' && opening === 'quant' && focus === 'figure' };
     }

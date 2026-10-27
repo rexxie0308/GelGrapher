@@ -70,24 +70,60 @@
     return new Blob([keep[0], ...parts, ...keep.slice(1)], { type: 'image/png' });
   }
 
-  function svgToCanvas(svg, wPt, hPt, dpi) {
+  /* Browsers refuse or silently blank out very large canvases: Safari, and every browser on iOS and
+   * iPadOS, above about 16.7 million pixels; others at 16384 px a side. A double-column figure at
+   * 1200 dpi is past the first limit, so the size is checked before anything is drawn. */
+  function rasterLimit() {
+    const ua = navigator.userAgent || '';
+    const apple = navigator.vendor === 'Apple Computer, Inc.' || /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    return apple ? { maxPixels: 16777216, maxSide: 32767, browser: 'Safari' } : { maxPixels: 268435456, maxSide: 16384, browser: 'this browser' };
+  }
+  // the pixel size of a raster export and whether this browser can draw it; fitsDpi = the largest offered
+  // resolution that fits (null when even 300 dpi does not)
+  function rasterSize(wPt, hPt, dpi) {
+    const lim = rasterLimit();
+    const fits = d => { const w = Math.round(wPt * d / 72), h = Math.round(hPt * d / 72); return w * h <= lim.maxPixels && w <= lim.maxSide && h <= lim.maxSide; };
+    const w = Math.round(wPt * dpi / 72), h = Math.round(hPt * dpi / 72);
+    return { w, h, px: w * h, ok: fits(dpi), fitsDpi: [1200, 600, 300].find(fits) || null, browser: lim.browser, maxPixels: lim.maxPixels };
+  }
+  const tooBig = (rs, dpi, what) => `${what} would be ${rs.w} × ${rs.h} px at ${dpi} dpi, more than ${rs.browser} can draw. ` + (rs.fitsDpi ? `Export at ${rs.fitsDpi} dpi.` : 'Make the figure smaller, or export SVG or PDF.');
+
+  function loadSvg(svg) {
     return new Promise((resolve, reject) => {
-      const scale = dpi / 72;
       const img = new Image();
       const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = Math.round(wPt * scale); c.height = Math.round(hPt * scale);
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        resolve(c);
-      };
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not rasterise the SVG')); };
       img.src = url;
     });
+  }
+  async function svgToCanvas(svg, wPt, hPt, dpi) {
+    const img = await loadSvg(svg), scale = dpi / 72;
+    const c = document.createElement('canvas');
+    c.width = Math.round(wPt * scale); c.height = Math.round(hPt * scale);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  }
+  // the SVG drawn in horizontal bands of a few million pixels each and read back as 8-bit grey, so a
+  // TIFF can be larger than one canvas may be (only the width is bounded by the canvas side limit)
+  async function svgToGray(svg, wPt, hPt, dpi) {
+    const img = await loadSvg(svg), scale = dpi / 72, lim = rasterLimit();
+    const w = Math.round(wPt * scale), h = Math.round(hPt * scale);
+    const rows = Math.max(1, Math.min(h, Math.floor(Math.min(lim.maxPixels / 2, 8e6) / w)));
+    const g = new Uint8Array(w * h);
+    const c = document.createElement('canvas'); c.width = w; c.height = rows;
+    const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high';
+    for (let y0 = 0; y0 < h; y0 += rows) {
+      const hh = Math.min(rows, h - y0);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, rows);
+      ctx.drawImage(img, 0, -y0, w, h);
+      const id = ctx.getImageData(0, 0, w, hh).data, n = w * hh, base = y0 * w;
+      for (let i = 0; i < n; i++) g[base + i] = Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2]);
+    }
+    return { gray: g, w, h };
   }
 
   // minimal summary embedded in exported rasters: the figure carries its own audit trail
@@ -95,7 +131,7 @@
     const A = G.App, k = A.clipStats();
     return JSON.stringify({
       tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
-      rotationDeg: S.rotation, flip: flipText(S), levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
+      rotationDeg: S.rotation, flip: flipText(S), keystone: keystoneText(S) || null, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
       sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
       disclosure: legendHints(S).join(' ')
@@ -103,6 +139,8 @@
   }
 
   async function exportPNG(svg, wPt, hPt, dpi, name, S) {
+    const rs = rasterSize(wPt, hPt, dpi);
+    if (!rs.ok) { G.App.notify(tooBig(rs, dpi, 'The PNG')); return 'failed'; }
     const c = await svgToCanvas(svg, wPt, hPt, dpi);
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     return download(await pngDecorate(blob, dpi, S ? { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) } : {}), name);
@@ -163,15 +201,19 @@
     return buf;
   }
   async function exportTIFF(svg, wPt, hPt, dpi, name, S) {
-    const c = await svgToCanvas(svg, wPt, hPt, dpi);
-    const id = c.getContext('2d').getImageData(0, 0, c.width, c.height).data, n = c.width * c.height;
-    const g = new Uint8Array(n);
-    for (let i = 0; i < n; i++) g[i] = Math.round(0.299 * id[i * 4] + 0.587 * id[i * 4 + 1] + 0.114 * id[i * 4 + 2]);
-    return download(new Blob([encodeTiffGray(g, c.width, c.height, dpi, summaryText(S))], { type: 'image/tiff' }), name);
+    const rs = rasterSize(wPt, hPt, dpi), lim = rasterLimit();
+    if (rs.w > lim.maxSide || rs.w * rs.h > 1.5e9) { G.App.notify(tooBig(rs, dpi, 'The TIFF')); return 'failed'; }
+    const r = await svgToGray(svg, wPt, hPt, dpi);   // drawn in bands: not bound by the canvas pixel limit
+    return download(new Blob([encodeTiffGray(r.gray, r.w, r.h, dpi, summaryText(S))], { type: 'image/tiff' }), name);
   }
 
   function exportSVG(svg, name) {
     return download(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + svg], { type: 'image/svg+xml' }), name);
+  }
+  // editable PowerPoint: text and lines as native shapes, the gel as recroppable pictures (opts: crop, gel)
+  async function exportPPTX(svg, name, S, opts) {
+    const r = await G.PPTX.fromFigure(svg, Object.assign({ title: S ? S.file.name : 'Figure', subject: S ? summaryText(S) : '' }, opts || {}));
+    return download(r.blob, name);
   }
   // vector PDF; resolves {status, missing: characters the standard PDF fonts cannot show}
   async function exportPDF(svg, name, S, title) {
@@ -185,6 +227,8 @@
     const W = fullCanvas.width, H = fullCanvas.height;
     const fs = Math.max(14, Math.round(W / 70));
     const top = fs * 4, bottom = fs * 3.2;
+    const lim = rasterLimit();
+    if (W * (H + top + bottom) > lim.maxPixels || W > lim.maxSide) { G.App.notify(`The uncropped image (${W} × ${Math.round(H + top + bottom)} px) is more than ${lim.browser} can draw.`); return 'failed'; }
     const c = document.createElement('canvas');
     c.width = W; c.height = H + top + bottom;
     const ctx = c.getContext('2d');
@@ -208,7 +252,7 @@
     ctx.fillText('Uncropped image (same processing as figure)', fs * 0.5, fs * 1.3);
     ctx.font = `${fs * 0.8}px Arial`;
     const lv = S.levels;
-    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}°${flipText(S) ? ' · ' + flipText(S) : ''} · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
+    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}°${flipText(S) ? ' · ' + flipText(S) : ''}${keystoneText(S) ? ' · perspective-corrected' : ''} · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
     ctx.fillText(info, fs * 0.5, H + top + fs * 1.2, W - fs);
     const key = S.lanes.map((l, i) => `${l.hidden ? 'X' : i + 1}: ${l.name || '—'}`).join('   ');
     ctx.fillText(key, fs * 0.5, H + top + fs * 2.4, W - fs);
@@ -239,6 +283,7 @@
       source: { file: S.file.name, sha256: S.file.sha256, bytes: S.file.size, width: A.src.w, height: A.src.h, bitDepth: S.file.bits, dpi: S.file.dpi || null },
       markerImage: A.hasMarkerImage() ? { file: S.markerImage.name, sha256: S.markerImage.sha256, use: 'marker band positions only; not shown in the figure' } : null,
       rotationDeg: S.rotation, autoRotationDeg: A.autoRotation, flip: Object.assign({ description: flipText(S) }, S.flip),
+      keystone: S.keystone && S.keystone.on ? { description: keystoneText(S), source: S.keystone.source, lanesPct: S.keystone.lanesPct, bandsPct: S.keystone.bandsPct, H: S.keystone.H.map(v => +v.toPrecision(8)), note: 'H maps the rotated image to the working image (row-major 3 x 3, pixels); rotation and H are composed and the pixels are resampled once, bilinear' } : null,
       crop: S.crop, figureWells: r ? [r[0] + 1, r[1] + 1] : null,
       wellRows: S.gelRows ? { count: S.gelRows.length, shown: S.gelRow + 1, rows: S.gelRows.map(x => ({ yFrom: Math.round(x.y0), yTo: Math.round(x.y1) })) } : null,
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
@@ -279,6 +324,13 @@
 
   // 'rotated by 180°' / 'flipped horizontally' / 'flipped vertically' / '' (as imaged)
   function flipText(S) { const f = S.flip || {}; return f.h && f.v ? 'rotated by 180°' : f.h ? 'flipped horizontally' : f.v ? 'flipped vertically' : ''; }
+  // the perspective correction, in words, for the legend notes, the log and the methods
+  function keystoneText(S) {
+    const k = S.keystone;
+    if (!k || !k.on) return '';
+    const pct = v => `${v > 0 ? '+' : ''}${v} %`;
+    return `one projective (perspective) transform of the whole image, ${k.source === 'manual' ? 'set by hand' : `estimated from the lane lines${k.bands ? ' and the ladder bands' : ''}`}: the lane spacing at the bottom of the figure area was ${pct(k.lanesPct)} of the top${k.bands || k.bandsPct ? `, the band spacing at the right ${pct(k.bandsPct)} of the left` : ''}`;
+  }
   const KIND_LADDER = { dna: 'DNA ladders', rna: 'RNA ladders', protein: 'protein molecular-weight markers', native: 'native protein markers' };
   function legendHints(S) {
     const h = [], A = G.App;
@@ -288,6 +340,7 @@
     const strips = (S.strips || []).filter(t => Math.abs(t.y1 - t.y0) >= 2);
     if (strips.length > 1) h.push(`The ${strips.length} panels are regions of the same ${what} image${strips.some(t => t.label) ? ` (${strips.map(t => t.label || '–').join(', ')})` : ''}; intervening regions were omitted and are shown in the uncropped image.`);
     if (flipText(S)) h.push(`The image was ${flipText(S)} (orientation only; lane order follows the figure).`);
+    if (keystoneText(S)) h.push(`Perspective-corrected: ${keystoneText(S)}; applied together with the straightening in one resampling and stated in the processing log.`);
     if (S.levels.invert) h.push('Image colours were inverted for display.');
     if (S.levels.gamma !== 1) h.push(`A non-linear gamma adjustment (γ = ${S.levels.gamma}) was applied to the whole image.`);
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
@@ -297,20 +350,52 @@
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
     if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
-      const R = G.Quant.measure(A), bg = { edge: 'a straight-line background between the box edges', rolling: 'a rolling-ball background', none: 'no background subtraction' }[R.method];
-      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : '';
+      const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
+      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : R.normMode === 'lane' ? ', normalized to the total lane density' : '';
       const how = R.mode === 'box' ? 'integrated density in fixed-width boxes' : 'integrated density of the band pixels above the background noise floor in fixed-width boxes';
       h.push(`Band intensities were quantified by densitometry of the raw image (${how}, ${bg})${ctl}` + (R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.'));
     }
     return h;
   }
 
-  // densitometry bar chart: PNG / SVG / PDF
+  // densitometry chart: PNG / TIFF / SVG / PDF / PPTX
   async function exportChart(chart, fmt, base, dpi, S) {
     if (fmt === 'svg') return exportSVG(chart.svg, base + '.svg');
     if (fmt === 'pdf') return (await exportPDF(chart.svg, base + '.pdf', S, 'Densitometry')).status;
+    if (fmt === 'pptx') return exportPPTX(chart.svg, base + '.pptx', S, {});
+    if (fmt === 'tiff') return exportTIFF(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.tif`, S);
     return exportPNG(chart.svg, chart.w, chart.h, dpi, base + `_${dpi}dpi.png`, S);
   }
 
-  G.Export = { flipText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportChart, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, encodeTiffGray, pngDecorate };
+  // PNG bytes of an SVG at dpi, with the resolution and summary chunks (null when the canvas limit forbids it)
+  async function pngBlob(svg, wPt, hPt, dpi, S) {
+    if (!rasterSize(wPt, hPt, dpi).ok) return null;
+    const c = await svgToCanvas(svg, wPt, hPt, dpi), blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    return pngDecorate(blob, dpi, S ? { Software: G.App.NAME + ' ' + G.App.VERSION, Description: summaryText(S) } : {});
+  }
+  /* Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes
+   * (CSV), the processing log and the methods text. fig = {svg, w, h}; chart = {svg, w, h} or null. */
+  async function packageBlob(S, base, fig, chart, dpi) {
+    const A = G.App, files = [], add = (name, data) => files.push({ name: `${base}/${name}`, data });
+    const figPng = await pngBlob(fig.svg, fig.w, fig.h, dpi, S);
+    if (figPng) add(`${base}_figure_${dpi}dpi.png`, figPng);
+    add(`${base}_figure.pdf`, (await G.PDF.fromSVG(fig.svg, { title: S.file.name, subject: summaryText(S) })).blob);
+    add(`${base}_figure.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + fig.svg);
+    let R = null;
+    if (S.quant.rows.length) {
+      R = G.Quant.measure(A);
+      if (chart) {
+        const chPng = await pngBlob(chart.svg, chart.w, chart.h, dpi, S);
+        if (chPng) add(`${base}_chart_${dpi}dpi.png`, chPng);
+        add(`${base}_chart.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + chart.svg);
+      }
+      add(`${base}_densitometry.csv`, G.Quant.quantCSV(A, R));
+    }
+    if (S.markers.length) add(`${base}_band_sizes.csv`, G.Quant.sizesCSV(A, G.Quant.bandSizes(A)));
+    add(`${base}_processing_log.json`, JSON.stringify(processingLog(S), null, 2));
+    add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION}\n`);
+    return { blob: await G.Zip.make(files), files: files.map(f => f.name) };
+  }
+
+  G.Export = { flipText, keystoneText, download, exportPNG, exportTIFF, exportSVG, exportPDF, exportPPTX, exportChart, packageBlob, exportUncropped, exportOriginal, processingLog, legendHints, summaryText, svgToCanvas, svgToGray, rasterSize, rasterLimit, encodeTiffGray, pngDecorate };
 })(window);

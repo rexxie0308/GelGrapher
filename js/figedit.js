@@ -17,11 +17,13 @@
     $('modeText').textContent = m === 'arrow' ? 'Click the target band (on either image); it snaps to the band and estimates the size'
       : m === 'group' ? 'Drag from the first to the last lane name on the figure; release to create the group line'
       : m === 'strip' ? 'On the raw image, drag down across the region to show (include the marker ticks); release to add the strip'
-      : m === 'quant' ? 'Click a band on the raw image (the box fits itself), or drag across it' : '';
+      : m === 'quant' ? 'Click a band on the raw image (the box fits itself), or drag across it'
+      : m === 'lane' ? 'Click on the raw image where the missing lane runs (the blue line follows the pointer). Shift+click adds several; Esc ends' : '';
     $('btnAddArrow').classList.toggle('on', m === 'arrow');
     $('btnAddGroup').classList.toggle('on', m === 'group');
     $('btnAddStrip').classList.toggle('on', m === 'strip');
     $('btnAddBox').classList.toggle('on', m === 'quant');
+    $('btnAddLane').classList.toggle('on', m === 'lane');
     prev.classList.toggle('arming', m === 'arrow');
     if (m !== 'arrow') guide.classList.add('hidden');
     // every tool opens the view it works in: a band box the Densitometry view, an arrow, group line or strip the figure
@@ -88,7 +90,8 @@
     const r = el.getBoundingClientRect();
     edit = { kind, id, orig: getVal(kind, id) || '' };
     fed.value = edit.orig;
-    fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
+    fed.placeholder = kind === 'lane' ? `Well ${id + 1} name` : kind === 'group' ? 'Group label (Shift+Enter: new line)' : kind === 'strip' ? 'Protein / probe, e.g. p53' : 'Condition name';
+    fitRows();
     const w = Math.max(120, Math.min(240, r.width + 50));
     fed.style.width = w + 'px';
     // where the text will be: over a lane name or group label (above the gel); a strip label grows to the right of
@@ -108,10 +111,13 @@
     fed.classList.add('hidden');
     App.commit();
   }
-  fed.addEventListener('input', () => { if (edit) { setVal(edit.kind, edit.id, fed.value); App.refresh(); } });
+  // the box is a one-line textarea so a group label can hold typed line breaks (Shift+Enter); it grows with them
+  const fitRows = () => { fed.rows = Math.max(1, Math.min(4, fed.value.split('\n').length)); };
+  fed.addEventListener('input', () => { if (edit) { fitRows(); setVal(edit.kind, edit.id, fed.value); App.refresh(); } });
   fed.addEventListener('keydown', e => {
     if (!edit || composing(e)) return;          // IME is choosing characters: Enter belongs to it
     if (e.key === 'Escape') { e.preventDefault(); closeEd(true); return; }
+    if (e.key === 'Enter' && e.shiftKey && edit.kind === 'group') return;   // a new line in the label
     if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
       const { kind, id } = edit;
@@ -164,7 +170,16 @@
     pop.querySelector('#pName').addEventListener('input', e => { a.text = e.target.value; upd(); });
     pop.querySelector('#pName').addEventListener('keydown', e => { if (e.key === 'Enter' && !composing(e)) closePop(); });
     pop.querySelector('#pSize').addEventListener('change', e => { a.size = e.target.checked; upd(); });
-    pop.querySelector('#pSizeText').addEventListener('input', e => { a.sizeText = e.target.value.trim(); if (a.sizeText) { a.size = true; pop.querySelector('#pSize').checked = true; } upd(); });
+    pop.querySelector('#pSizeText').addEventListener('input', e => {
+      a.sizeText = e.target.value.trim();
+      if (a.sizeText) { a.size = true; pop.querySelector('#pSize').checked = true; }
+      // bilateral: a typed size moves the arrow to where the markers put that size (the magenta line on the image follows)
+      if (a.sizeText && App.arrowToSize(k, a.sizeText)) {
+        const i2 = App.estimateInfo(a.y);
+        pop.querySelector('.est').innerHTML = i2 ? `Moved to ${App.fmtSize(i2.bp)} on the marker scale${i2.extrap ? ' <span class="warn-t">(outside the marker range)</span>' : ''}` : estHtml;
+      }
+      upd();
+    });
     pop.querySelector('#pSide').addEventListener('change', e => { a.side = e.target.value; upd(); });
     pop.querySelector('#pOk').onclick = closePop;
     pop.querySelector('#pDel').onclick = () => { S().arrows.splice(k, 1); App.selArrow = -1; popK = -1; pop.classList.add('hidden'); App.commit(); };

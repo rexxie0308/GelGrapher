@@ -1,8 +1,10 @@
 /* Minimal TIFF decoder (no dependencies).
- * Supports: 8/16/32-bit integer and 32-bit float, 1-4 samples per pixel,
+ * Supports: 1/2/4-bit packed, 8/16/32-bit integer and 32-bit float, 1-4 samples per pixel,
  * strips or tiles, compression none / LZW / PackBits / Deflate, predictor 2,
- * PhotometricInterpretation WhiteIsZero/BlackIsZero/RGB.
- * Output: grayscale Float32Array normalized to 0..1 (1 = sensor max for integer data).
+ * PhotometricInterpretation WhiteIsZero/BlackIsZero/RGB/Palette (the colour map decides the intensity;
+ * approach after GelFigure 0.6.6).
+ * Output: grayscale Float32Array normalized to 0..1 (1 = sensor max for integer data), plus
+ * .warnings for lossy conversions.
  */
 (function (G) {
   'use strict';
@@ -148,6 +150,33 @@
     }
   }
 
+  /* Palette TIFF: the ColorMap (3 × 2^bits entries of 16-bit R, G, B) gives each index a colour. A grey map
+   * (R = G = B, ImageJ's way of saving 8-bit gels) gives the grey value itself, inverted maps included. A
+   * false-colour map whose luminance runs one way (fire, rainbow-like LUTs from imagers) is read back as
+   * the index signal that was saved. Any other map is a colour image (a scanned, stained gel): luminance. */
+  function paletteLut(cmap, bits, idx) {
+    const N = 1 << bits, R = cmap.slice(0, N), Gn = cmap.slice(N, 2 * N), B = cmap.slice(2 * N, 3 * N);
+    const used = new Uint8Array(N);
+    for (let i = 0; i < idx.length; i += (idx.length > 400000 ? 7 : 1)) used[idx[i]] = 1;
+    const ids = []; for (let i = 0; i < N; i++) if (used[i]) ids.push(i);
+    const lut = new Float32Array(N);
+    if (ids.every(i => R[i] === Gn[i] && R[i] === B[i])) {
+      for (let i = 0; i < N; i++) lut[i] = R[i] / 65535;
+      return { lut, kind: 'grey' };
+    }
+    const Y = i => (0.299 * R[i] + 0.587 * Gn[i] + 0.114 * B[i]) / 65535;
+    let up = 0, down = 0;
+    for (let k = 1; k < ids.length; k++) { const d = Y(ids[k]) - Y(ids[k - 1]); if (d > 1e-3) up++; else if (d < -1e-3) down++; }
+    const steps = up + down;
+    if (ids.length >= 16 && steps && Math.min(up, down) <= steps * 0.03) {
+      const rising = up >= down;
+      for (let i = 0; i < N; i++) lut[i] = rising ? i / (N - 1) : 1 - i / (N - 1);
+      return { lut, kind: 'false-colour' };
+    }
+    for (let i = 0; i < N; i++) lut[i] = Y(i);
+    return { lut, kind: 'colour' };
+  }
+
   async function decode(buffer) {
     const dv = new DataView(buffer);
     const { ifds, le } = readIFDs(dv);
@@ -167,11 +196,16 @@
     const planar = (t[284] || [1])[0];
     const predictor = (t[317] || [1])[0];
     const fmt = (t[339] || [1])[0]; // 1 uint, 2 int, 3 float
-    if (![8, 16, 32].includes(bits)) throw new Error('Unsupported bit depth: ' + bits + ' bit');
-    if (photo === 3) throw new Error('Palette TIFFs are not supported yet');
-    const bps = bits / 8;
+    const packed = bits < 8;   // 1, 2 or 4 bits per pixel, several pixels per byte, one sample per pixel
+    if (![1, 2, 4, 8, 16, 32].includes(bits)) throw new Error('Unsupported bit depth: ' + bits + ' bit');
+    if (packed && spp !== 1) throw new Error('Unsupported TIFF: ' + bits + '-bit data with ' + spp + ' samples per pixel');
+    if (photo === 3 && !t[320]) throw new Error('The palette TIFF has no colour map');
+    if (photo === 3 && bits > 8) throw new Error('Unsupported palette TIFF: ' + bits + ' bit');
+    const warnings = [];
+    const bps = packed ? 1 : bits / 8;
+    const rowB = packed ? Math.ceil(w * bits / 8) : w * spp * bps;   // bytes per image row (one plane)
     const tiled = !!t[322];
-    const total = new Uint8Array(w * h * spp * bps);
+    const total = new Uint8Array(packed ? rowB * h : w * h * spp * bps);
     const planes = planar === 2 ? spp : 1;
     const sppBlock = planar === 2 ? 1 : spp;
 
@@ -184,13 +218,13 @@
         if (plane >= planes) break;
         const sy = (s % stripsPerPlane) * rps;
         const rows = Math.min(rps, h - sy);
-        const expected = rows * w * sppBlock * bps;
+        const expected = packed ? rows * rowB : rows * w * sppBlock * bps;
         const cnt = counts ? counts[s] : expected;
         let block = await decompress(comp, new Uint8Array(buffer, offs[s], Math.min(cnt, buffer.byteLength - offs[s])), expected);
         if (block === undefined) continue;
         block = new Uint8Array(block.buffer.slice(block.byteOffset, block.byteOffset + Math.min(block.byteLength, expected)));
-        if (predictor === 2) undoPredictor(block, w, rows, sppBlock, bits, le);
-        const dst = plane * w * h * bps + sy * w * sppBlock * bps;
+        if (predictor === 2 && !packed) undoPredictor(block, w, rows, sppBlock, bits, le);
+        const dst = packed ? sy * rowB : plane * w * h * bps + sy * w * sppBlock * bps;
         total.set(block.subarray(0, Math.min(block.length, total.length - dst)), dst);
       }
     } else {
@@ -203,14 +237,14 @@
         if (plane >= planes) break;
         const idx = k % perPlane;
         const tx = (idx % across) * tw, ty = Math.floor(idx / across) * th;
-        const expected = tw * th * sppBlock * bps;
+        const rowBytes = packed ? Math.ceil(tw * bits / 8) : tw * sppBlock * bps;   // tile widths are multiples of 16: whole bytes
+        const expected = rowBytes * th;
         let block = await decompress(comp, new Uint8Array(buffer, offs[k], counts[k]), expected);
         block = new Uint8Array(block.buffer.slice(block.byteOffset, block.byteOffset + Math.min(block.byteLength, expected)));
-        if (predictor === 2) undoPredictor(block, tw, th, sppBlock, bits, le);
-        const rowBytes = tw * sppBlock * bps;
-        const copyW = Math.min(tw, w - tx) * sppBlock * bps;
+        if (predictor === 2 && !packed) undoPredictor(block, tw, th, sppBlock, bits, le);
+        const copyW = packed ? Math.ceil(Math.min(tw, w - tx) * bits / 8) : Math.min(tw, w - tx) * sppBlock * bps;
         for (let r = 0; r < th && ty + r < h; r++) {
-          const dst = plane * w * h * bps + ((ty + r) * w + tx) * sppBlock * bps;
+          const dst = packed ? (ty + r) * rowB + (tx * bits >> 3) : plane * w * h * bps + ((ty + r) * w + tx) * sppBlock * bps;
           total.set(block.subarray(r * rowBytes, r * rowBytes + copyW), dst);
         }
       }
@@ -219,6 +253,35 @@
     // Convert to grayscale float
     const n = w * h;
     const gray = new Float32Array(n);
+    const xres = t[282] ? t[282][0] : 0;
+    const unit = (t[296] || [2])[0];
+    const dpi = unit === 3 ? xres * 2.54 : xres;
+    if (packed || photo === 3) {
+      // index per pixel (packed bits or one byte), then the palette or the bit depth gives the value
+      const mask = (1 << bits) - 1;
+      const idx = new Uint8Array(n);
+      if (packed) {
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const bit = x * bits;
+          idx[y * w + x] = (total[y * rowB + (bit >> 3)] >> (8 - bits - (bit & 7))) & mask;
+        }
+      } else for (let i = 0; i < n; i++) idx[i] = total[i * spp];
+      let lut;
+      if (photo === 3) {
+        const pal = paletteLut(t[320], bits, idx);
+        lut = pal.lut;
+        if (pal.kind === 'false-colour') warnings.push('This TIFF is a false-colour palette image; the saved intensity index was read back, not the display colours.');
+        else if (pal.kind === 'colour') warnings.push('This TIFF is a palette colour image; it was converted to grey by luminance.');
+        if (bits < 8) warnings.push(`A ${bits}-bit palette TIFF has only ${1 << bits} grey levels; faint bands may be lost. Export 8- or 16-bit data from the imaging software if you can.`);
+      } else {
+        lut = new Float32Array(mask + 1);
+        for (let i = 0; i <= mask; i++) lut[i] = photo === 0 ? 1 - i / mask : i / mask;
+        warnings.push(`This is a ${bits}-bit TIFF with only ${1 << bits} grey levels; faint bands may be lost.`);
+      }
+      let actualMax = 0;
+      for (let i = 0; i < n; i++) { const v = lut[idx[i]]; gray[i] = v; if (v > actualMax) actualMax = v; }
+      return { width: w, height: h, data: gray, bits, spp, compression: comp, actualMax, dpi, warnings };
+    }
     const tdv = new DataView(total.buffer);
     const get = (byteIdx) => {
       if (bits === 8) return fmt === 2 ? tdv.getInt8(byteIdx) : total[byteIdx];
@@ -253,10 +316,8 @@
       gray[i] = v;
       if (v > actualMax) actualMax = v;
     }
-    const xres = t[282] ? t[282][0] : 0;
-    const unit = (t[296] || [2])[0];
-    return { width: w, height: h, data: gray, bits, spp, compression: comp, actualMax,
-      dpi: unit === 3 ? xres * 2.54 : xres };
+    if (t[34675]) warnings.push('The TIFF carries an ICC colour profile, which is not applied; intensities are the stored values.');
+    return { width: w, height: h, data: gray, bits, spp, compression: comp, actualMax, dpi, warnings };
   }
 
   // Decode PNG/JPG etc. via the browser
@@ -297,7 +358,7 @@
   async function decodeBuffer(buffer, name) {
     const b = new Uint8Array(buffer, 0, Math.min(32, buffer.byteLength));
     const isTiff = (b[0] === 0x49 && b[1] === 0x49 && b[2] === 42) || (b[0] === 0x4d && b[1] === 0x4d && b[3] === 42);
-    if (isTiff) { const r = await decode(buffer); r.warnings = []; return r; }
+    if (isTiff) { const r = await decode(buffer); r.warnings = r.warnings || []; return r; }
     const r = await decodeBrowserImage(new File([buffer], name || 'image'));
     r.warnings = [];
     const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
