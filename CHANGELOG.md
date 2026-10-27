@@ -38,6 +38,7 @@
 - Densitometry: the chart plotted values relative to the reference lane even when that lane had no band in a box, which divided by background noise and made the real bands vanish next to values in the thousands. A relative value is now given only when the reference lane has a real band in that box (at least 5 % of the strongest lane); otherwise the table shows "–" for it, the chart shows the values themselves, and a note asks for another reference lane.
 
 ### Changed
+- The perspective controls (Auto, Off, typed percentages) sit at the top of step 1 as "Perspective / distortion", not inside the "Straighten and contrast" fold, where they went unseen.
 - The **Lane names** step is gone: step 2, *Lanes*, holds the wells range, the lane list with a name box per well (Show / delete), the paste box for a row of names, and the fixing tools; the later steps are renumbered (3 Marker, 4 Annotations, 5 Layout, 6 Densitometry). Clicking the grey numbers on the figure still names lanes.
 - The app no longer opens a worked example by itself: it starts on the empty workspace, or on your library when it has gels. The examples stay one click away on the start screen.
 
