@@ -199,7 +199,13 @@
       let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
       if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
       const cx = sxw / sw + crop.x;
-      return Math.abs(cx - xp) > pitch * (half - 0.1) ? null : { y: r.y, x: cx, w: sw };
+      if (Math.abs(cx - xp) > pitch * (half - 0.1)) return null;
+      // the lane's width in this band: the extent above half of its peak over the local floor
+      const ci = clamp(Math.round(cx - crop.x), 0, r.q.length - 1);
+      let pk = 0; for (let x = Math.max(a, ci - Math.round(pitch * 0.15)); x <= Math.min(b, ci + Math.round(pitch * 0.15)); x++) pk = Math.max(pk, r.q[x]);
+      const th = lo + (pk - lo) * 0.5;
+      let l = ci, rr = ci; while (l > a && r.q[l - 1] >= th) l--; while (rr < b && r.q[rr + 1] >= th) rr++;
+      return { y: r.y, x: cx, w: sw, ext: rr - l + 1 };
     };
     const mid = rows.length >> 1, pts = [];
     for (const dir of [1, -1]) {
@@ -263,7 +269,12 @@
       const need = Math.max(3, Math.ceil(idx.length * 0.3));
       const dbg = [Math.round(r.y), pts.length]; laneComb.debug.push(dbg);
       if (pts.length < need) return null;
-      let f = lsq(pts);
+      // the first family is robust (the median pitch over all pairs of teeth, the median offset),
+      // so one or two teeth off the comb (a torn, compressed edge of the slab) cannot bias it
+      let f = null;
+      { const sl = []; for (let u = 0; u < pts.length; u++) for (let v = u + 1; v < pts.length; v++) if (pts[v].i !== pts[u].i) sl.push((pts[v].x - pts[u].x) / (pts[v].i - pts[u].i));
+        if (sl.length) { sl.sort((a, b) => a - b); const pm = sl[sl.length >> 1]; const off = pts.map(q => q.x - pm * q.i).sort((a, b) => a - b); f = { c: off[off.length >> 1], p: pm, n: pts.length }; } }
+      if (!f) f = lsq(pts);
       if (!f) return null;
       // teeth off the family (a lane in a torn region) are dropped in two passes
       let kept = pts;
@@ -615,6 +626,7 @@
   function laneTraces(img, bright, crop, laneXs, pitch, nBands) {
     nBands = nBands || 16;
     const yc = crop.y + crop.h / 2, rows = laneRows(img, bright, crop, nBands);
+    const sg = signal(cropImg(img, crop), bright);
     const fit = pts => {
       if (pts.length < 4) return null;
       // weighted quadratic x = a + b t + c t^2, t = y - yc
@@ -637,8 +649,55 @@
       const { a, b, c, res } = f;
       // the trace is only known where the lane was seen: beyond its first and last point it is held
       const t0 = Math.min(...pts.map(p => p.y)) - yc, t1 = Math.max(...pts.map(p => p.y)) - yc;
-      return { a, b, c, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, at: y => { const t = clamp(y - yc, t0, t1); return a + b * t + c * t * t; } };
+      const at = y => { const t = clamp(y - yc, t0, t1); return a + b * t + c * t * t; };
+      // the lane's width down the gel, measured at its bands (a band is a clear peak of the lane's
+      // profile; its width is the extent of its rows above half their peak). A strong band is a
+      // little wider than a faint one, so the widths scatter about a mean, but a steady widening or
+      // narrowing is a local stretch of the gel. A linear trend is kept when it is at least 15 % of
+      // the mean width over the lane's rows and the widths follow it (scatter under 35 % of the
+      // mean); otherwise the width is its mean.
+      const bw = bandWidths(sg, crop, pitch, at);
+      let w0 = 0, w1 = 0, nb = bw.length;
+      if (nb) { let W = 0, st = 0, se = 0, stt = 0, ste = 0; bw.forEach(p => { const t = p.y - yc; W += p.v; st += p.v * t; se += p.v * p.w; stt += p.v * t * t; ste += p.v * t * p.w; });
+        w0 = W > 0 ? se / W : 0;
+        const den = W * stt - st * st;
+        if (nb >= 4 && den > 0 && w0 > 0) {
+          const k1 = (W * ste - st * se) / den, k0 = (se - k1 * st) / W;
+          let ss = 0; bw.forEach(p => { ss += p.v * (p.w - (k0 + k1 * (p.y - yc))) ** 2; });
+          const scatter = Math.sqrt(ss / W);
+          if (Math.abs(k1) * (t1 - t0) >= 0.15 * w0 && scatter < 0.35 * w0) { w0 = k0; w1 = k1; }
+        } }
+      const wAt = y => Math.max(w0 * 0.3, w0 + w1 * clamp(y - yc, t0, t1));
+      return { a, b, c, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, w0, w1, nb, wTrend: w0 > 0 ? +(w1 * (t1 - t0) / w0).toFixed(3) : 0, at, wAt };
     });
+  }
+
+  // the clear bands of one lane (peaks of its profile along the trace) and the horizontal extent of
+  // each: rows y ± 2 averaged, the extent above half the peak over the floor within ± 0.6 pitch.
+  // sg is the signal of the crop; at(y) the lane's trace in image coordinates.
+  function bandWidths(sg, crop, pitch, at) {
+    const { w, h, data } = sg;
+    const hw = Math.max(2, Math.round(pitch * 0.3));
+    const prof = new Float32Array(h);
+    for (let y = 0; y < h; y++) {
+      const cx = clamp(Math.round(at(y + crop.y) - crop.x), 0, w - 1), a = Math.max(0, cx - hw), b = Math.min(w - 1, cx + hw);
+      let s = 0; for (let x = a; x <= b; x++) s += data[y * w + x];
+      prof[y] = s / (b - a + 1);
+    }
+    const bands = detectBands(prof), vmax = Math.max(0, ...bands.map(p => p.v));
+    const out = [], R = Math.round(pitch * 0.6);
+    bands.filter(p => p.v >= vmax * 0.15).forEach(p => {
+      const cx = clamp(Math.round(at(p.y + crop.y) - crop.x), 0, w - 1), a = Math.max(0, cx - R), b = Math.min(w - 1, cx + R);
+      const row = new Float32Array(b - a + 1);
+      for (let y = Math.max(0, p.y - 2); y <= Math.min(h - 1, p.y + 2); y++) for (let x = a; x <= b; x++) row[x - a] += data[y * w + x];
+      let lo = Infinity, pk = 0; for (let x = 0; x < row.length; x++) lo = Math.min(lo, row[x]);
+      for (let x = Math.max(0, cx - a - 3); x <= Math.min(row.length - 1, cx - a + 3); x++) pk = Math.max(pk, row[x]);
+      if (pk <= lo) return;
+      const th = lo + (pk - lo) * 0.5;
+      let l = cx - a, r = cx - a; while (l > 0 && row[l - 1] >= th) l--; while (r < row.length - 1 && row[r + 1] >= th) r++;
+      if (l > 0 && r < row.length - 1) out.push({ y: p.y + crop.y, w: r - l + 1, v: p.v });   // an extent reaching the window's edge is a smear, not a band
+    });
+    return out;
   }
 
   /* The grid that straightens the lanes: every traced lane is moved to a vertical line at its
@@ -647,18 +706,37 @@
    * the crop height. rows: optional ladder band rows [{at: x => y, yc}] (the same for y, from
    * the markers only). Returns {grid, maxShift}. */
   function straightenGrid(W, H, crop, traces, rows, nx, ny) {
+    if (straightenGrid.useWidths == null) straightenGrid.useWidths = false;
     const g = Grid.identity(W, H, nx, ny), yc = crop.y + crop.h / 2, xc = crop.x + crop.w / 2;
     const T = traces.filter(Boolean).sort((p, q) => p.a - q.a);
+    // every lane as its two edges (centre ∓ half its width), each pulled to a vertical line at its
+    // mean position, so a lane that widens down the gel (a stretched corner) is narrowed back as well
+    // as shifted; a trace without a width is its centre twice
+    // A width trend is only believed when a neighbouring lane shows one of the same sign and at
+    // least a third as strong: a stretched region of the gel widens adjacent lanes alike, while an
+    // overloaded band that bleeds sideways widens one lane only.
+    // The width trends are measured and reported (straightenGrid.widthLanes), but only applied to
+    // the pixels with straightenGrid.useWidths: on the sanity-check photograph they did not respond
+    // to their own correction (a lane measured as widening by 100 % was still measured so after
+    // being narrowed), which means the extent of a smeared, lane-wide band is what was measured,
+    // not a stretch of the gel; moving pixels on such a measure would distort data.
+    const coherent = k => { const t = T[k], tr = t.wTrend || 0; if (!tr) return false; return [T[k - 1], T[k + 1]].some(u => u && u.wTrend && Math.sign(u.wTrend) === Math.sign(tr) && Math.abs(u.wTrend) >= Math.abs(tr) / 3); };
+    const Ed = [];
+    T.forEach((t, k) => { const hw = (t.w0 || 0) / 2, wAt = t.wAt && straightenGrid.useWidths && coherent(k) ? t.wAt : (() => t.w0 || 0); Ed.push({ x0: t.a - hw, at: y => t.at(y) - wAt(y) / 2 }); Ed.push({ x0: t.a + hw, at: y => t.at(y) + wAt(y) / 2 }); });
+    straightenGrid.widthLanes = T.filter((t, k) => t.wAt && coherent(k)).map(t => ({ x: Math.round(t.a), trend: t.wTrend }));
+    Ed.sort((p, q) => p.x0 - q.x0);
     const R = (rows || []).filter(Boolean).sort((p, q) => p.yc - q.yc);
     const fadeY = y => { const d = Math.max(0, Math.max(crop.y - y, y - crop.y - crop.h)); return Math.max(0, 1 - d / (crop.h / 2)); };
     const fadeX = x => { const d = Math.max(0, Math.max(crop.x - x, x - crop.x - crop.w)); return Math.max(0, 1 - d / (crop.w / 2)); };
     const dxAt = (x, y) => {
-      if (!T.length) return 0;
-      const sh = T.map(t => t.at(y) - t.a);
-      if (x <= T[0].a) return sh[0];
-      if (x >= T[T.length - 1].a) return sh[sh.length - 1];
-      let i = 0; while (i < T.length - 1 && T[i + 1].a < x) i++;
-      const f = (x - T[i].a) / (T[i + 1].a - T[i].a);
+      if (!Ed.length) return 0;
+      const sh = Ed.map(e => e.at(y) - e.x0);
+      if (x <= Ed[0].x0) return sh[0];
+      if (x >= Ed[Ed.length - 1].x0) return sh[sh.length - 1];
+      let i = 0; while (i < Ed.length - 1 && Ed[i + 1].x0 < x) i++;
+      const d = Ed[i + 1].x0 - Ed[i].x0;
+      if (d < 1e-6) return sh[i];
+      const f = (x - Ed[i].x0) / d;
       return sh[i] * (1 - f) + sh[i + 1] * f;
     };
     const dyAt = (x, y) => {
@@ -1142,7 +1220,8 @@
     const bx = Math.round(img.w * 0.01);
     const strip = cropImg(img, { x: bx, y: crop.y, w: img.w - 2 * bx, h: crop.h });
     // the parameters scale with the crop (the gel), not with the frame the gel was photographed in
-    const L = detectLanes(strip, bright, Math.max(crop.w, 40), [crop.x - bx, crop.x + crop.w - bx]);
+    const region = [crop.x - bx, crop.x + crop.w - bx], refW = Math.max(crop.w, 40);
+    const L = detectLanes(strip, bright, refW, region);
     if (L.centers.length < 2) return null;
     const P = L.pitch, q = L.profile, W = strip.w;
     const wide = (pr, c) => featureWidth(pr, c, P) >= P * 0.28;

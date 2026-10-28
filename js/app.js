@@ -632,8 +632,8 @@
         App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
         const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P));
         const bendAfter = bendOf(tr2);
-        App.autoGeometry.debug.push({ round: rounds, straighten: true, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
-          before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1)] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1)] : null) });
+        App.autoGeometry.debug.push({ round: rounds, straighten: true, widthLanes: E.straightenGrid.widthLanes, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
+          before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null) });
         if (bendAfter > bendBefore * 0.9) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
         else { grid = g; applied = true; rounds++; App.autoLanes(); }
       }
