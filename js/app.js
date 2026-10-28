@@ -1022,6 +1022,29 @@
     if (inside.length) App.setLaneRange(inside[0], inside[inside.length - 1]);
     return inside.length;
   };
+  // the box's top and bottom moved to the bands: just above the highest band and just below the
+  // lowest over the loaded lanes it holds (the ladders' assigned bands and each lane's clear peaks),
+  // with 0.6 lane spacing of margin; the wells and the empty gel above and below are left out, as
+  // a box drawn by hand would. Kept as it is when fewer than a lane spacing of bands is found.
+  App.reframeCropRows = function () {
+    const S = App.S, c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3), H = App.ensureRot().h;
+    let top = Infinity, bot = -Infinity;
+    S.markers.forEach(m => { const l = S.lanes[m.lane]; if (!l || l.x < c.x || l.x > c.x + c.w) return; m.bands.forEach(b => { if (b.y == null) return; top = Math.min(top, b.y); bot = Math.max(bot, b.y); }); });
+    App._peakCrop = App.bandStrip();
+    try {
+      const inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
+      const all = inside.map(i => App.lanePeaks(i)), mx = Math.max(0, ...all.flat().map(q => q.v));
+      // a lane counts when loaded (its strongest band a sixth of the gel's); its clear bands (a sixth
+      // of its own strongest) set the extent, so a faint top band of a ladder is not cut
+      all.forEach(pk => { const lm = Math.max(0, ...pk.map(q => q.v)); if (lm < mx * 0.15) return; pk.forEach(q => { if (q.v >= lm * 0.15) { top = Math.min(top, c.y + q.y); bot = Math.max(bot, c.y + q.y); } }); });
+    } finally { App._peakCrop = null; }
+    if (!isFinite(top) || bot - top < P) return false;
+    const m = P * 0.6, y0 = Math.round(Math.max(0, top - m)), y1 = Math.round(Math.min(H, bot + m));
+    if (y1 - y0 < 10) return false;
+    S.crop = { x: c.x, y: y0, w: c.w, h: y1 - y0 };
+    App.updateSaturation();
+    return true;
+  };
   // show lanes a..b: crop x follows the lane boundaries, y untouched
   App.setLaneRange = function (a, b) {
     const S = App.S, n = S.lanes.length;
@@ -1336,6 +1359,8 @@
       if (loaded2) App.setLaneRange(loaded2[0], loaded2[1]);
     }
     if (!S.markers.length && geometry) App.autoMarkers();
+    // and its rows on the bands (the well row served the detection; the figure starts at the bands)
+    if (fresh) App.reframeCropRows();
     T('fix');
     App.fixIndices();
     App.updateSaturation();

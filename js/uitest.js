@@ -850,10 +850,12 @@
       const st = App.S, c = st.crop, truth = Array.from({ length: 12 }, (_, k) => 260 + 80 * k + ox);
       const hit = truth.filter(t => st.lanes.some(l => Math.abs(l.x - t) < 24)).length;
       const onGel = c.x >= ox + 100 && c.x + c.w <= ox + gg.width - 100 && c.y >= oy && c.y + c.h <= oy + gg.height && c.w > 700;
+      // the rows framed on the bands: the ladder spans rows 200..840 of the synthetic gel; the box starts and ends within 1.5 lane spacings of that
+      const rowsFramed = c.y >= oy + 200 - 120 && c.y <= oy + 200 - 10 && c.y + c.h >= oy + 840 + 10 && c.y + c.h <= oy + 840 + 120;
       const passes = (G.Engine.autoCrop.passes || []).length;
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
-      R.smallInFrame = { lanes: st.lanes.length, hit, crop: c, passes, onGel, ok: hit === 12 && st.lanes.length === 12 && onGel && passes >= 2 };
+      R.smallInFrame = { lanes: st.lanes.length, hit, crop: c, passes, onGel, rowsFramed, ok: hit === 12 && st.lanes.length === 12 && onGel && rowsFramed && passes >= 2 };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
