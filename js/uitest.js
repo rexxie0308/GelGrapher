@@ -778,7 +778,10 @@
       const imgK = E.warp(img0, Hk);
       await App.load(new File([G.Demo.encodeTiff16({ width: imgK.w, height: imgK.h, data: imgK.data })], 'keystone_gel.tif'), 'sds-page');
       const st = App.S, truth = E.keystoneReport(Hk, st.crop), g = st.geom;
-      const autoAtLoad = !!g && g.mode === 'auto' && Math.abs(g.lanesPct - truth.lanesPct) <= 3 && st.lanes.length === 10;
+      // corrected: the lanes of the corrected image are parallel (the comb's spacing change under 2 %) and
+      // the stated perspective is near the truth (the two are measured over different frames)
+      const vFinal = E.laneComb(App.ensureRot(), st.bright, st.crop, st.lanes.map(l => l.x), st.lanePitch), residual = vFinal ? +vFinal.change.toFixed(4) : null;
+      const autoAtLoad = !!g && g.mode === 'auto' && Math.abs(g.lanesPct - truth.lanesPct) <= 6 && residual != null && Math.abs(residual) < 0.02 && st.lanes.length === 10;
       const segAuto = $('geomSeg').querySelector('[data-geom=auto]').classList.contains('on') && /auto/.test($('ksNote').textContent);
       const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Geometry-corrected/.test(h) && /perspective/.test(h)) && !!G.Export.processingLog(st).geometry && G.Export.processingLog(st).geometry.grid.pts.length === st.geom.grid.nx * st.geom.grid.ny * 2;
       const lanesOn = st.lanes.map(l => l.x), frame0 = App.frameKey(st);
@@ -798,7 +801,7 @@
       const trapezoid = !!App.S.geom && App.S.geom.mode === 'manual' && App.S.geom.lanesPct > 5 && App.S.lanes.length >= 9 && !G.UI_placing() && /four slab corners/.test(G.Export.legendHints(App.S).join(' '));
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
-      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid,
+      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid,
         ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view

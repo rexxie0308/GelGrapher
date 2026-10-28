@@ -103,7 +103,7 @@
           <button data-dark="0"><span>Bright bands, dark background</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span>Dark bands, light background</span><small class="pol-note" data-k="1"></small></button>
         </div>
         <p class="hint" id="invNote"></p>
-        <div class="cl-head" style="margin-top:8px">Perspective / distortion <span class="h3-note" id="ksNote">off</span></div>
+        <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span></div>
         <div class="seg" id="geomSeg">
           <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
           <button data-geom="manual" title="A box with four free corners on the raw image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
@@ -114,7 +114,7 @@
           <button class="btn sm ghost" id="btnGeomCancel" title="Leave the box without changing anything">Cancel</button>
           <span class="h3-note">Drag the round corners onto the gel's corners (the square handles slide a whole side); nothing happens until Apply.</span>
         </div>
-        <p class="hint" id="geomHint">Runs automatically when an image is opened. <b>Auto</b> corrects a camera angle (converging lanes) and bent lanes, from the lane traces and the ladder bands only, never from sample bands. <b>Manual</b> shows a box with four free corners on the raw image: drag each onto a corner of the gel. Everything is stated in the legend notes and the log; after a correction the lanes and markers are detected again (a ladder you chose is kept).</p>
+        <p class="hint" id="geomHint"><b>Auto</b> (run when the image opens) straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands; the legend and the log state it. <b>Manual</b>: drag the blue box onto the corners of the gel, then Apply.</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
@@ -166,10 +166,10 @@
           <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
           <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
         </div>
-        <p class="hint">Or drag the red box on the image; its sides snap to the gaps between lanes (hold Alt to move freely). Names are never lost.</p>
+        <p class="hint">Or drag the red box on the image (its sides snap to the gaps between lanes; Alt moves freely).</p>
         <div class="field inline">
           <button class="btn sm" id="btnAddLane" title="Then click on the raw image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
-          <span class="h3-note">A lane missing? Click, then click its place on the raw image. Drag a blue line to move it, Delete removes the selected one.</span>
+          <span class="h3-note">then click where the lane runs. Drag a blue line to move it; Delete removes it.</span>
         </div>
         <details class="adv" id="fixLanes">
           <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
@@ -179,9 +179,9 @@
               <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
               <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
             </div>
-            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”: this is almost always right. Only the image inside the box is used; names stay left to right.</p>
+            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”.</p>
             <div class="field inline"><button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image, drag them onto their lanes (every selected line moves together), then spread the lanes between them evenly">Spread between the two selected</button></div>
-            <p class="hint">Shift+click selects several lane lines on the image; a drag or the arrow keys move them together, Delete removes them. Select the first and the last line of a run, put them on their lanes, then <b>Spread</b>.</p>
+            <p class="hint">Shift+click selects several lane lines; put the first and the last of a run on their lanes, then <b>Spread</b>.</p>
             <div class="field inline">
               <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
             </div>
@@ -192,7 +192,7 @@
           <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
         </div>
         <div class="cl-head" style="margin-top:10px">Lane names <span class="h3-note" id="laneCountNote"></span></div>
-        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter jumps to the next), or type it here. Untick “Show” (or press <code>H</code>) to leave a lane out; a splice gap marks the place. <code>*lacZ*</code> becomes italic.</p>
+        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter: next lane). Untick “Show” or press <code>H</code> to leave a lane out. <code>*lacZ*</code> is italic.</p>
         <div id="laneList" class="list"></div>
         <textarea id="laneBulk" rows="1" placeholder="Paste a row of names: M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
         <details class="adv" id="laneAdv">
@@ -346,7 +346,7 @@
     <section class="pane-col" id="rawCol">
       <div class="col-head">
         <span class="col-title">Raw image</span>
-        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span>
+        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span><span class="col-sub" id="rawNote"></span>
         <span class="flex"></span>
         <button class="btn sm ghost" id="fitFull" title="Show the whole image">Full</button>
         <button class="btn sm ghost" id="fitCrop" title="Zoom to the figure area">Crop</button>

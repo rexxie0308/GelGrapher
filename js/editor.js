@@ -348,6 +348,7 @@
     }
     const h = hitTest(sx, sy, e.shiftKey);
     drag = { h, sx, sy, p0: p, crop0: Object.assign({}, App.S.crop), moved: false, view0: Object.assign({}, view) };
+    if ((h.type === 'crop' || h.type === 'cropmove') && App.onCropStart) App.onCropStart();   // a pending re-detection waits for this drag
     if (h.type === 'corner' || h.type === 'edge') drag.corners = App.geomCornersWork().map(c => c.slice());
     if (h.type === 'lane') {
       // Shift / Ctrl + click adds the lane to the selection (or takes it out); a drag moves every selected lane together

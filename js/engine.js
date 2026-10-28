@@ -150,26 +150,8 @@
    * than 4 bands or scattering more than 0.12 pitch about their line give null. */
   function laneLines(img, bright, crop, laneXs, pitch, nBands) {
     nBands = nBands || 12;
-    const yc = crop.y + crop.h / 2, bh = crop.h / nBands;
-    const rows = [];
-    for (let k = 0; k < nBands; k++) {
-      const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
-      const sig = signal(band, bright);
-      const q = gaussSmooth(presenceProfile(sig, crop.w), Math.max(1, crop.w / 250));
-      let mx = 0; for (const v of q) mx = Math.max(mx, v);
-      rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
-    }
-    // a band of the crop above or below the gel has no lane in it: its weak centroids are noise
-    const gmx = Math.max(1e-9, ...rows.map(r => r.mx));
-    const centroidNear = (r, xp) => {
-      if (r.mx < gmx * 0.15) return null;
-      const a = clamp(Math.round(xp - crop.x - pitch * 0.45), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * 0.45), 0, r.q.length - 1);
-      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
-      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
-      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
-      const cx = sxw / sw + crop.x;
-      return Math.abs(cx - xp) > pitch * 0.4 ? null : { y: r.y, x: cx, w: sw };
-    };
+    const yc = crop.y + crop.h / 2;
+    const rows = laneRows(img, bright, crop, nBands);
     const fit = pts => {
       if (pts.length < 4) return null;
       let W = 0, sy = 0, sx = 0, syy = 0, sxy = 0;
@@ -177,20 +159,186 @@
       const den = W * syy - sy * sy;
       if (den <= 0) return null;
       const b = (W * sxy - sy * sx) / den, a = (sx - b * sy) / W;
-      let res = 0; pts.forEach(p => { res = Math.max(res, Math.abs(p.x - (a + b * (p.y - yc)))); });
-      return { a, b, n: pts.length, res };
+      let res = 0, worst = -1; pts.forEach((p, i) => { const e = Math.abs(p.x - (a + b * (p.y - yc))); if (e > res) { res = e; worst = i; } });
+      return { a, b, n: pts.length, res, worst };
     };
     return laneXs.map(x0 => {
-      let line = fit(rows.map(r => centroidNear(r, x0)).filter(Boolean));
-      for (let pass = 0; line && pass < 4; pass++) {
-        const next = fit(rows.map(r => centroidNear(r, line.a + line.b * (r.y - yc))).filter(Boolean));
-        if (!next) break;
-        const same = next.n === line.n && Math.abs(next.b - line.b) < 1e-4;
-        line = next;
-        if (same) break;
-      }
-      return line && line.res <= pitch * 0.12 ? line : null;
+      // the lane is followed outward from the middle row, so a lane that drifts by more than its
+      // own width over the crop (a strong keystone) is still found at the ends
+      let pts = trackLane(rows, x0, crop, pitch, 0.45);
+      // a few rows off the line (sheared well pockets, a smear joining the neighbour) are dropped,
+      // never more than a third of them: a lane that is not straight gives no line
+      let line = fit(pts);
+      const keep = Math.max(4, Math.ceil(pts.length * 2 / 3));
+      while (line && line.res > pitch * 0.12 && pts.length > keep) { pts = pts.filter((p, i) => i !== line.worst); line = fit(pts); }
+      return line && line.res <= pitch * 0.12 ? { a: line.a, b: line.b, n: line.n, res: line.res } : null;
     });
+  }
+
+  // the presence profile of nBands horizontal bands of the crop (shared by laneLines and laneTraces)
+  function laneRows(img, bright, crop, nBands) {
+    const bh = crop.h / nBands, rows = [];
+    for (let k = 0; k < nBands; k++) {
+      const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
+      const q = gaussSmooth(presenceProfile(signal(band, bright), crop.w), Math.max(1, crop.w / 250));
+      let mx = 0; for (const v of q) mx = Math.max(mx, v);
+      rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
+    }
+    rows.gmx = Math.max(1e-9, ...rows.map(r => r.mx));
+    return rows;
+  }
+  // the lane near x0 followed band by band from the middle row outward: each row's centroid is
+  // looked for within ±half a pitch of the previous row's; rows without a lane (above the wells,
+  // below the dye front) are skipped. Returns points {y, x, w}.
+  function trackLane(rows, x0, crop, pitch, half) {
+    const gmx = rows.gmx;
+    const centroidNear = (r, xp) => {
+      if (r.mx < gmx * 0.15) return null;
+      const a = clamp(Math.round(xp - crop.x - pitch * half), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * half), 0, r.q.length - 1);
+      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
+      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
+      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
+      const cx = sxw / sw + crop.x;
+      return Math.abs(cx - xp) > pitch * (half - 0.1) ? null : { y: r.y, x: cx, w: sw };
+    };
+    const mid = rows.length >> 1, pts = [];
+    for (const dir of [1, -1]) {
+      let xp = x0;
+      for (let k = dir > 0 ? mid : mid - 1; k >= 0 && k < rows.length; k += dir) {
+        const c = centroidNear(rows[k], xp);
+        if (c) { pts.push(c); xp = c.x; }
+      }
+    }
+    return pts;
+  }
+
+  /* The lane comb down the crop: in every horizontal band the lanes are fitted together as one
+   * equally spaced family x = c + p i (i = the lane's index in the comb, c the position of lane 0,
+   * p the pitch), tracked band by band from the middle outward (each band's lanes looked for at
+   * the previous band's prediction). A camera angle makes c and p linear in y: the pitch grows
+   * towards the near edge. Because every band is fitted with two parameters over all the lanes,
+   * a smear, a torn lane or a sheared well pocket moves no single lane. Returns null when fewer
+   * than five bands could be fitted, else { rows, change, se, point, p0, p1, c0, c1 } in the same
+   * shape as vanishing(): change is the relative change of the lane spacing over the crop
+   * height, point (null when not significant at three standard errors or below 0.5 %) is where the
+   * lane lines meet ({ along: y, across: x }); sigma (default 3) is the significance required. */
+  function laneComb(img, bright, crop, laneXs, pitch, nBands, sigma) {
+    nBands = nBands || 16; sigma = sigma || 3;
+    const xs = laneXs.slice().sort((a, b) => a - b);
+    if (xs.length < 4) return null;
+    // the pitch from the lanes themselves (median gap), not from a lattice estimate that may be
+    // stale or a compromise over a keystoned gel
+    { const gaps = xs.slice(1).map((x, k) => x - xs[k]).sort((a, b) => a - b); const med = gaps[gaps.length >> 1]; if (med > 0) pitch = med; }
+    if (!(pitch > 0)) return null;
+    // the comb index of every lane from the gaps between neighbours (a missing lane leaves a gap,
+    // a doubled lane is one tooth); the gaps, not the distance from the first lane, so a pitch
+    // estimate a tenth off over a dozen lanes does not shift the far teeth by one
+    // two teeth closer than 0.6 pitch (a torn or compressed edge of the slab) are one lane of the comb
+    const idx = [{ i: 0, x: xs[0] }];
+    for (let k = 1; k < xs.length; k++) { const d = xs[k] - idx[idx.length - 1].x; if (d < pitch * 0.6) continue; const g = Math.round(d / pitch); if (g >= 1) idx.push({ i: idx[idx.length - 1].i + g, x: xs[k] }); }
+    if (idx.length < 4) return null;
+    const rows = laneRows(img, bright, crop, nBands), gmx = rows.gmx, yc = crop.y + crop.h / 2;
+    laneComb.debug = [];
+    const centroidNear = (r, xp, half) => {
+      const a = clamp(Math.round(xp - crop.x - pitch * half), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * half), 0, r.q.length - 1);
+      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
+      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
+      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
+      const cx = sxw / sw + crop.x;
+      return Math.abs(cx - xp) > pitch * (half - 0.05) ? null : { x: cx, w: Math.sqrt(sw) };
+    };
+    // one band: the family through the lanes found near the prediction (c, p); at least four lanes
+    // and half of them, a lane further than 0.2 pitch from the fitted family is dropped once
+    const fitRow = (r, c, p, half) => {
+      let pts = idx.map(l => { const m = centroidNear(r, c + p * l.i, half || 0.35); return m && { i: l.i, x: m.x, w: m.w }; }).filter(Boolean);
+      const lsq = P => {
+        let W = 0, si = 0, sx = 0, sii = 0, six = 0;
+        P.forEach(q => { W += q.w; si += q.w * q.i; sx += q.w * q.x; sii += q.w * q.i * q.i; six += q.w * q.i * q.x; });
+        const den = W * sii - si * si;
+        if (den <= 0) return null;
+        const pp = (W * six - si * sx) / den, cc = (sx - pp * si) / W;
+        return { c: cc, p: pp, n: P.length };
+      };
+      // on an SDS gel a lysate lane has bands in some rows only: a third of the lanes (at least three) fit a row
+      const need = Math.max(3, Math.ceil(idx.length * 0.3));
+      const dbg = [Math.round(r.y), pts.length]; laneComb.debug.push(dbg);
+      if (pts.length < need) return null;
+      let f = lsq(pts);
+      if (!f) return null;
+      // teeth off the family (a lane in a torn region) are dropped in two passes
+      let kept = pts;
+      for (let pass = 0; pass < 2; pass++) {
+        const k2 = kept.filter(q => Math.abs(q.x - (f.c + f.p * q.i)) <= pitch * 0.15);
+        if (k2.length < need) return null;
+        if (k2.length === kept.length) break;
+        kept = k2; f = lsq(kept) || f;
+      }
+      dbg.push(kept.length, +f.p.toFixed(1), Math.round(f.c));
+      return f && f.p > pitch * 0.5 && f.p < pitch * 1.5 ? f : null;
+    };
+    // the family through the detected lanes (their own spacing, not the pitch estimate), snapped
+    // to the middle band in three passes with a wide window: on a keystoned gel the lattice found
+    // over the whole crop is a compromise and its outer teeth sit off the lanes of any one band
+    let c0m = idx[0].x, p0m = pitch;
+    { let W = 0, si = 0, sx = 0, sii = 0, six = 0; idx.forEach(l => { W++; si += l.i; sx += l.x; sii += l.i * l.i; six += l.i * l.x; }); const den = W * sii - si * si; if (den > 0) { p0m = (W * six - si * sx) / den; c0m = (sx - p0m * si) / W; } }
+    // p and c linear in y; a band off the trend (sheared pockets, the dye front) is dropped, at most a quarter of them
+    const line = (F, key) => {
+      const n = F.length;
+      let sy = 0, sv = 0, syy = 0, syv = 0;
+      F.forEach(f => { const t = f.y - yc; sy += t; sv += f[key]; syy += t * t; syv += t * f[key]; });
+      const den = n * syy - sy * sy;
+      if (den <= 0) return null;
+      const b1 = (n * syv - sy * sv) / den, b0 = (sv - b1 * sy) / n;
+      let ss = 0; F.forEach(f => { ss += (f[key] - (b0 + b1 * (f.y - yc))) ** 2; });
+      const se = n > 2 ? Math.sqrt(ss / (n - 2) / (syy - sy * sy / n)) : Infinity;
+      return { b0, b1, se, n };
+    };
+    const mid = rows.length >> 1, fits = [];
+    let first = null;
+    for (let k = mid, tries = 0; k >= 0 && k < rows.length && tries < 3; k++, tries++) {
+      const r = rows[k];
+      if (r.mx < gmx * 0.15) continue;
+      let f = null;
+      for (let pass = 0; pass < 3; pass++) { const g = fitRow(r, f ? f.c : c0m, f ? f.p : p0m, pass ? 0.35 : 0.45); if (!g) break; f = g; }
+      if (f) { first = { k, c: f.c, p: f.p }; break; }
+    }
+    if (!first) return null;
+    for (const dir of [1, -1]) {
+      const own = [];   // this direction's fits, for the prediction across bands without lanes
+      for (let k = dir > 0 ? first.k : first.k - 1; k >= 0 && k < rows.length; k += dir) {
+        const r = rows[k];
+        if (r.mx < gmx * 0.15) continue;   // no lane in this band (above the wells, below the front)
+        // predicted from the trend of the fits so far (the last one alone when there are fewer than
+        // three), so a stretch without bands between the wells and the first band is crossed
+        let c = first.c, p = first.p;
+        if (own.length >= 3) { const lp = line(own, 'p'), lc = line(own, 'c'); if (lp && lc) { c = lc.b0 + lc.b1 * (r.y - yc); p = lp.b0 + lp.b1 * (r.y - yc); } }
+        else if (own.length) { c = own[own.length - 1].c; p = own[own.length - 1].p; }
+        // two passes: the second looks around the first's own family, so the search windows no
+        // longer pull the centroids towards the prediction
+        let f = fitRow(r, c, p);
+        if (f) f = fitRow(r, f.c, f.p) || f;
+        if (f) { const e = { y: r.y, c: f.c, p: f.p, n: f.n }; fits.push(e); own.push(e); }
+      }
+    }
+    if (fits.length < 5) return null;
+    let F = fits.slice(), lp = line(F, 'p'), lc = line(F, 'c');
+    const keep = Math.max(5, Math.ceil(fits.length * 3 / 4));
+    while (lp && lc && F.length > keep) {
+      let worst = -1, we = 0;
+      F.forEach((f, k) => { const t = f.y - yc, e = Math.abs(f.p - (lp.b0 + lp.b1 * t)) / pitch + Math.abs(f.c - (lc.b0 + lc.b1 * t)) / pitch; if (e > we) { we = e; worst = k; } });
+      if (we < 0.03) break;
+      F = F.filter((f, k) => k !== worst); lp = line(F, 'p'); lc = line(F, 'c');
+    }
+    if (!lp || !lc) return null;
+    const p0 = lp.b0, p1 = lp.b1, c0 = lc.b0, c1 = lc.b1;
+    const change = p1 * crop.h / p0, se = lp.se * crop.h / p0;
+    const out = { rows: F, change, se, p0, p1, c0, c1, n: F.length, point: null };
+    if (Math.abs(change) >= 0.005 && Math.abs(p1) >= sigma * lp.se) {
+      // the lines meet where the pitch would vanish
+      const ty = -p0 / p1;
+      out.point = { along: yc + ty, across: c0 + c1 * ty };
+    }
+    return out;
   }
 
   /* Vanishing point of a family of nearly parallel lines x = a + b (y - yc) (lanes) or
@@ -466,34 +614,8 @@
    * outward), smoothed by a quadratic in y. Lanes with fewer than 4 points give null. */
   function laneTraces(img, bright, crop, laneXs, pitch, nBands) {
     nBands = nBands || 16;
-    const yc = crop.y + crop.h / 2, bh = crop.h / nBands, rows = [];
-    for (let k = 0; k < nBands; k++) {
-      const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
-      const q = gaussSmooth(presenceProfile(signal(band, bright), crop.w), Math.max(1, crop.w / 250));
-      let mx = 0; for (const v of q) mx = Math.max(mx, v);
-      rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
-    }
-    const gmx = Math.max(1e-9, ...rows.map(r => r.mx));
-    const centroidNear = (r, xp) => {
-      if (r.mx < gmx * 0.15) return null;
-      const a = clamp(Math.round(xp - crop.x - pitch * 0.4), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * 0.4), 0, r.q.length - 1);
-      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
-      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
-      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
-      const cx = sxw / sw + crop.x;
-      return Math.abs(cx - xp) > pitch * 0.3 ? null : { y: r.y, x: cx, w: sw };
-    };
-    const mid = rows.length >> 1;
-    return laneXs.map(x0 => {
-      // track outward from the middle band, each step predicted by the last centroid
-      const pts = [];
-      for (const dir of [1, -1]) {
-        let xp = x0;
-        for (let k = dir > 0 ? mid : mid - 1; k >= 0 && k < rows.length; k += dir) {
-          const c = centroidNear(rows[k], xp);
-          if (c) { pts.push(c); xp = c.x; }
-        }
-      }
+    const yc = crop.y + crop.h / 2, rows = laneRows(img, bright, crop, nBands);
+    const fit = pts => {
       if (pts.length < 4) return null;
       // weighted quadratic x = a + b t + c t^2, t = y - yc
       let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
@@ -501,8 +623,18 @@
       const M = [S0, S1, S2, S1, S2, S3, S2, S3, S4], inv = M3.inv(M);
       if (!inv) return null;
       const a = inv[0] * T0 + inv[1] * T1 + inv[2] * T2, b = inv[3] * T0 + inv[4] * T1 + inv[5] * T2, c = inv[6] * T0 + inv[7] * T1 + inv[8] * T2;
-      let res = 0; pts.forEach(p => { const t = p.y - yc; res = Math.max(res, Math.abs(p.x - (a + b * t + c * t * t))); });
-      if (res > pitch * 0.15) return null;
+      let res = 0, worst = -1; pts.forEach((p, i) => { const t = p.y - yc, e = Math.abs(p.x - (a + b * t + c * t * t)); if (e > res) { res = e; worst = i; } });
+      return { a, b, c, res, worst };
+    };
+    return laneXs.map(x0 => {
+      let pts = trackLane(rows, x0, crop, pitch, 0.4);
+      // rows off the curve (sheared well pockets, a smear joining the neighbour) are dropped, never
+      // more than a third of them
+      let f = fit(pts);
+      const keep = Math.max(4, Math.ceil(pts.length * 2 / 3));
+      while (f && f.res > pitch * 0.1 && pts.length > keep) { pts = pts.filter((p, i) => i !== f.worst); f = fit(pts); }
+      if (!f || f.res > pitch * 0.15) return null;
+      const { a, b, c, res } = f;
       // the trace is only known where the lane was seen: beyond its first and last point it is held
       const t0 = Math.min(...pts.map(p => p.y)) - yc, t1 = Math.max(...pts.map(p => p.y)) - yc;
       return { a, b, c, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, at: y => { const t = clamp(y - yc, t0, t1); return a + b * t + c * t * t; } };
@@ -1130,8 +1262,12 @@
       // blotches or the smile of the last ladder, not a well)
       const margin = c => c > slabL + P * 0.75 && c < slabR - P * 0.75;
       const ok = i => margin(pos[i]) && (bandAt(pos[i] - bx, true) > bandRefAll * 0.12 || wellNcc(pos[i]) >= 0.25);
-      while (lo - 1 >= 0 && ok(lo - 1)) lo--;
-      while (hi + 1 < pos.length && ok(hi + 1)) hi++;
+      // a clearly loaded tooth (a ladder beside a torn or empty well) one or two teeth beyond an
+      // empty one is still a lane: the empty wells between are kept so the numbering stays right
+      const loaded = i => i >= 0 && i < pos.length && margin(pos[i]) && bandAt(pos[i] - bx, true) > bandRefAll * 0.3;
+      const reach = (i, dir) => { if (ok(i)) return i; for (let k = 1; k <= 2; k++) { const j = i + k * dir; if (j < 0 || j >= pos.length || !margin(pos[j])) return -1; if (loaded(j)) return j; } return -1; };
+      for (let j; lo - 1 >= 0 && (j = reach(lo - 1, -1)) >= 0;) lo = j;
+      for (let j; hi + 1 < pos.length && (j = reach(hi + 1, 1)) >= 0;) hi = j;
       cs = pos.slice(lo, hi + 1);
     }
     detectLaneLattice.debug = { slabL, slabR, pos: pos.map(c => `${Math.round(c)}:b${(bandAt(c - bx) / bandRefAll).toFixed(2)}/w${wellNcc(c).toFixed(2)}/q${(q[clamp(Math.round(c - bx), 0, W - 1)] / L.profileMax).toFixed(2)}${wide(q, c - bx) ? 'W' : '-'}${bump(c - bx) ? 'B' : '-'}`) };
@@ -1609,6 +1745,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
 })(window);

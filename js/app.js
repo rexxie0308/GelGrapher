@@ -549,14 +549,17 @@
    * again, keeping any ladder chosen by hand. Returns { applied, rounds, lanes, bendPx, lanesPct, bandsPct, converged, message }. */
   App.autoGeometry = function () {
     App.autoGeometry.debug = [];
-    const S = App.S, W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
-    let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, Hk = (S.geom && S.geom.H) || E.M3.I();
+    // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
+    let S = App.S;
+    const W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
+    let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, Hk = (S.geom && S.geom.H) || E.M3.I();
     let grid = App.geomGrid(S), slab = null;
+    const inCrop = () => { const c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3); return S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5); };
     // convergence of the lane lines in the current frame (null when too few lanes are measurable)
     const convergence = () => {
-      const img = App.ensureRot(), c = S.crop, xs = S.lanes.map(l => l.x), P = S.lanePitch || (S.laneHalfW / 0.3);
-      if (xs.length < 5) return null;
-      const v = E.vanishing(E.laneLines(img, S.bright, c, xs, P), c.y + c.h / 2, c.h);
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
+      if (xs.length < 4) return null;
+      const v = E.laneComb(img, S.bright, c, xs, P);
       return v ? v.change : null;
     };
     /* 0. the slab outline. A gel photographed at an angle may drift by a whole lane pitch over its
@@ -572,73 +575,77 @@
         App.setGeom({ mode: 'auto', grid: E.Grid.fromH(Hq, W, Hh), H: Hq, corners: q, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0 });
         App.autoLanes();
         const after = convergence();
-        // kept only when it fixes a real convergence: lanes that could not be measured before (merged by
-        // the drift) must come out nearly parallel, lanes that converged must converge less than half as
-        // much; lanes that were already parallel need nothing
-        const ok = after != null && (before == null ? Math.abs(after) < 0.03 : Math.abs(before) >= 0.03 && Math.abs(after) < Math.abs(before) * 0.5);
+        // kept only when it fixes a real convergence: lanes that converged must converge less than half
+        // as much; lanes that were already parallel need nothing
+        // (the outline alone is no evidence: a gel whose lanes cannot be measured is left as it is)
+        const ok = before != null && after != null && Math.abs(before) >= 0.03 && Math.abs(after) < Math.abs(before) * 0.5;
+        App.autoGeometry.debug.push({ slab: true, before: before != null ? +before.toFixed(4) : null, after: after != null ? +after.toFixed(4) : null, ok, report: E.keystoneReport(Hq, c) });
         if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; }
-        else { App.S = JSON.parse(snap); App.rot = null; App.ensureRot(); grid = null; }
+        else { App.S = S = JSON.parse(snap); App.rot = null; App.ensureRot(); grid = null; }
       }
     }
-    for (; rounds < 5; rounds++) {
-      const img = App.ensureRot(), c = S.crop, xs = S.lanes.map(l => l.x), P = S.lanePitch || (S.laneHalfW / 0.3);
-      if (xs.length < 3) break;
-      let step = null, Hi = null;
-      // 1. keystone: only while no straightening has been applied yet (straight lanes are parallel by
-      // construction; a keystone fitted after them would only re-bend the gel)
-      if (xs.length >= 5 && !(S.geom && S.geom.bendPx > 0)) {
-        const L = E.laneLines(img, S.bright, c, xs, P);
-        lines = L.filter(Boolean).length;
-        const v = E.vanishing(L, c.y + c.h / 2, c.h), u = App.bandRowVanishing();
-        const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
-        const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
-        if (V || U) { Hi = E.keystoneH(V, U, { x: c.x + c.w / 2, y: c.y + c.h / 2 }); step = E.Grid.fromH(Hi, W, Hh); Hk = E.M3.mul(Hi, Hk); }
-      }
-      // 2. per-lane straightening on the image after the keystone of this round (lanes mapped through it)
-      const img2 = step ? E.warpGrid(img, step) : img;
-      // traces that scatter more than a tenth of the pitch (a faint ladder under a smear, a torn
-      // lane) are not trusted: their lanes follow their neighbours' shift instead
+    /* 1. the keystone, iterated: the lane comb is measured on the corrected image after every
+     * round (the lanes detected again), until it reports the lanes parallel. A global transform
+     * first; the local straightening comes after it, never before (straightened lanes are parallel
+     * by construction, so a keystone fitted after them would only re-bend the gel). */
+    const centre = c => ({ x: c.x + c.w / 2, y: c.y + c.h / 2 });
+    for (; rounds < 4; rounds++) {
+      // only the lanes of the framed gel: a lane left outside the box is not part of its geometry
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
+      if (xs.length < 4) break;
+      // the first round must be sure (three standard errors: an undistorted gel gets nothing); the
+      // later ones refine a keystone already found and need less
+      const v = E.laneComb(img, S.bright, c, xs, P, 16, rounds ? 1.5 : 3), u = App.bandRowVanishing();
+      lines = v ? v.n : 0;
+      const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
+      const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
+      App.autoGeometry.debug.push({ round: rounds, keystone: true, frame: App.frameKey(S), xs: xs.map(Math.round), P: +P.toFixed(1), crop: c, bands: lines, combDbg: E.laneComb.debug, lanes: v && +v.change.toFixed(4), lanesSig: v && v.se ? +(Math.abs(v.change) / v.se).toFixed(1) : null, rows: u && +u.change.toFixed(4) });
+      if (!V && !U) { converged = true; break; }
+      // a spacing that would more than double over the crop is not a camera angle
+      if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
+      // each round must at least halve the remaining convergence: an estimate that grows or merely
+      // flips its sign says the gel is not a keystone (torn, locally compressed), and the rounds stop
+      if (v && v.point && lastChange != null && Math.abs(v.change) > Math.abs(lastChange) * 0.5) { converged = true; break; }
+      lastChange = v && v.point ? v.change : null;
+      const Hi = E.keystoneH(V, U, centre(c)), step = E.Grid.fromH(Hi, W, Hh);
+      Hk = E.M3.mul(Hi, Hk); grid = grid ? E.Grid.compose(grid, step) : step;
+      App.setGeom({ mode: 'auto', grid, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0, slab: !!slab });
+      applied = true;
+      App.autoLanes();   // the lanes again on the corrected image
+    }
+    /* 2. per-lane straightening, once, on the keystone-corrected image: traces that scatter more
+     * than a tenth of the pitch (a faint ladder under a smear, a torn lane) are not trusted and
+     * follow their neighbours' shift; the bend of the gel is the median over lanes, so one bad lane
+     * neither drives nor hides the correction; the round is kept only when the median bend falls. */
+    {
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       const trusted = T => T.map(t => (t && t.res <= P * 0.1 ? t : null));
-      // the bend of a lane: its largest departure from straight; of the gel: the median over lanes,
-      // so one bad lane neither drives nor hides the correction
       const bendOf = T => { const b = T.filter(Boolean).map(t => Math.max(Math.abs(t.at(c.y + c.h * 0.1) - t.a), Math.abs(t.at(c.y + c.h * 0.9) - t.a))).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : 0; };
-      const tr = trusted(E.laneTraces(img2, S.bright, c, step ? xs.map(x => E.M3.apply(Hi, x, c.y + c.h / 2).x) : xs, P));
+      const tr = xs.length >= 3 ? trusted(E.laneTraces(img, S.bright, c, xs, P)) : [];
       bendBefore = bendOf(tr);
       const rows = App.bandRows().rows;
       // a bend worth straightening is more than noise: 5 % of the pitch and at least 3 px
       let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows) : null;
       if (sg && sg.maxShift > P) sg = null;   // a shift of more than a lane pitch is a wrong trace, not a bend
-      if (!step && !sg) { converged = true; break; }
-      let g = grid;
-      if (step) g = g ? E.Grid.compose(g, step) : step;
-      if (sg) g = g ? E.Grid.compose(g, sg.grid) : sg.grid;
-      const snapRound = App.snapshot(), gridBefore = grid, HkBefore = Hk;
-      App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: Math.max((S.geom && S.geom.bendPx) || 0, sg ? sg.maxShift : 0), lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
       if (sg) {
-        // the round must have straightened the lanes: measured again on the corrected image
-        const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, S.lanes.map(l => l.x), P));
+        const snapRound = App.snapshot(), gridBefore = grid, g = grid ? E.Grid.compose(grid, sg.grid) : sg.grid;
+        App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
+        const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P));
         const bendAfter = bendOf(tr2);
-        (App.autoGeometry.debug = App.autoGeometry.debug || []).push({ round: rounds, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
+        App.autoGeometry.debug.push({ round: rounds, straighten: true, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
           before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1)] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1)] : null) });
-        if (bendAfter > bendBefore * 0.9) { App.S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; Hk = HkBefore; converged = true; break; }
+        if (bendAfter > bendBefore * 0.9) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
+        else { grid = g; applied = true; rounds++; App.autoLanes(); }
       }
-      grid = g; applied = true;
-      // the lanes again on the corrected image
-      const before = S.lanes.map(l => l.x);
-      App.autoLanes();
-      const after = S.lanes.map(l => l.x), pitch = S.lanePitch || P;
-      const same = before.length === after.length && before.every((x, i) => Math.abs(x - after[i]) < pitch * 0.1);
-      // settled: the lanes did not move and this round's straightening was small (noise on a real gel)
-      if (same && !step && sg && sg.maxShift < Math.max(2, pitch * 0.1)) { converged = true; rounds++; break; }
     }
     if (applied && S.geom) { if (slab) S.geom.slab = true; App.relaneMarkers(() => 0); Object.assign(S.geom, App.geomReport()); }
     const k = S.geom, dl = S.lanes.length - lanes0;
-    if (!applied) return { applied: false, rounds, lanes: S.lanes.length, converged, message: S.lanes.length < 3 ? 'Geometry needs at least three lanes (add them with "+ Add lane" or "Space evenly", then try again)' : `No correction needed: the lanes run straight and parallel (${lines} lane lines measured, largest bend ${bendBefore.toFixed(1)} px).` };
+    if (!applied) return { applied: false, rounds, lanes: S.lanes.length, converged, message: S.lanes.length < 3 ? 'Geometry needs at least three lanes (add them with "+ Add lane" or "Space evenly", then try again)' : `No correction needed: the lanes run straight and parallel (${lines} bands of lanes measured, largest bend ${bendBefore.toFixed(1)} px).` };
     const parts = [];
     if (Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5) parts.push(`perspective${k.slab ? ' from the slab outline' : ''}: lane spacing at the bottom ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top, band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left`);
     if (k.bendPx >= 0.5) parts.push(`lanes straightened (largest shift ${k.bendPx.toFixed(1)} px, ${k.lanes} lane traces${k.rows ? `, ${k.rows} ladder band rows` : ''})`);
     return { applied: true, rounds, lanes: S.lanes.length, bendPx: k.bendPx, lanesPct: k.lanesPct, bandsPct: k.bandsPct, converged,
-      message: `Geometry corrected in ${rounds} round${rounds === 1 ? '' : 's'}: ${parts.join('; ')}; lanes detected again: ${S.lanes.length} wells${dl ? ` (${dl > 0 ? '+' : ''}${dl})` : ''}, markers re-fitted${converged ? '' : ' (not fully settled after 5 rounds)'}` };
+      message: `Geometry corrected in ${rounds} round${rounds === 1 ? '' : 's'}: ${parts.join('; ')}; lanes detected again: ${S.lanes.length} wells${dl ? ` (${dl > 0 ? '+' : ''}${dl})` : ''}, markers re-fitted${converged ? '' : ' (not fully settled after 4 rounds)'}` };
   };
   /* Manual geometry: four slab corners (TL, TR, BR, BL) in the working frame are mapped to a
    * rectangle of the same centre and mean side lengths (one projective transform). Corners are
@@ -991,10 +998,17 @@
        * marker. A ladder lane (1) fits a likely ladder (the preferred ones and the type's usual one),
        * (2) has about as many clear bands as that ladder, not many more, and (3) has bands of similar
        * strength, while a lysate's bands vary a lot. Lanes far below the best on all three drop out. */
+      let starLib = null;
       if (lanes.length > 1) {
         // every ladder of the kind is a candidate (the preferred ones first): a gel run with a ladder
         // the user has not used before must still find its ladder lanes
+        const memo = new Map();
         const ladderness = (i, lib) => {
+          const key = i + '|' + lib.map(l => l.id).join(',');
+          if (memo.has(key)) return memo.get(key);
+          const v = ladderness0(i, lib); memo.set(key, v); return v;
+        };
+        const ladderness0 = (i, lib) => {
           const r = lib.length ? E.jointLadders([peaks[i]], lib, h, prefer) : null;
           if (!r) return { v: 0, id: null };
           const vmax = Math.max(0, ...peaks[i].map(p => p.v));
@@ -1010,7 +1024,8 @@
         // the usual ladders (preferred, the type's default) name it when one of them fits a lane well;
         // otherwise the whole library does
         const likely = [...new Set(prefer.concat([App.gelType().ladder]))].map(G.Ladders.get).filter(l => l && l.kind === kind);
-        const fitL = new Map(lanes.map(i => [i, ladderness(i, likely)])), fitAll = new Map(lanes.map(i => [i, ladderness(i, all)]));
+        // the whole library is only tried when no usual ladder fits (it costs a second per lane)
+        const fitL = new Map(lanes.map(i => [i, ladderness(i, likely)])), fitAll = new Map(), allOf = i => { if (!fitAll.has(i)) fitAll.set(i, ladderness(i, all)); return fitAll.get(i); };
         let bestL = lanes[0];
         lanes.forEach(i => { if (fitL.get(i).v > fitL.get(bestL).v) bestL = i; });
         let starId = null;
@@ -1019,20 +1034,26 @@
           // the ladder that explains the candidate lanes jointly: every lane's own best ladder is tried,
           // and the one with the most clear fits (above 0.45) across lanes wins, so three ladder lanes
           // of one product beat one lane that happens to fit another product a little better
-          const ids = [...new Set(lanes.map(i => fitAll.get(i).id).filter(Boolean))];
-          let bestSum = -1;
-          ids.forEach(id => { const lib = [G.Ladders.get(id)]; let sum = 0; lanes.forEach(i => { sum += Math.max(0, ladderness(i, lib).v - 0.45); }); if (sum > bestSum) { bestSum = sum; starId = id; } });
+          const ids = [...new Set(lanes.map(i => allOf(i).id).filter(Boolean))];
+          // the excess over 0.55, squared: two lanes fitting one ladder well beat five lysate lanes
+          // that loosely resemble another
+          let bestSum = -1; App.autoMarkers.sums = {};
+          ids.forEach(id => { const lib = [G.Ladders.get(id)]; let sum = 0; lanes.forEach(i => { sum += Math.max(0, ladderness(i, lib).v - 0.55) ** 2; }); App.autoMarkers.sums[id] = +sum.toFixed(3); if (sum > bestSum) { bestSum = sum; starId = id; } });
         }
         const star = starId ? [G.Ladders.get(starId)] : [];
-        const fit = new Map(lanes.map(i => [i, star.length ? ladderness(i, star).v : fitAll.get(i).v]));
+        const fit = new Map(lanes.map(i => [i, star.length ? ladderness(i, star).v : allOf(i).v]));
         const best = Math.max(...fit.values());
+        App.autoMarkers.debug = { sums: App.autoMarkers.sums, candidates: lanes.slice(), fitL: lanes.map(i => [i, +fitL.get(i).v.toFixed(2), fitL.get(i).id]), starId, fit: lanes.map(i => [i, +fit.get(i).toFixed(2)]), counts: lanes.map(i => counts[i]) };
         if (best >= 0.45) lanes = lanes.filter(i => fit.get(i) >= best * 0.8);
+        if (best >= 0.45 && starId) starLib = [G.Ladders.get(starId)];
       }
       // keep at most 3 (the lanes with the most bands), in lane order
       lanes = lanes.sort((a, b) => counts[b] - counts[a]).slice(0, 3).sort((a, b) => a - b);
       const pk = lanes.map(i => peaks[i]);
       let picks = null;
       App.ladderNotice = null;
+      // the ladder the lanes agreed on is fitted jointly on its own first: trying every ladder of the
+      // library in every combination of three lanes takes seconds
       if (lanes.length) {
         if (favs.length && prefs().onlyFavLadders) {
           picks = E.jointLadders(pk, favs.map(G.Ladders.get), h, favs);
@@ -1042,7 +1063,7 @@
           if (full && (!picks || picks.score < 0.55 || full.score > picks.score + 0.08)) {
             picks = full; App.ladderNotice = `None of your favourite ladders fits; using ${full.map(p => G.Ladders.get(p.id).name).join(', ')}`;
           }
-        } else picks = E.jointLadders(pk, all, h, prefer);
+        } else picks = (starLib && E.jointLadders(pk, starLib, h, prefer)) || E.jointLadders(pk, all, h, prefer);
       }
       if (picks && lanes.length === 1) {
         // a single lane cannot tell ladders apart well: stay with a preferred ladder unless it clearly misfits

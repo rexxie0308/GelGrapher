@@ -505,7 +505,25 @@
     }, 20);
   };
   $('btnGeomCancel').onclick = () => { stopPlacing(); G.Editor.draw(); };
-  App.onCropDone = () => { App.redetectAll(); App.afterRangeChange(); };
+  // the red box: lanes and markers are detected again once the box has been still for a moment, in
+  // a timeout, so grabbing the next side right away is never held up by the previous side's detection
+  let cropJob = 0;
+  App.onCropStart = () => { cropJob++; };
+  App.onCropDone = () => {
+    const id = ++cropJob, note = $('rawNote');
+    if (note) note.textContent = 'Detecting lanes and markers…';
+    setTimeout(() => {
+      if (id !== cropJob || !S()) return;
+      try {
+        // lanes inside the box again (fast); the ladder search (slow) only when the box gained lanes,
+        // otherwise the markers there follow their lanes and are only re-fitted
+        const n0 = S().lanes.length;
+        App.redetectLanesInCrop();
+        if (S().lanes.length > n0) App.relaneMarkers(() => 0); else App.afterRangeChange();
+        App.commit();
+      } finally { if (note) note.textContent = ''; }
+    }, 350);
+  };
   G.UI_geomSeg = geomSeg;
   G.UI_placing = () => placing;
   const flipBtn = (id, axis) => { $(id).onclick = () => {
