@@ -51,6 +51,18 @@ for (const preset of ['dna', 'sds']) {
   const g = Demo.makeGel({ preset, wellAmp: 0 }), n = (preset === 'dna' ? 12 : 10) - 1;
   cases.push({ name: `${preset} no wells`, img: { w: g.width, h: g.height, data: g.data }, truth: Array.from({ length: n }, (_, k) => 260 + 80 * k) });
 }
+// a gel photographed small in a large frame (the frame 3x the gel), and a gel on a light box (a
+// bright rectangle around it) in a dark frame: the box must find the gel, not the frame or the light box
+{
+  const g = Demo.makeGel({ preset: 'dna', tilt: 0 }), W = 4200, H = 3000, ox = 1400, oy = 1000;
+  const bg = 0.035;
+  for (const [name, fill] of [['small in a large frame', (x, y) => bg], ['on a light box', (x, y) => (x > 1250 && x < 2950 && y > 850 && y < 2150 ? 0.55 : 0.1)]]) {
+    const data = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) data[y * W + x] = fill(x, y);
+    for (let y = 0; y < g.height; y++) for (let x = 0; x < g.width; x++) data[(y + oy) * W + x + ox] = g.data[y * g.width + x] + (name === 'on a light box' ? 0.5 : 0);
+    cases.push({ name: `dna ${name}`, img: { w: W, h: H, data }, truth: Array.from({ length: 12 }, (_, k) => 260 + 80 * k + ox) });
+  }
+}
 // strips: a gel cut to two or three lanes, photographed as such (the frame is only a little wider
 // than the strip); the lane detector's scale must then come from the lanes, not from the frame
 for (const preset of ['dna', 'sds']) {

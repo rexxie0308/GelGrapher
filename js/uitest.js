@@ -839,6 +839,22 @@
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.strip = { found, rows, hints, tools, ok: found[2].hit === 2 && found[2].lanes.length === 2 && found[3].hit === 3 && found[3].lanes.length === 3 && rows === 2 && hints === 0 && tools };
     }
+    // 50. a gel photographed small in a large frame: the red box is found coarse to fine, lands on the gel
+    // (not on the frame) and holds every lane; the lanes are the gel's
+    {
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      const gg = G.Demo.makeGel({ preset: 'dna', tilt: 0 }), W = 4200, H = 3000, ox = 1400, oy = 1000;
+      const data = new Float32Array(W * H).fill(0.035);
+      for (let y = 0; y < gg.height; y++) for (let x = 0; x < gg.width; x++) data[(y + oy) * W + x + ox] = gg.data[y * gg.width + x];
+      await App.load(new File([G.Demo.encodeTiff16({ width: W, height: H, data })], 'small_in_frame.tif'), 'dna-agarose');
+      const st = App.S, c = st.crop, truth = Array.from({ length: 12 }, (_, k) => 260 + 80 * k + ox);
+      const hit = truth.filter(t => st.lanes.some(l => Math.abs(l.x - t) < 24)).length;
+      const onGel = c.x >= ox + 100 && c.x + c.w <= ox + gg.width - 100 && c.y >= oy && c.y + c.h <= oy + gg.height && c.w > 700;
+      const passes = (G.Engine.autoCrop.passes || []).length;
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.smallInFrame = { lanes: st.lanes.length, hit, crop: c, passes, onGel, ok: hit === 12 && st.lanes.length === 12 && onGel && passes >= 2 };
+    }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

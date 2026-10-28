@@ -50,8 +50,9 @@ const res = await pg.evaluate(async (gels) => {
     const want = g.ladders || [];
     const ladderHit = want.filter(k => ladders.includes(k)).length;
     const geom = S.geom || {};
+    const geomSteps = (App.autoGeometry.debug || []).map(d => ({ ...d, combDbg: undefined, crop: undefined, xs: undefined }));
     const r = {
-      file: g.file, ms, lanes: S.lanes.length, lanesWant: g.lanes != null ? g.lanes : (g.laneX ? g.laneX.length : null),
+      file: g.file, ms, lanes: S.lanes.length, geomSteps, lanesWant: g.lanes != null ? g.lanes : (g.laneX ? g.laneX.length : null),
       laneHits: g.laneX ? `${laneHits}/${g.laneX.length}` : '', ladders: ladders.join(','), laddersWant: want.join(','), ladderHit, ladderExtra: ladders.length - ladderHit,
       ladderId: S.markers.map(m => m.ladderId).join(','), keystone: geom.lanesPct != null ? +geom.lanesPct.toFixed(1) : null, keystoneWant: g.keystonePct != null ? g.keystonePct : null,
       bendPx: geom.bendPx != null ? +geom.bendPx.toFixed(1) : null, rotation: +(S.rotation || 0).toFixed(2)
@@ -71,6 +72,7 @@ let allOk = true;
 for (const r of res) {
   if (r.error) { allOk = false; console.log(`FAIL ${pad(r.file, 28)} ${r.error}`); continue; }
   if (!r.ok) allOk = false;
+  if (process.env.GEOM_DEBUG) console.log('  geometry steps:', JSON.stringify(r.geomSteps));
   console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${pad(r.file, 28)} lanes ${pad(r.lanes, 3)}${r.lanesWant != null ? `(want ${r.lanesWant}) ` : ''}${r.laneHits ? `at ${r.laneHits} ` : ''} ladders ${pad(r.ladders || '-', 8)}${r.laddersWant ? `(want ${r.laddersWant}) ` : ''} keystone ${pad(r.keystone != null ? r.keystone + '%' : 'none', 7)}${r.keystoneWant != null ? `(want ${r.keystoneWant}%) ` : ''} bend ${pad(r.bendPx != null ? r.bendPx + 'px' : '-', 6)} ${r.ms} ms${r.miss ? '   missed: ' + r.miss : ''}`);
 }
 console.log(allOk ? `${res.length} gels as labelled` : 'some gels differ from their labels');

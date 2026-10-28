@@ -637,12 +637,18 @@
     // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
     let S = App.S;
     const W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
-    let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, Hk = (S.geom && S.geom.H) || E.M3.I();
+    let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, roundSnap = null, Hk = (S.geom && S.geom.H) || E.M3.I();
     let grid = App.geomGrid(S), slab = null, qSlab = null, rowsFrom = null;
     const inCrop = () => { const c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3); return S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5); };
     // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
     // walls sit between the lanes and would offset the comb by half a pitch
-    const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 1.5 : null; };
+    // (2.5 pitches: on the sanity-check photograph the pockets are deep, and the band 1.5-3 pitches
+    // below the well row reads a pitch 6 % below the gel's, which no camera angle removes)
+    const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 2.5 : null; };
+    // 32 bands for the comb: with 16 the estimate on that photograph swung between 12 and 24 % with
+    // the box's rows (which bands got a fit decided the slope); with 32, weighted by what each band
+    // knows, the four boxes tried agree within a point
+    const COMB_BANDS = 32;
     const hook = async (l, text) => { App.autoGeometry.debug.push({ step: l, ms: App.autoGeometry.debug.ms() }); if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); if (text) { App.progress(text); await App.yield(); } };
     // the resolution of the lanes in the column density: the mean density half-way between
     // neighbouring lanes divided by the mean at the lanes (lower = lanes better separated)
@@ -651,7 +657,7 @@
     const convergence = () => {
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       if (xs.length < 4) return null;
-      const v = E.laneComb(img, S.bright, c, xs, P, 16, 3, yMin());
+      const v = E.laneComb(img, S.bright, c, xs, P, COMB_BANDS, 3, yMin());
       return v ? v.change : null;
     };
     /* 0. the slab outline. A gel photographed at an angle may drift by a whole lane pitch over its
@@ -690,7 +696,9 @@
       if (xs.length < 4) break;
       // the first round must be sure (three standard errors: an undistorted gel gets nothing); the
       // later ones refine a keystone already found and need less
-      const v = E.laneComb(img, S.bright, c, xs, P, 16, rounds ? 1.5 : 3, yMin()), u = App.bandRowVanishing();
+      // (three standard errors in every round: the refinement rounds once asked 1.5, and on the
+      // sanity-check photograph a 2 % residual at 2 standard errors then added a 5 % round)
+      const v = E.laneComb(img, S.bright, c, xs, P, COMB_BANDS, 3, yMin()), u = App.bandRowVanishing();
       lines = v ? v.n : 0;
       const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
       let U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
@@ -704,15 +712,21 @@
       App.autoGeometry.debug.push({ round: rounds, keystone: true, frame: App.frameKey(S), xs: xs.map(Math.round), P: +P.toFixed(1), crop: c, bands: lines, combDbg: E.laneComb.debug, lanes: v && +v.change.toFixed(4), lanesSig: v && v.se ? +(Math.abs(v.change) / v.se).toFixed(1) : null, rows: u && +u.change.toFixed(4) });
       // a first-round keystone must move the far lane by at least 0.1 pitch over the crop (a smaller
       // one is within the comb's own noise and would only put a spurious line into the legend)
-      if (V && !rounds && Math.abs(v.change) < 0.2 / Math.max(1, xs.length - 1)) { converged = true; break; }
+      if (V && Math.abs(v.change) < 0.2 / Math.max(1, xs.length - 1)) { converged = true; break; }
       if (!V && !U) { converged = true; break; }
       // a spacing that would more than double over the crop is not a camera angle
       if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
       // the remaining convergence must shrink from round to round and keep its sign: an estimate that
       // grows, or flips its sign by more than half of the last one, says the gel is not a keystone
       // (torn, locally compressed), and the rounds stop
-      if (v && v.point && lastChange != null && (Math.abs(v.change) >= Math.abs(lastChange) || (Math.sign(v.change) !== Math.sign(lastChange) && Math.abs(v.change) > Math.abs(lastChange) * 0.5))) { converged = true; break; }
+      // ...and a round after which the lanes converge no less than before (or the other way, by more
+      // than half) made things worse, not better: it is taken back, not kept
+      if (v && v.point && lastChange != null && (Math.abs(v.change) >= Math.abs(lastChange) || (Math.sign(v.change) !== Math.sign(lastChange) && Math.abs(v.change) > Math.abs(lastChange) * 0.5))) {
+        if (roundSnap) { App.S = S = JSON.parse(roundSnap.snap); App.rot = null; App.ensureRot(); grid = roundSnap.grid; Hk = roundSnap.Hk; applied = roundSnap.applied; rounds--; App.autoGeometry.debug.push({ round: rounds, reverted: true, before: +lastChange.toFixed(4), after: +v.change.toFixed(4) }); }
+        converged = true; break;
+      }
       lastChange = v && v.point ? v.change : null;
+      roundSnap = { snap: App.snapshot(), grid, Hk, applied };
       const Hi = E.keystoneH(V, U, centre(c)), step = E.Grid.fromH(Hi, W, Hh);
       Hk = E.M3.mul(Hi, Hk); grid = grid ? E.Grid.compose(grid, step) : step;
       App.setGeom({ mode: 'auto', grid, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0, slab: !!slab });
@@ -767,7 +781,7 @@
       if (S.markers.length && !(S.geom.bendPx > 0)) App.matchMarkers(true); else App.relaneMarkers(() => 0);
       Object.assign(S.geom, App.geomReport());
       // disclosed with the correction: what remains of the lane convergence, and the largest local scale of the map
-      const P = S.lanePitch || (S.laneHalfW / 0.3), vf = inCrop().length >= 4 ? E.laneComb(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, 3, yMin()) : null;
+      const P = S.lanePitch || (S.laneHalfW / 0.3), vf = inCrop().length >= 4 ? E.laneComb(App.ensureRot(), S.bright, S.crop, inCrop(), P, COMB_BANDS, 3, yMin()) : null;
       S.geom.residualPct = vf ? +(vf.change * 100).toFixed(1) : null;
       S.geom.scaleMax = +(E.Grid.maxScale(S.geom.grid) * 100).toFixed(1);
       // the box is framed again on the lanes it holds: the lanes were detected again on the corrected
@@ -1314,7 +1328,13 @@
     const geometry = fresh && !App.noAutoGeometry;
     if (!geometry) App.autoMarkers();
     T('geometry');
-    if (geometry) { try { await App.autoGeometry(); } catch (e) { console.error(e); } }
+    if (geometry) {
+      try { await App.autoGeometry(); } catch (e) { console.error(e); }
+      // the lanes were detected again on the corrected image: the box is framed again on the lanes
+      // that carry bands (a ladder that the first box missed is in now)
+      const loaded2 = App.loadedLaneRange();
+      if (loaded2) App.setLaneRange(loaded2[0], loaded2[1]);
+    }
     if (!S.markers.length && geometry) App.autoMarkers();
     T('fix');
     App.fixIndices();

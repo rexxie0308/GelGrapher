@@ -284,7 +284,7 @@
     // a doubled lane is one tooth); the gaps, not the distance from the first lane, so a pitch
     // estimate a tenth off over a dozen lanes does not shift the far teeth by one
     // two teeth closer than 0.6 pitch (a torn or compressed edge of the slab) are one lane of the comb
-    const idx = [{ i: 0, x: xs[0] }];
+    let idx = [{ i: 0, x: xs[0] }];
     for (let k = 1; k < xs.length; k++) { const d = xs[k] - idx[idx.length - 1].x; if (d < pitch * 0.6) continue; const g = Math.round(d / pitch); if (g >= 1) idx.push({ i: idx[idx.length - 1].i + g, x: xs[k] }); }
     if (idx.length < 4) return null;
     const rows = laneRows(img, bright, crop, nBands, yMin), gmx = rows.gmx, yc = crop.y + crop.h / 2;
@@ -329,60 +329,123 @@
         kept = k2; f = lsq(kept) || f;
       }
       dbg.push(kept.length, +f.p.toFixed(1), Math.round(f.c));
-      return f && f.p > pitch * 0.5 && f.p < pitch * 1.5 ? f : null;
+      // the spread of the kept teeth about their mean index: the information a band's pitch carries
+      // (the variance of a least-squares slope is 1 / this), so a band fitted on four teeth near one
+      // another weighs little against one fitted across twelve
+      let Wk = 0, si = 0, sii = 0, ss = 0; kept.forEach(q => { Wk += q.w; si += q.w * q.i; sii += q.w * q.i * q.i; ss += q.w * (q.x - (f.c + f.p * q.i)) ** 2; });
+      const spread = Wk > 0 ? sii - si * si / Wk : 0;
+      // the teeth's scatter about the family (weighted variance per unit weight), the noise behind
+      // this band's pitch: its variance is this over the spread
+      const s2 = kept.length > 2 ? ss / (kept.length - 2) : null;
+      return f && f.p > pitch * 0.5 && f.p < pitch * 1.5 ? Object.assign(f, { pts, spread, s2 }) : null;
     };
-    // the family through the detected lanes (their own spacing, not the pitch estimate), snapped
-    // to the middle band in three passes with a wide window: on a keystoned gel the lattice found
-    // over the whole crop is a compromise and its outer teeth sit off the lanes of any one band
-    let c0m = idx[0].x, p0m = pitch;
-    { let W = 0, si = 0, sx = 0, sii = 0, six = 0; idx.forEach(l => { W++; si += l.i; sx += l.x; sii += l.i * l.i; six += l.i * l.x; }); const den = W * sii - si * si; if (den > 0) { p0m = (W * six - si * sx) / den; c0m = (sx - p0m * si) / W; } }
     // p and c linear in y by least squares over every fitted band (no band trimmed, so the standard
     // error is not optimistic; a Theil-Sen slope was tried and swung the estimate on a gel whose
     // spacing changes faster at the bottom than at the top)
+    // a line v = b0 + b1 (y - yc) through the bands, weighted by what each band knows: for the
+    // pitch the spread of its teeth (inverse variance of a slope), for the offset the teeth count
     const line = (F, key) => {
-      const n = F.length;
-      let sy = 0, sv = 0, syy = 0, syv = 0;
-      F.forEach(f => { const t = f.y - yc; sy += t; sv += f[key]; syy += t * t; syv += t * f[key]; });
-      const den = n * syy - sy * sy;
-      if (den <= 0) return null;
-      const b1 = (n * syv - sy * sv) / den, b0 = (sv - b1 * sy) / n;
-      let ss = 0; F.forEach(f => { ss += (f[key] - (b0 + b1 * (f.y - yc))) ** 2; });
-      const se = n > 2 ? Math.sqrt(ss / (n - 2) / (syy - sy * sy / n)) : Infinity;
+      const n = F.length, wt = f => (key === 'p' ? (f.spread || 1) : (f.n || 1));
+      let sw = 0, sy = 0, sv = 0, syy = 0, syv = 0;
+      F.forEach(f => { const t = f.y - yc, w = wt(f); sw += w; sy += w * t; sv += w * f[key]; syy += w * t * t; syv += w * t * f[key]; });
+      const den = sw * syy - sy * sy;
+      if (den <= 0 || n < 2) return null;
+      const b1 = (sw * syv - sy * sv) / den, b0 = (sv - b1 * sy) / sw;
+      let ss = 0; F.forEach(f => { ss += wt(f) * (f[key] - (b0 + b1 * (f.y - yc))) ** 2; });
+      const se = n > 2 ? Math.sqrt(ss / (n - 2) / (syy - sy * sy / sw)) : Infinity;
       return { b0, b1, se, n };
     };
-    const mid = rows.length >> 1, fits = [];
-    let first = null;
-    for (let k = mid, tries = 0; k >= 0 && k < rows.length && tries < 3; k++, tries++) {
-      const r = rows[k];
-      if (r.mx < gmx * 0.15) continue;
-      let f = null;
-      for (let pass = 0; pass < 3; pass++) { const g = fitRow(r, f ? f.c : c0m, f ? f.p : p0m, pass ? 0.35 : 0.45); if (!g) break; f = g; }
-      if (f) { first = { k, c: f.c, p: f.p }; break; }
-    }
-    if (!first) return null;
-    for (const dir of [1, -1]) {
-      const own = [];   // this direction's fits, for the prediction across bands without lanes
-      for (let k = dir > 0 ? first.k : first.k - 1; k >= 0 && k < rows.length; k += dir) {
+    // the family through the lanes of idx in every band, tracked from the middle outward
+    const track = () => {
+      // the family through the detected lanes (their own spacing, not the pitch estimate), snapped
+      // to the middle band in three passes with a wide window: on a keystoned gel the lattice found
+      // over the whole crop is a compromise and its outer teeth sit off the lanes of any one band
+      let c0m = idx[0].x, p0m = pitch;
+      { let W = 0, si = 0, sx = 0, sii = 0, six = 0; idx.forEach(l => { W++; si += l.i; sx += l.x; sii += l.i * l.i; six += l.i * l.x; }); const den = W * sii - si * si; if (den > 0) { p0m = (W * six - si * sx) / den; c0m = (sx - p0m * si) / W; } }
+      const mid = rows.length >> 1, fits = [];
+      let first = null;
+      for (let k = mid, tries = 0; k >= 0 && k < rows.length && tries < 3; k++, tries++) {
         const r = rows[k];
-        if (r.mx < gmx * 0.15) continue;   // no lane in this band (above the wells, below the front)
-        // predicted from the trend of the fits so far (the last one alone when there are fewer than
-        // three), so a stretch without bands between the wells and the first band is crossed
-        let c = first.c, p = first.p;
-        if (own.length >= 3) { const lp = line(own, 'p'), lc = line(own, 'c'); if (lp && lc) { c = lc.b0 + lc.b1 * (r.y - yc); p = lp.b0 + lp.b1 * (r.y - yc); } }
-        else if (own.length) { c = own[own.length - 1].c; p = own[own.length - 1].p; }
-        // two passes: the second looks around the first's own family, so the search windows no
-        // longer pull the centroids towards the prediction
-        let f = fitRow(r, c, p);
-        if (f) f = fitRow(r, f.c, f.p) || f;
-        if (f) { const e = { y: r.y, c: f.c, p: f.p, n: f.n }; fits.push(e); own.push(e); }
+        if (r.mx < gmx * 0.15) continue;
+        let f = null;
+        for (let pass = 0; pass < 3; pass++) { const g = fitRow(r, f ? f.c : c0m, f ? f.p : p0m, pass ? 0.35 : 0.45); if (!g) break; f = g; }
+        if (f) { first = { k, c: f.c, p: f.p }; break; }
+      }
+      if (!first) return null;
+      for (const dir of [1, -1]) {
+        const own = [];   // this direction's fits, for the prediction across bands without lanes
+        for (let k = dir > 0 ? first.k : first.k - 1; k >= 0 && k < rows.length; k += dir) {
+          const r = rows[k];
+          if (r.mx < gmx * 0.15) continue;   // no lane in this band (above the wells, below the front)
+          // predicted from the trend of the fits so far (the last one alone when there are fewer than
+          // three), so a stretch without bands between the wells and the first band is crossed
+          let c = first.c, p = first.p;
+          if (own.length >= 3) { const lp = line(own, 'p'), lc = line(own, 'c'); if (lp && lc) { c = lc.b0 + lc.b1 * (r.y - yc); p = lp.b0 + lp.b1 * (r.y - yc); } }
+          else if (own.length) { c = own[own.length - 1].c; p = own[own.length - 1].p; }
+          // two passes: the second looks around the first's own family, so the search windows no
+          // longer pull the centroids towards the prediction
+          let f = fitRow(r, c, p);
+          if (f) f = fitRow(r, f.c, f.p) || f;
+          if (f) { const e = { y: r.y, c: f.c, p: f.p, n: f.n, pts: f.pts, spread: f.spread, s2: f.s2 }; fits.push(e); own.push(e); }
+        }
+      }
+      return fits.length >= 5 ? fits : null;
+    };
+    let fits = track();
+    if (!fits) return null;
+    // A lane whose offset from the family drifts down the gel (the lane in a torn corner, an outer
+    // lane that leans) is not a camera angle: a keystone moves every lane alike and leaves no such
+    // drift. Such a lane (drift over the crop height above 0.15 pitch, measured in at least four
+    // bands) is left out and the bands are fitted again without it, at most two lanes, at least
+    // four kept; the per-lane straightening deals with it afterwards. Reported in `excluded`.
+    const excluded = [];
+    for (let iter = 0; iter < 2 && idx.length > 4; iter++) {
+      let worst = null;
+      for (const l of idx) {
+        const pts = [];
+        fits.forEach(f => { const q = f.pts.find(t => t.i === l.i); if (q) pts.push({ y: f.y, e: q.x - (f.c + f.p * l.i) }); });
+        if (pts.length < 4) continue;
+        const le = line(pts, 'e');
+        if (!le) continue;
+        // a drift is a lean only when it is clear of the scatter of the lane's own teeth (three
+        // standard errors): a lysate lane's smeared bands wander without leaning
+        const drift = Math.abs(le.b1 * crop.h);
+        if (drift > Math.max(pitch * 0.15, 3 * le.se * crop.h) && (!worst || drift > worst.drift)) worst = { l, drift };
+      }
+      if (!worst) break;
+      const idx2 = idx.filter(l => l !== worst.l);
+      const prev = { idx, fits };
+      idx = idx2;
+      const f2 = track();
+      if (!f2) { idx = prev.idx; fits = prev.fits; break; }
+      fits = f2; excluded.push({ x: Math.round(worst.l.x), i: worst.l.i, drift: +worst.drift.toFixed(1) });
+    }
+    let F = fits.map(f => ({ y: f.y, c: f.c, p: f.p, n: f.n, spread: f.spread, s2: f.s2 })), lp = line(F, 'p'), lc = line(F, 'c');
+    if (!lp || !lc) return null;
+    // lack of fit: a camera angle changes the spacing linearly down the gel. The bands' pitches
+    // scatter about the line by chi2 per degree of freedom (each band's pitch variance is its
+    // teeth's scatter over their spread); a gel compressed near its wells or torn at the bottom
+    // scatters far more than its teeth explain, and its spacing change is not a keystone
+    const lof = (G, L) => { let chi = 0, m = 0; G.forEach(f => { if (f.s2 == null || !f.spread) return; chi += (f.p - (L.b0 + L.b1 * (f.y - yc))) ** 2 * f.spread / Math.max(1e-9, f.s2); m++; }); return m > 2 ? chi / (m - 2) : null; };
+    // a band whose pitch sits far off the line through the others (beyond three times the median
+    // scatter and 2 % of the pitch) is a local feature of the gel, not of the camera: the dark walls
+    // of deep well pockets, a torn or compressed bottom; with six or more bands it is dropped and the
+    // line fitted again, once (at least five bands stay). Reported in `dropped`.
+    const dropped = [];
+    if (F.length >= 6) {
+      const res = F.map(f => f.p - (lp.b0 + lp.b1 * (f.y - yc))), abs = res.map(Math.abs).sort((a, b) => a - b);
+      const scale = 1.4826 * abs[abs.length >> 1], lim = Math.max(3 * scale, 0.02 * lp.b0);
+      const keep = F.filter((f, k) => Math.abs(res[k]) <= lim);
+      if (keep.length >= 5 && keep.length < F.length) {
+        F.forEach((f, k) => { if (Math.abs(res[k]) > lim) dropped.push({ y: Math.round(f.y), p: +f.p.toFixed(1), n: f.n }); });
+        const lp2 = line(keep, 'p'), lc2 = line(keep, 'c');
+        if (lp2 && lc2) { F = keep; lp = lp2; lc = lc2; }
       }
     }
-    if (fits.length < 5) return null;
-    const F = fits.slice(), lp = line(F, 'p'), lc = line(F, 'c');
-    if (!lp || !lc) return null;
     const p0 = lp.b0, p1 = lp.b1, c0 = lc.b0, c1 = lc.b1;
     const change = p1 * crop.h / p0, se = lp.se * crop.h / p0;
-    const out = { rows: F, change, se, p0, p1, c0, c1, n: F.length, point: null };
+    const chi2 = lof(F, lp);
+    const out = { rows: F, change, se, p0, p1, c0, c1, n: F.length, point: null, excluded, dropped, teeth: idx.length, chi2 };
     if (Math.abs(change) >= 0.005 && Math.abs(p1) >= sigma * lp.se) {
       // the lines meet where the pitch would vanish
       const ty = -p0 / p1;
@@ -940,7 +1003,53 @@
   // the region around the first box, was tried and reverted: the filters then changed their size
   // relative to the gel and cut faint lanes and short gels. A gel that fills a small part of a large
   // photograph is better cropped by hand (or photographed closer).
-  function autoCrop(img, bright, band) { return autoCropAt(img, bright, band, 700); }
+  /* The red box, coarse to fine. The first pass looks at the whole frame brought to about 700 px
+   * across, and every filter in it is a fraction of the frame: the gel's own scale when the gel
+   * fills the frame. A gel photographed small in a large frame (a phone photograph with the tray
+   * around it) is then a hundred or two pixels wide with its lanes a few pixels apart, and the
+   * filters see the tray's texture rather than the bands: the box lands on the wrong rows, or far
+   * too wide. So when the box found is small against the frame, the analysis is run again on the
+   * window around that box (half the box's larger side beyond it on every side), where the frame
+   * is the gel's neighbourhood and every filter is at the gel's scale; and again while the window
+   * still moves (a box pressed against the window's edge widens it there). A pass is kept only
+   * when its box overlaps the one it refines; a gel that fills its frame takes one pass. */
+  function autoCrop(img, bright, band) {
+    let r = autoCropAt(img, bright, band, 700);
+    const passes = [{ f: autoCrop.debug ? autoCrop.debug.f : 1, rect: r }];
+    let meta = autoCrop.meta, rows = autoCrop.rows, debug = autoCrop.debug, last = null;
+    for (let pass = 0; pass < 3; pass++) {
+      if (r.w >= img.w - 1 && r.h >= img.h - 1) break;
+      const m = 0.5 * Math.max(r.w, r.h);
+      let win = { x0: Math.max(0, Math.round(r.x - m)), y0: Math.max(0, Math.round(r.y - m)), x1: Math.min(img.w, Math.round(r.x + r.w + m)), y1: Math.min(img.h, Math.round(r.y + r.h + m)) };
+      let ww = win.x1 - win.x0, wh = win.y1 - win.y0, inner = false;
+      if (ww >= img.w * 0.8 && wh >= img.h * 0.8) {
+        // the frame is the gel's neighbourhood already; but a large box may be a light box or a
+        // tray with the gel inside it: one pass inside the box, kept only when it finds something
+        // much smaller (a gel that fills its frame finds itself again and keeps the first box)
+        if (r.w < img.w * 0.6 || pass) break;
+        const mx = r.w * 0.1, my = r.h * 0.1;
+        win = { x0: Math.max(0, Math.round(r.x - mx)), y0: Math.max(0, Math.round(r.y - my)), x1: Math.min(img.w, Math.round(r.x + r.w + mx)), y1: Math.min(img.h, Math.round(r.y + r.h + my)) };
+        ww = win.x1 - win.x0; wh = win.y1 - win.y0; inner = true;
+      }
+      if (last && Math.abs(win.x0 - last.x0) < ww * 0.05 && Math.abs(win.x1 - last.x1) < ww * 0.05 && Math.abs(win.y0 - last.y0) < wh * 0.05 && Math.abs(win.y1 - last.y1) < wh * 0.05) break;
+      last = win;
+      const sub = cropImg(img, { x: win.x0, y: win.y0, w: ww, h: wh });
+      const r2 = autoCropAt(sub, bright, band ? { y0: band.y0 - win.y0, y1: band.y1 - win.y0 } : undefined, 700);
+      if (r2.w >= sub.w - 1 && r2.h >= sub.h - 1) break;   // nothing found in the window: keep the box
+      r2.x += win.x0; r2.y += win.y0;
+      const ix = Math.min(r.x + r.w, r2.x + r2.w) - Math.max(r.x, r2.x), iy = Math.min(r.y + r.h, r2.y + r2.h) - Math.max(r.y, r2.y);
+      const overlap = ix > 0 && iy > 0 ? ix * iy / Math.min(r.w * r.h, r2.w * r2.h) : 0;
+      passes.push({ f: autoCrop.debug ? autoCrop.debug.f : 1, win, inner, rect: r2, overlap: +overlap.toFixed(2) });
+      if (overlap < 0.3 || (inner && r2.w > r.w * 0.7)) break;
+      r = r2;
+      meta = autoCrop.meta; rows = autoCrop.rows; debug = autoCrop.debug;
+      if (meta) { if (meta.wellY != null) meta.wellY += win.y0; meta.bandTop += win.y0; meta.bandBottom += win.y0; meta.contentX0 += win.x0; meta.contentX1 += win.x0; }
+      if (rows) rows.forEach(q => { q.y0 += win.y0; q.y1 += win.y0; });
+      if (debug) debug.win = win;
+    }
+    autoCrop.meta = meta; autoCrop.rows = rows; autoCrop.debug = debug; autoCrop.passes = passes;
+    return r;
+  }
   function autoCropAt(img, bright, band, maxDim) {
     const sm = signal(downsample(img, maxDim), bright);
     const { w, h, data, f } = Object.assign({ f: 1 }, sm, { f: Math.max(1, Math.ceil(Math.max(img.w, img.h) / maxDim)) });
