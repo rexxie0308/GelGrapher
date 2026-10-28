@@ -735,7 +735,9 @@
       // the grid's nodes sit closer than half a lane pitch, so the field between lanes is realised and
       // not blurred over a lane (33 x 33 over a photograph is 60 px apart)
       const nx = Math.max(33, Math.min(129, Math.ceil(2 * W / P) + 1)), ny = Math.max(33, Math.min(65, Math.ceil(2 * Hh / P) + 1));
-      let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows, nx, ny) : null;
+      // a gel with several rows of wells: the correction fades out within this row's band, never into the next
+      const band = S.gelRows ? App.rowBand(S.gelRow) : null;
+      let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows, nx, ny, band) : null;
       if (sg && sg.maxShift > P) sg = null;   // a shift of more than a lane pitch is a wrong trace, not a bend
       if (sg && (sg.folded || sg.scaleMax > 0.25)) { App.autoGeometry.debug.push({ straighten: true, rejected: 'fold or local scale', scaleMax: sg.scaleMax, folded: sg.folded }); sg = null; }
       if (sg) {

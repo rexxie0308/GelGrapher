@@ -10,7 +10,7 @@ Status: **levels A and C implemented** (2026-10) as one displacement grid (`E.Gr
 
 - **Lanes as chains of bands (2026-10).** The per-lane trace is no longer a quadratic fitted to centroids tracked outward from the middle: `E.trackLane` is a Viterbi search over the band candidates of each horizontal band (peaks of the presence profile within 1.2 pitch of the lattice position), with a prior that the lane keeps its direction (the step between bands repeats the previous step), a cost for a missing band and a weak pull to the lattice position. The chain is smoothed (five-point weighted mean, twice) and joined by straight segments. The owner's point: a vertical or quadratic line cannot define a lane whose slope is high (the right ladder of the sanity-check gel leans by most of a lane spacing); the chain follows it band by band. The straightening built from the chains is accepted only when the column density's valley/peak ratio at the lanes falls (an independent test, since a warp built from the chains always flattens the chains).
 
-The lane detector it builds on (comb pitch, slab edges, margin rules) is in `js/engine.js` and is scored by `node tools/lane-bench.mjs`.
+The lane detector it builds on (comb pitch, slab edges, margin rules) is in `js/engine.js` and is scored by `node tools/lane-bench.mjs` on synthetic gels and by `node tools/real-bench.mjs` on your own labelled images (`docs/benchmark.md`).
 
 ## The problem
 

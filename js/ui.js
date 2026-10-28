@@ -473,8 +473,11 @@
   // geometry: automatic (perspective + lane straightening, recursive), a manual four-corner box, or off
   function geomMode() { const g = S() && S().geom; return g ? g.mode : 'off'; }
   let placing = false;
+  const AUTO_TITLE = { off: 'Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle', on: 'Measure again from the current lanes and ladders (after you corrected a lane or a marker)' };
   function geomSeg() {
     document.querySelectorAll('#geomSeg button').forEach(b => b.classList.toggle('on', b.dataset.geom === (placing ? 'manual' : geomMode())));
+    const auto = document.querySelector('#geomSeg button[data-geom="auto"]');
+    if (auto) auto.title = geomMode() === 'auto' ? AUTO_TITLE.on : AUTO_TITLE.off;
     $('geomPlace').classList.toggle('hidden', !placing);
     G.Editor.setCorners(placing);
   }

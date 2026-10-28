@@ -816,6 +816,26 @@
       R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid, handKept, polFlipped, polBack,
         ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid && handKept && polFlipped && polBack };
     }
+    // 49. a strip of two or three lanes (a cut gel photographed as such) finds exactly its lanes: the lane detector's
+    // scale comes from the lanes, not from the frame; the lane-fix fold holds its tools in two rows without hint text
+    {
+      const $ = id => document.getElementById(id);
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      const found = {};
+      for (const n of [2, 3]) {
+        const gg = G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: n }), x0 = 80, x1 = 260 + 80 * (n - 1) + 100, w = x1 - x0;
+        const data = new Float32Array(w * gg.height);
+        for (let y = 0; y < gg.height; y++) for (let x = 0; x < w; x++) data[y * w + x] = x >= w - 60 ? 0.035 + 0.012 * ((x + x0) / gg.width) + 0.008 * Math.sin(y / 170) : gg.data[y * gg.width + x + x0];
+        await App.load(new File([G.Demo.encodeTiff16({ width: w, height: gg.height, data })], `strip${n}.tif`), 'dna-agarose');
+        const xs = App.S.lanes.map(l => l.x), truth = Array.from({ length: n }, (_, k) => 260 + 80 * k - x0);
+        found[n] = { lanes: xs.map(Math.round), hit: truth.filter(t => xs.some(x => Math.abs(x - t) < 24)).length };
+      }
+      const fold = $('fixLanes'), rows = fold.querySelectorAll('.crop-lanes .field').length, hints = fold.querySelectorAll('p.hint').length;
+      const tools = ['btnRedetectCrop', 'cropLaneN', 'btnEvenCrop', 'btnSpread', 'btnAutoLanes'].every(id => fold.contains($(id)) && $(id).title);
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.strip = { found, rows, hints, tools, ok: found[2].hit === 2 && found[2].lanes.length === 2 && found[3].hit === 3 && found[3].lanes.length === 3 && rows === 2 && hints === 0 && tools };
+    }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

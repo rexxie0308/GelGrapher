@@ -115,7 +115,7 @@
           <button class="btn sm ghost" id="btnGeomCancel" title="Leave the box without changing anything">Cancel</button>
           <span class="h3-note">Drag the round corners onto the gel's corners (the square handles slide a whole side); nothing happens until Apply.</span>
         </div>
-        <p class="hint" id="geomHint"><b>Auto</b> (run when the image opens) straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands; the legend and the log state it. <b>Manual</b>: drag the blue box onto the corners of the gel, then Apply.</p>
+        <p class="hint" id="geomHint"><b>Auto</b> runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. <b>Manual</b>: drag the blue box onto the corners of the gel, then Apply.</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
@@ -173,18 +173,16 @@
           <span class="h3-note">then click where the lane runs. Drag a blue line to move it; Delete removes it.</span>
         </div>
         <details class="adv" id="fixLanes">
-          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
+          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect in the red box, space N lanes evenly, or spread between two</span></summary>
           <div class="crop-lanes">
             <div class="field inline">
-              <button class="btn sm" id="btnRedetectCrop">Re-detect in box</button>
-              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
-              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
+              <button class="btn sm" id="btnRedetectCrop" title="Find the lanes again inside the red box only; lanes you placed by hand stay">Re-detect in box</button>
+              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px" title="How many lanes the red box holds"> <span>lanes</span></span>
+              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box: put its sides on the outer edges of the outermost lanes first">Space evenly</button>
             </div>
-            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”.</p>
-            <div class="field inline"><button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image, drag them onto their lanes (every selected line moves together), then spread the lanes between them evenly">Spread between the two selected</button></div>
-            <p class="hint">Shift+click selects several lane lines; put the first and the last of a run on their lanes, then <b>Spread</b>.</p>
             <div class="field inline">
-              <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
+              <button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image (the first and the last of a run), drag them onto their lanes, then spread the lanes between them evenly">Spread between two selected</button>
+              <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect every lane on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
             </div>
           </div>
         </details>

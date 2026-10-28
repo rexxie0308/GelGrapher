@@ -280,6 +280,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .crop-lanes, .mk-image { margin-top: 10px; padding: 9px 11px; border-radius: var(--r); background: var(--panel-2); }
 #fixLanes .crop-lanes { margin-top: 4px; }
 #fixLanes .crop-lanes .field { margin: 0; }
+#fixLanes .crop-lanes .field + .field { margin-top: 6px; }
 #imgAdv > summary, #fixLanes > summary { color: var(--text); font-size: 12.5px; }
 #imgAdv > summary .h3-note, #fixLanes > summary .h3-note { font-size: 11.3px; }
 .cl-head { font-size: 12.3px; font-weight: 600; }

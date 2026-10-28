@@ -755,9 +755,10 @@
   /* The grid that straightens the lanes: every traced lane is moved to a vertical line at its
    * position in the middle of the crop; between lanes the shift is interpolated linearly in x,
    * beyond the outermost lanes it is held; above and below the crop it fades to zero over half
-   * the crop height. rows: optional ladder band rows [{at: x => y, yc}] (the same for y, from
-   * the markers only). Returns {grid, maxShift}. */
-  function straightenGrid(W, H, crop, traces, rows, nx, ny) {
+   * the crop height (or sooner, within band {y0, y1} when the gel has several rows of wells).
+   * rows: optional ladder band rows [{at: x => y, yc}] (the same for y, from the markers only).
+   * Returns {grid, maxShift}. */
+  function straightenGrid(W, H, crop, traces, rows, nx, ny, band) {
     if (straightenGrid.useWidths == null) straightenGrid.useWidths = false;
     const g = Grid.identity(W, H, nx, ny), yc = crop.y + crop.h / 2, xc = crop.x + crop.w / 2;
     const T = traces.filter(Boolean).sort((p, q) => p.a - q.a);
@@ -778,7 +779,12 @@
     straightenGrid.widthLanes = T.filter((t, k) => t.wAt && coherent(k)).map(t => ({ x: Math.round(t.a), trend: t.wTrend }));
     Ed.sort((p, q) => p.x0 - q.x0);
     const R = (rows || []).filter(Boolean).sort((p, q) => p.yc - q.yc);
-    const fadeY = y => { const d = Math.max(0, Math.max(crop.y - y, y - crop.y - crop.h)); return Math.max(0, 1 - d / (crop.h / 2)); };
+    // band {y0, y1}: the rows of the image this crop may use (a gel with several rows of wells: its
+    // own row and the space up to its neighbours); the fade then ends there, so the correction of
+    // one row never reaches into the next
+    const spanUp = band ? Math.max(1, Math.min(crop.h / 2, crop.y - band.y0)) : crop.h / 2;
+    const spanDown = band ? Math.max(1, Math.min(crop.h / 2, band.y1 - crop.y - crop.h)) : crop.h / 2;
+    const fadeY = y => { if (y < crop.y) return Math.max(0, 1 - (crop.y - y) / spanUp); if (y > crop.y + crop.h) return Math.max(0, 1 - (y - crop.y - crop.h) / spanDown); return 1; };
     const fadeX = x => { const d = Math.max(0, Math.max(crop.x - x, x - crop.x - crop.w)); return Math.max(0, 1 - d / (crop.w / 2)); };
     const dxAt = (x, y) => {
       if (!Ed.length) return 0;
@@ -1231,20 +1237,49 @@
    * is then continued over the whole image. */
   function detectLanes(cropped, bright, refW, region) {
     const sig = signal(cropped, bright);
-    const w = sig.w, R = refW || w;
+    const w = sig.w;
+    const R0 = refW || w;
+    let R = R0;
     const x0 = region ? region[0] : 0, x1 = region ? region[1] : w;
-    const raw = presenceProfile(sig, R);
-    const q0 = gaussSmooth(raw, Math.max(1, R / 250));
-    const bl = baseline(q0, Math.round(R / 8));
-    const q = new Float32Array(w);
-    let mx = 0;
-    for (let i = 0; i < w; i++) { q[i] = Math.max(0, q0[i] - bl[i]); mx = Math.max(mx, q[i]); }
-    const band = gaussSmooth(raw.band, Math.max(1, R / 250)), bb = baseline(band, Math.round(R / 8));
-    for (let i = 0; i < w; i++) band[i] = Math.max(0, band[i] - bb[i]);
-    if (mx <= 0) return { centers: [], pitch: R / 10, profile: q, profileMax: 0, band };
-    const peaks = findPeaks(q, Math.max(3, R / 70), mx * 0.12);
-    const comb = combPitch(gaussSmooth(q, Math.max(1, R / 400)), R / 60, R / 2, x0, x1, peaks, mx);
-    detectLanes.debug = { peaks: peaks.map(k => [k.i, +(k.prom / mx).toFixed(2)]), pitch: comb.p, combScore: comb.s };
+    // The presence profile's top-hat radius is R / 12: right for a gel of ten or more lanes. A strip
+    // of two or three lanes has a pitch of a third of its width, and a top-hat that narrow cuts
+    // the lanes themselves (a lane wider than its window is background to it; what is left are
+    // the two shoulders of every lane, and the comb then reads their spacing as the pitch). So:
+    // when the features the comb found are wider on the plain column mean than the top-hat
+    // window, the profile is made again at a coarse scale (as if the crop held two lanes), and
+    // the scale is then set from the pitch found, never finer than the crop's own, until the two
+    // agree. A gel with ten or more lanes across the crop keeps its first profile.
+    let raw, q, mx, band, peaks, comb, colMean = null, coarse = false;
+    for (let round = 0; round < 4; round++) {
+      raw = presenceProfile(sig, R);
+      const q0 = gaussSmooth(raw, Math.max(1, R / 250));
+      const bl = baseline(q0, Math.round(R / 8));
+      q = new Float32Array(w);
+      mx = 0;
+      for (let i = 0; i < w; i++) { q[i] = Math.max(0, q0[i] - bl[i]); mx = Math.max(mx, q[i]); }
+      band = gaussSmooth(raw.band, Math.max(1, R / 250));
+      const bb = baseline(band, Math.round(R / 8));
+      for (let i = 0; i < w; i++) band[i] = Math.max(0, band[i] - bb[i]);
+      if (mx <= 0) return { centers: [], pitch: R / 10, profile: q, profileMax: 0, band };
+      peaks = findPeaks(q, Math.max(3, R / 70), mx * 0.12);
+      comb = combPitch(gaussSmooth(q, Math.max(1, R / 400)), R / 60, R / 2, x0, x1, peaks, mx);
+      if (!comb.p) break;
+      if (!coarse) {
+        const r = Math.max(3, Math.round(R / 12));
+        if (!colMean) {
+          colMean = new Float32Array(w);
+          const step = Math.max(1, (sig.h / 500) | 0); let n = 0;
+          for (let y = 0; y < sig.h; y += step, n++) for (let x = 0; x < w; x++) colMean[x] += sig.data[y * w + x];
+          for (let x = 0; x < w; x++) colMean[x] /= Math.max(1, n);
+        }
+        const widths = peaks.filter(k => k.i >= x0 && k.i < x1).map(k => featureWidth(colMean, k.i, 6 * r)).sort((p, q) => p - q);
+        if (widths.length && widths[widths.length >> 1] > 1.6 * r) { coarse = true; R = 4.4 * R0; continue; }
+      }
+      const R2 = Math.max(R0, 9.6 * comb.p);
+      if (Math.abs(R2 - R) < R * 0.1) break;
+      R = R2;
+    }
+    detectLanes.debug = { peaks: peaks.map(k => [k.i, +(k.prom / mx).toFixed(2)]), pitch: comb.p, combScore: comb.s, refW: Math.round(R), coarse };
     if (!comb.p || peaks.length < 1) return { centers: peaks.map(k => k.i), pitch: comb.p || R / 10, profile: q, profileMax: mx, band };
     let P = comb.p, O = comb.o;
     // evidence at a tooth: a wide feature (a lane, not an edge line) with signal in the lane core
@@ -1253,11 +1288,20 @@
       let s = 0; for (let x = a; x <= b; x++) s += q[x];
       return s / (b - a + 1);
     };
+    // the centroid of the lane's own feature: the run above half its prominence around the
+    // strongest point near the tooth, so a neighbouring feature across a dip (the bright
+    // background beyond the cut edge of a strip, a glare line) does not pull it
     const centroid = (c, p) => {
       const a = clamp(Math.round(c - p * 0.45), 0, w - 1), b = clamp(Math.round(c + p * 0.45), 0, w - 1);
-      let lo = Infinity, sw = 0, sxw = 0;
+      let lo = Infinity, pk = clamp(Math.round(c), a, b);
       for (let x = a; x <= b; x++) lo = Math.min(lo, q[x]);
-      for (let x = a; x <= b; x++) { const v = q[x] - lo; sw += v; sxw += v * x; }
+      for (let x = clamp(Math.round(c - p * 0.3), a, b); x <= clamp(Math.round(c + p * 0.3), a, b); x++) if (q[x] > q[pk]) pk = x;
+      const half = lo + (q[pk] - lo) / 2;
+      let l = pk, r = pk;
+      while (l > a && q[l - 1] > half) l--;
+      while (r < b && q[r + 1] > half) r++;
+      let sw = 0, sxw = 0;
+      for (let x = l; x <= r; x++) { const v = q[x] - lo; sw += v; sxw += v * x; }
       let cx = sw > 0 ? sxw / sw : c;
       if (Math.abs(cx - c) > p * 0.25) cx = c;
       return cx;
@@ -1428,15 +1472,15 @@
     const pos = all.map(snap);
     // the loaded lanes of the crop (the gel the user framed); a loaded-looking tooth far outside
     // with nothing between is not reached
-    const loadedIdx = pos.map((c, i) => (c >= crop.x && c <= crop.x + crop.w && bandAt(c - bx) > bandRefAll * 0.12 ? i : -1)).filter(i => i >= 0);
+    // (a tooth in the gel's margin, nearer than 0.75 pitch to the slab edge, is the margin's
+    // blotches or the smile of the last ladder, not a well: it counts only when clearly loaded)
+    const margin = c => c > slabL + P * 0.75 && c < slabR - P * 0.75;
+    const loadedIdx = pos.map((c, i) => (c >= crop.x && c <= crop.x + crop.w && bandAt(c - bx) > bandRefAll * (margin(c) ? 0.12 : 0.3) ? i : -1)).filter(i => i >= 0);
     let cs;
     if (!loadedIdx.length) cs = L.centers.map(c => c + bx).filter(inSlab);
     else {
       let lo = loadedIdx[0], hi = loadedIdx[loadedIdx.length - 1];
       // empty wells look a bit different from loaded ones, so the bar is low; a flat gel gives ~0
-      // (a tooth in the gel's margin, nearer than 0.75 pitch to the slab edge, is the margin's
-      // blotches or the smile of the last ladder, not a well)
-      const margin = c => c > slabL + P * 0.75 && c < slabR - P * 0.75;
       const ok = i => margin(pos[i]) && (bandAt(pos[i] - bx, true) > bandRefAll * 0.12 || wellNcc(pos[i]) >= 0.25);
       // a clearly loaded tooth (a ladder beside a torn or empty well) one or two teeth beyond an
       // empty one is still a lane: the empty wells between are kept so the numbering stays right

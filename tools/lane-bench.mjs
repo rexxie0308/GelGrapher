@@ -45,6 +45,19 @@ for (const preset of ['dna', 'sds', 'western']) {
     cases.push({ name: `${preset} ${JSON.stringify(v)}`, img: { w: g.width, h: g.height, data: g.data }, truth: Array.from({ length: n }, (_, k) => 260 + 80 * k) });
   }
 }
+// strips: a gel cut to two or three lanes, photographed as such (the frame is only a little wider
+// than the strip); the lane detector's scale must then come from the lanes, not from the frame
+for (const preset of ['dna', 'sds']) {
+  for (const n of [2, 3]) {
+    const g = Demo.makeGel({ preset, tilt: 0, lanes: n }), x0 = 80, x1 = 260 + 80 * (n - 1) + 100, w = x1 - x0;
+    const data = new Float32Array(w * g.height);
+    for (let y = 0; y < g.height; y++) for (let x = 0; x < w; x++) {
+      const cut = x >= w - 60;   // the gel ends here: background beyond
+      data[y * w + x] = cut ? 0.035 + 0.012 * ((x + x0) / g.width) + 0.008 * Math.sin(y / 170) : g.data[y * g.width + x + x0];
+    }
+    cases.push({ name: `${preset} strip ${n} lanes`, img: { w, h: g.height, data }, truth: Array.from({ length: n }, (_, k) => 260 + 80 * k - x0) });
+  }
+}
 let allOk = true;
 for (const c of cases) {
   const t0 = Date.now(), r = detect(c.img), got = r.centers, p = r.pitch;
