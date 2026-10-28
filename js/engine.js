@@ -176,12 +176,14 @@
   }
 
   // the presence profile of nBands horizontal bands of the crop (shared by laneLines and laneTraces)
-  function laneRows(img, bright, crop, nBands) {
+  // yMin: rows above it (the wells and their pockets, whose dark walls sit between the lanes) are left out
+  function laneRows(img, bright, crop, nBands, yMin) {
     const bh = crop.h / nBands, rows = [];
     for (let k = 0; k < nBands; k++) {
       const band = cropImg(img, { x: crop.x, y: crop.y + k * bh, w: crop.w, h: bh });
       const q = gaussSmooth(presenceProfile(signal(band, bright), crop.w), Math.max(1, crop.w / 250));
       let mx = 0; for (const v of q) mx = Math.max(mx, v);
+      if (yMin != null && crop.y + k * bh < yMin) mx = 0;
       rows.push({ y: crop.y + (k + 0.5) * bh, q, mx });
     }
     rows.gmx = Math.max(1e-9, ...rows.map(r => r.mx));
@@ -228,7 +230,7 @@
    * shape as vanishing(): change is the relative change of the lane spacing over the crop
    * height, point (null when not significant at three standard errors or below 0.5 %) is where the
    * lane lines meet ({ along: y, across: x }); sigma (default 3) is the significance required. */
-  function laneComb(img, bright, crop, laneXs, pitch, nBands, sigma) {
+  function laneComb(img, bright, crop, laneXs, pitch, nBands, sigma, yMin) {
     nBands = nBands || 16; sigma = sigma || 3;
     const xs = laneXs.slice().sort((a, b) => a - b);
     if (xs.length < 4) return null;
@@ -243,7 +245,7 @@
     const idx = [{ i: 0, x: xs[0] }];
     for (let k = 1; k < xs.length; k++) { const d = xs[k] - idx[idx.length - 1].x; if (d < pitch * 0.6) continue; const g = Math.round(d / pitch); if (g >= 1) idx.push({ i: idx[idx.length - 1].i + g, x: xs[k] }); }
     if (idx.length < 4) return null;
-    const rows = laneRows(img, bright, crop, nBands), gmx = rows.gmx, yc = crop.y + crop.h / 2;
+    const rows = laneRows(img, bright, crop, nBands, yMin), gmx = rows.gmx, yc = crop.y + crop.h / 2;
     laneComb.debug = [];
     const centroidNear = (r, xp, half) => {
       const a = clamp(Math.round(xp - crop.x - pitch * half), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * half), 0, r.q.length - 1);
@@ -623,9 +625,9 @@
   /* Lane traces: the path of every lane down the crop as points {y, x} in nBands bands (the
    * centroid of the band's presence profile near the lane, tracked band by band from the centre
    * outward), smoothed by a quadratic in y. Lanes with fewer than 4 points give null. */
-  function laneTraces(img, bright, crop, laneXs, pitch, nBands) {
+  function laneTraces(img, bright, crop, laneXs, pitch, nBands, yMin) {
     nBands = nBands || 16;
-    const yc = crop.y + crop.h / 2, rows = laneRows(img, bright, crop, nBands);
+    const yc = crop.y + crop.h / 2, rows = laneRows(img, bright, crop, nBands, yMin);
     const sg = signal(cropImg(img, crop), bright);
     const fit = pts => {
       if (pts.length < 4) return null;
@@ -858,9 +860,17 @@
   // ---------- auto crop: find region containing bands / wells ----------
   // band: optional {y0, y1} (full-resolution rows) that the crop must stay inside: one row of wells on
   // a gel that carries several
-  function autoCrop(img, bright, band) {
-    const sm = signal(downsample(img, 700), bright);
-    const { w, h, data, f } = Object.assign({ f: 1 }, sm, { f: Math.max(1, Math.ceil(Math.max(img.w, img.h) / 700)) });
+  // The working image is the photograph brought to about 700 px across: every filter size and
+  // threshold below is a fraction of that width, so the routine sees every gel at one scale and the
+  // box is mapped back to full-resolution pixels exactly (a box edge is set to the nearest working
+  // pixel, 2-3 image pixels on a phone photograph). Drawing the box again at a finer scale, or on
+  // the region around the first box, was tried and reverted: the filters then changed their size
+  // relative to the gel and cut faint lanes and short gels. A gel that fills a small part of a large
+  // photograph is better cropped by hand (or photographed closer).
+  function autoCrop(img, bright, band) { return autoCropAt(img, bright, band, 700); }
+  function autoCropAt(img, bright, band, maxDim) {
+    const sm = signal(downsample(img, maxDim), bright);
+    const { w, h, data, f } = Object.assign({ f: 1 }, sm, { f: Math.max(1, Math.ceil(Math.max(img.w, img.h) / maxDim)) });
     // morphological top-hat (rows then columns) to remove gel/background gradient
     const r = Math.max(4, Math.round(Math.min(w, h) / 25));
     const open = new Float32Array(w * h);
@@ -1180,6 +1190,17 @@
       return cx;
     };
     const hasLane = (c, p) => coreMean(c, p) > mx * 0.06 && featureWidth(q, c, p) >= p * 0.28;
+    // a comb at half the true pitch puts a tooth in every gap between lanes: its teeth then alternate
+    // strong (a lane) and weak (a gap) along the whole crop. When one phase of alternate teeth is
+    // clearly weaker than the other, the pitch is doubled and the comb kept on the strong phase.
+    if (P * 2 <= R / 2) {
+      const t = []; for (let x = O; x < Math.min(w, x1); x += P) if (x >= x0) t.push(coreMean(x, P));
+      if (t.length >= 6) {
+        let e = 0, o = 0, ne = 0, no = 0; t.forEach((v, k) => { if (k % 2) { o += v; no++; } else { e += v; ne++; } });
+        e /= Math.max(1, ne); o /= Math.max(1, no);
+        if (Math.min(e, o) < Math.max(e, o) * 0.55) { if (o > e) O += P; P *= 2; detectLanes.debug.halfPitch = true; }
+      }
+    }
     // two passes: teeth with a lane give centroids, a least-squares lattice through them refines
     // pitch and phase (a comb fitted at 1 px drifts over many lanes), then the teeth are placed again
     for (let pass = 0; pass < 2; pass++) {

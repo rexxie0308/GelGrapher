@@ -555,11 +555,15 @@
     let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, Hk = (S.geom && S.geom.H) || E.M3.I();
     let grid = App.geomGrid(S), slab = null;
     const inCrop = () => { const c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3); return S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5); };
+    // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
+    // walls sit between the lanes and would offset the comb by half a pitch
+    const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 1.5 : null; };
+    const hook = l => { if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); };
     // convergence of the lane lines in the current frame (null when too few lanes are measurable)
     const convergence = () => {
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       if (xs.length < 4) return null;
-      const v = E.laneComb(img, S.bright, c, xs, P);
+      const v = E.laneComb(img, S.bright, c, xs, P, 16, 3, yMin());
       return v ? v.change : null;
     };
     /* 0. the slab outline. A gel photographed at an angle may drift by a whole lane pitch over its
@@ -580,7 +584,7 @@
         // (the outline alone is no evidence: a gel whose lanes cannot be measured is left as it is)
         const ok = before != null && after != null && Math.abs(before) >= 0.03 && Math.abs(after) < Math.abs(before) * 0.5;
         App.autoGeometry.debug.push({ slab: true, before: before != null ? +before.toFixed(4) : null, after: after != null ? +after.toFixed(4) : null, ok, report: E.keystoneReport(Hq, c) });
-        if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; }
+        if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; hook('slab'); }
         else { App.S = S = JSON.parse(snap); App.rot = null; App.ensureRot(); grid = null; }
       }
     }
@@ -595,7 +599,7 @@
       if (xs.length < 4) break;
       // the first round must be sure (three standard errors: an undistorted gel gets nothing); the
       // later ones refine a keystone already found and need less
-      const v = E.laneComb(img, S.bright, c, xs, P, 16, rounds ? 1.5 : 3), u = App.bandRowVanishing();
+      const v = E.laneComb(img, S.bright, c, xs, P, 16, rounds ? 1.5 : 3, yMin()), u = App.bandRowVanishing();
       lines = v ? v.n : 0;
       const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
       const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
@@ -603,15 +607,17 @@
       if (!V && !U) { converged = true; break; }
       // a spacing that would more than double over the crop is not a camera angle
       if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
-      // each round must at least halve the remaining convergence: an estimate that grows or merely
-      // flips its sign says the gel is not a keystone (torn, locally compressed), and the rounds stop
-      if (v && v.point && lastChange != null && Math.abs(v.change) > Math.abs(lastChange) * 0.5) { converged = true; break; }
+      // the remaining convergence must shrink from round to round and keep its sign: an estimate that
+      // grows, or flips its sign by more than half of the last one, says the gel is not a keystone
+      // (torn, locally compressed), and the rounds stop
+      if (v && v.point && lastChange != null && (Math.abs(v.change) >= Math.abs(lastChange) || (Math.sign(v.change) !== Math.sign(lastChange) && Math.abs(v.change) > Math.abs(lastChange) * 0.5))) { converged = true; break; }
       lastChange = v && v.point ? v.change : null;
       const Hi = E.keystoneH(V, U, centre(c)), step = E.Grid.fromH(Hi, W, Hh);
       Hk = E.M3.mul(Hi, Hk); grid = grid ? E.Grid.compose(grid, step) : step;
       App.setGeom({ mode: 'auto', grid, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0, slab: !!slab });
       applied = true;
       App.autoLanes();   // the lanes again on the corrected image
+      hook('keystone ' + (rounds + 1));
     }
     /* 2. per-lane straightening, once, on the keystone-corrected image: traces that scatter more
      * than a tenth of the pitch (a faint ladder under a smear, a torn lane) are not trusted and
@@ -621,7 +627,7 @@
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       const trusted = T => T.map(t => (t && t.res <= P * 0.1 ? t : null));
       const bendOf = T => { const b = T.filter(Boolean).map(t => Math.max(Math.abs(t.at(c.y + c.h * 0.1) - t.a), Math.abs(t.at(c.y + c.h * 0.9) - t.a))).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : 0; };
-      const tr = xs.length >= 3 ? trusted(E.laneTraces(img, S.bright, c, xs, P)) : [];
+      const tr = xs.length >= 3 ? trusted(E.laneTraces(img, S.bright, c, xs, P, 16, yMin())) : [];
       bendBefore = bendOf(tr);
       const rows = App.bandRows().rows;
       // a bend worth straightening is more than noise: 5 % of the pitch and at least 3 px
@@ -630,12 +636,12 @@
       if (sg) {
         const snapRound = App.snapshot(), gridBefore = grid, g = grid ? E.Grid.compose(grid, sg.grid) : sg.grid;
         App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
-        const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P));
+        const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, yMin()));
         const bendAfter = bendOf(tr2);
         App.autoGeometry.debug.push({ round: rounds, straighten: true, widthLanes: E.straightenGrid.widthLanes, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
           before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null) });
         if (bendAfter > bendBefore * 0.9) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
-        else { grid = g; applied = true; rounds++; App.autoLanes(); }
+        else { grid = g; applied = true; rounds++; App.autoLanes(); hook('straighten'); }
       }
     }
     if (applied && S.geom) { if (slab) S.geom.slab = true; App.relaneMarkers(() => 0); Object.assign(S.geom, App.geomReport()); }
