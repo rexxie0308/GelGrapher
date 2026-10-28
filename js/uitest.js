@@ -790,11 +790,12 @@
       const off = !App.S.geom && $('geomSeg').querySelector('[data-geom=off]').classList.contains('on') && App.S.lanes.length >= 9;
       $('geomSeg').querySelector('[data-geom=manual]').click(); await wait(100);
       const corners = App.geomCornersWork(), c = App.S.crop;
-      const manualBox = !!App.S.geom && App.S.geom.mode === 'manual' && G.Editor.hoverType !== undefined && corners.length === 4 && Math.abs(corners[0][0] - c.x) < 3 && Math.abs(corners[2][1] - (c.y + c.h)) < 3;
-      // a corner dragged in: the box becomes a trapezoid, mapped to a rectangle, lanes still found
-      const q = corners.map(p => p.slice()); q[0][0] += 60; q[1][0] -= 60;
-      const okQ = App.setGeomCorners(q); App.redetectAll(); App.commit();
-      const trapezoid = okQ && App.S.geom.mode === 'manual' && App.S.geom.lanesPct > 5 && App.S.lanes.length >= 9 && /four slab corners/.test(G.Export.legendHints(App.S).join(' '));
+      // Manual only shows the box (Apply / Cancel appear, nothing is mapped yet); the box starts on the crop
+      const manualBox = !App.S.geom && G.UI_placing() && !$('geomPlace').classList.contains('hidden') && corners.length === 4 && Math.abs(corners[0][0] - c.x) < 3 && Math.abs(corners[2][1] - (c.y + c.h)) < 3;
+      // two corners dragged in (set as the pending box) and Apply: the trapezoid is mapped to a rectangle, lanes found again
+      const q = corners.map(p => p.slice()); q[0][0] += 60; q[1][0] -= 60; App.pendingCorners = q;
+      $('btnGeomApply').click(); await wait(2500);
+      const trapezoid = !!App.S.geom && App.S.geom.mode === 'manual' && App.S.geom.lanesPct > 5 && App.S.lanes.length >= 9 && !G.UI_placing() && /four slab corners/.test(G.Export.legendHints(App.S).join(' '));
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid,

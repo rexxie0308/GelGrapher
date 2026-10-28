@@ -344,6 +344,98 @@
     return { w, h, data: out };
   }
 
+  /* The slab's four corners from the gel outline: on a small copy the image is split at the level
+   * half-way between the gel (around `inside`, the crop centre) and the background (the frame's
+   * border ring; inside.win = {x0, x1, y0, y1} limits the search to a window around the crop); the connected region that holds `inside` is the gel,
+   * and its left, right, top and bottom boundary points are fitted with robust lines (the
+   * quarter of the points farthest from a first fit dropped: torn corners and comb teeth do
+   * not bend them). Returns [TL, TR, BR, BL] in full-resolution pixels, or null when the gel
+   * fills the frame (nothing to find), the region is tiny, or the quad is not convex. */
+  function slabQuad(img, inside) {
+    const sm = downsample(img, 500), f = sm.f || 1, { w, h, data } = sm;
+    // the gel's level (median around `inside`) against the background's (median of the frame's
+    // border ring): bands are outliers to both medians. Otsu on the whole histogram would split
+    // bands from everything else instead.
+    const med = arr => { const a = Float32Array.from(arr).sort(); return a.length ? a[a.length >> 1] : 0; };
+    const cx = clamp(Math.round(inside.x / f), 0, w - 1), cy = clamp(Math.round(inside.y / f), 0, h - 1);
+    const ring = Math.max(2, Math.round(Math.min(w, h) * 0.04)), border = [], core = [];
+    for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) { if (x < ring || y < ring || x >= w - ring || y >= h - ring) border.push(data[y * w + x]); }
+    const r = Math.max(4, Math.round(Math.min(w, h) * 0.12));
+    for (let y = Math.max(0, cy - r); y < Math.min(h, cy + r); y++) for (let x = Math.max(0, cx - r); x < Math.min(w, cx + r); x++) core.push(data[y * w + x]);
+    const bg = med(border), gel = med(core);
+    if (Math.abs(gel - bg) < 0.015) return null;   // no visible slab: the gel fills the frame
+    // nearer the gel's level than the background's: stains and shadows around a photographed gel
+    // sit between the two, and the slab's interior must not leak into them
+    // (with a strong contrast, as in a photograph on a tray; a faint slab on a scanner or an imager
+    // has nothing between it and the background, and the midpoint is the safer cut)
+    const t = gel + (bg - gel) * (Math.abs(bg - gel) > 0.1 ? 0.35 : 0.5), gelClass = gel > bg;
+    // the region holding the centre (flood fill), after a light closing so a lane does not split it
+    // only within a window around the crop (the slab holds the crop; nothing of it is far outside)
+    const win = inside.win ? { x0: clamp(Math.round(inside.win.x0 / f), 0, w - 1), x1: clamp(Math.round(inside.win.x1 / f), 0, w - 1), y0: clamp(Math.round(inside.win.y0 / f), 0, h - 1), y1: clamp(Math.round(inside.win.y1 / f), 0, h - 1) } : { x0: 0, x1: w - 1, y0: 0, y1: h - 1 };
+    const cls = new Uint8Array(w * h);
+    for (let y = win.y0; y <= win.y1; y++) for (let x = win.x0; x <= win.x1; x++) { const i = y * w + x; cls[i] = (data[i] > t) === gelClass ? 1 : 0; }
+    // an opening (erode, dilate; square, ~2 % of the frame) cuts the thin tails that tie the slab
+    // to stains and shadows around it, and the comb teeth left on the top edge
+    const ro = Math.max(2, Math.round(Math.min(w, h) * 0.02));
+    const morph = (src, isMax) => {
+      const tmp = new Uint8Array(w * h), out = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) { const row = slide(Float32Array.from(src.subarray(y * w, y * w + w)), ro, isMax); for (let x = 0; x < w; x++) tmp[y * w + x] = row[x]; }
+      const col = new Float32Array(h);
+      for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) col[y] = tmp[y * w + x]; const r2 = slide(col, ro, isMax); for (let y = 0; y < h; y++) out[y * w + x] = r2[y]; }
+      return out;
+    };
+    const opened = morph(morph(cls, false), true);
+    for (let i = 0; i < cls.length; i++) cls[i] = opened[i];
+    const reg = new Uint8Array(w * h), stack = [cy * w + cx];
+    if (!cls[stack[0]]) return null;
+    reg[stack[0]] = 1;
+    let n = 0, minX = w, maxX = 0, minY = h, maxY = 0;
+    while (stack.length) {
+      const i = stack.pop(), x = i % w, y = (i / w) | 0; n++;
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (x > 0 && cls[i - 1] && !reg[i - 1]) { reg[i - 1] = 1; stack.push(i - 1); }
+      if (x < w - 1 && cls[i + 1] && !reg[i + 1]) { reg[i + 1] = 1; stack.push(i + 1); }
+      if (y > 0 && cls[i - w] && !reg[i - w]) { reg[i - w] = 1; stack.push(i - w); }
+      if (y < h - 1 && cls[i + w] && !reg[i + w]) { reg[i + w] = 1; stack.push(i + w); }
+    }
+    if (n < w * h * 0.05) return null;
+    if ((maxX - minX) >= w * 0.97 && (maxY - minY) >= h * 0.97) return null;   // the gel fills the frame
+    // boundary points: per row the first / last region pixel, per column the top / bottom one
+    // boundary points, from the rows / columns where the region is at least half as wide / tall as
+    // at its widest (a torn strip or the comb teeth do not define an edge)
+    const L = [], R = [], T = [], B = [], rowExt = [], colExt = [];
+    for (let y = minY; y <= maxY; y++) { let a = -1, b = -1; for (let x = minX; x <= maxX; x++) if (reg[y * w + x]) { if (a < 0) a = x; b = x; } rowExt.push([y, a, b]); }
+    for (let x = minX; x <= maxX; x++) { let a = -1, b = -1; for (let y = minY; y <= maxY; y++) if (reg[y * w + x]) { if (a < 0) a = y; b = y; } colExt.push([x, a, b]); }
+    const maxRow = Math.max(...rowExt.map(([, a, b]) => (a >= 0 ? b - a : 0))), maxCol = Math.max(...colExt.map(([, a, b]) => (a >= 0 ? b - a : 0)));
+    // and only from the middle 60 % of the region's height / width: a slab's edges are straight, so
+    // the corners follow by extrapolation, while the ends (torn corners, teeth, shading) do not count
+    const y0 = minY + (maxY - minY) * 0.2, y1 = maxY - (maxY - minY) * 0.2, x0 = minX + (maxX - minX) * 0.2, x1 = maxX - (maxX - minX) * 0.2;
+    rowExt.forEach(([y, a, b]) => { if (a >= 0 && b - a >= maxRow * 0.5 && y >= y0 && y <= y1) { L.push([a, y]); R.push([b, y]); } });
+    colExt.forEach(([x, a, b]) => { if (a >= 0 && b - a >= maxCol * 0.5 && x >= x0 && x <= x1) { T.push([x, a]); B.push([x, b]); } });
+    // robust line x = a + b y (for L, R) or y = a + b x (for T, B): fit, drop the farthest quarter, fit
+    const fitLine = (pts, swap) => {
+      const P = swap ? pts.map(([x, y]) => [y, x]) : pts;   // fit v = a + b u with u = pts[.][1]
+      const lsq = Q => { let n = Q.length, su = 0, sv = 0, suu = 0, suv = 0; Q.forEach(([v, u]) => { su += u; sv += v; suu += u * u; suv += u * v; }); const den = n * suu - su * su; if (den <= 0) return null; const b = (n * suv - su * sv) / den; return { a: (sv - b * su) / n, b }; };
+      // Q entries are [v, u]
+      const Q = P.map(([v, u]) => [v, u]);
+      let l = lsq(Q); if (!l) return null;
+      const keep = Q.slice().sort((p, q) => Math.abs(p[0] - (l.a + l.b * p[1])) - Math.abs(q[0] - (l.a + l.b * q[1]))).slice(0, Math.max(4, Math.ceil(Q.length * 0.75)));
+      return lsq(keep) || l;
+    };
+    // L / R: x = a + b y (v = x, u = y); T / B: y = a + b x (v = y, u = x)
+    const lL = fitLine(L.map(([x, y]) => [x, y])), lR = fitLine(R.map(([x, y]) => [x, y])), lT = fitLine(T.map(([x, y]) => [y, x])), lB = fitLine(B.map(([x, y]) => [y, x]));
+    slabQuad.debug = { f, w, h, bg, gel, n, box: [minX, maxX, minY, maxY], nL: L.length, nT: T.length, lL, lR, lT, lB, L0: L.slice(0, 3), Lend: L.slice(-3) };
+    if (!lL || !lR || !lT || !lB) return null;
+    // intersection of x = a1 + b1 y and y = a2 + b2 x
+    const meet = (lx, ly) => { const y = (ly.a + ly.b * lx.a) / (1 - ly.b * lx.b), x = lx.a + lx.b * y; return [x * f, y * f]; };
+    const q = [meet(lL, lT), meet(lR, lT), meet(lR, lB), meet(lL, lB)];
+    // convex, with a sensible size
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const signs = [0, 1, 2, 3].map(i => Math.sign(cross(q[i], q[(i + 1) % 4], q[(i + 2) % 4])));
+    if (!signs.every(v => v === signs[0]) || signs[0] === 0) return null;
+    return q;
+  }
+
   /* The homography that sends a quadrilateral (TL, TR, BR, BL, source) to the rectangle of the
    * same centre whose width and height are the means of the quad's opposite sides (DLT, 4 points). */
   function homographyFromQuad(q) {
@@ -1517,6 +1609,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, laneTraces, straightenGrid
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
 })(window);

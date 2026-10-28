@@ -466,10 +466,20 @@
   $('btnResetRot').onclick = () => { if (!S()) return; App.resetRotation(); App.commit(); toast(`Back to the automatic angle ${S().rotation}°`); };
   // geometry: automatic (perspective + lane straightening, recursive), a manual four-corner box, or off
   function geomMode() { const g = S() && S().geom; return g ? g.mode : 'off'; }
-  function geomSeg() { document.querySelectorAll('#geomSeg button').forEach(b => b.classList.toggle('on', b.dataset.geom === geomMode())); G.Editor.setCorners(geomMode() === 'manual'); }
+  let placing = false;
+  function geomSeg() {
+    document.querySelectorAll('#geomSeg button').forEach(b => b.classList.toggle('on', b.dataset.geom === (placing ? 'manual' : geomMode())));
+    $('geomPlace').classList.toggle('hidden', !placing);
+    G.Editor.setCorners(placing);
+  }
+  // the box is only shown while it is being placed; the image changes on Apply, not on every drag
+  function startPlacing() { placing = true; App.pendingCorners = App.geomCornersWork(); geomSeg(); G.Editor.fitCrop(); }
+  function stopPlacing() { placing = false; App.pendingCorners = null; geomSeg(); }
   document.querySelectorAll('#geomSeg button').forEach(b => b.onclick = () => {
     if (needImage()) return;
     const m = b.dataset.geom;
+    if (m === 'manual') { if (!placing) { startPlacing(); toast('Drag the round corners of the blue box onto the corners of the gel (the square handles slide a side), then click Apply', 6000); } return; }
+    stopPlacing();
     if (m === 'auto') {
       App.busy(true, 'Measuring the geometry…');
       setTimeout(() => {
@@ -478,20 +488,26 @@
         if (r.applied) { App.afterGeom(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
         geomSeg(); toast(r.message, 6000);
       }, 20);
-    } else if (m === 'manual') {
-      if (S().geom && S().geom.mode === 'auto') App.setGeom(null);
-      if (!S().geom) { App.setGeomCorners(App.geomCornersWork()); }
-      App.afterGeom(); App.commit(); geomSeg();
-      toast('Drag the four corners of the blue box onto the corners of the gel; the lanes and markers are detected again when you release', 6000);
-    } else {
-      if (S().geom) { App.setGeom(null); App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
-      geomSeg(); toast('Geometry correction off; lanes and markers detected again');
-    }
+    } else if (S().geom) { App.setGeom(null); App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); toast('Geometry correction off; lanes and markers detected again'); }
+    else geomSeg();
   });
-  // a manual corner was released: map, then the lanes and markers again
-  App.onCornersDone = () => { App.afterGeom(); App.redetectAll(); App.afterRangeChange(); G.Editor.fitCrop(); };   // the editor commits
+  $('btnGeomApply').onclick = () => {
+    if (!S() || !placing) return;
+    const q = App.pendingCorners;
+    App.busy(true, 'Mapping the gel…');
+    setTimeout(() => {
+      if (S().geom && S().geom.mode === 'auto') App.setGeom(null);
+      const ok = App.setGeomCorners(q);
+      App.pendingCorners = null;
+      if (ok) { App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); }
+      App.busy(false); stopPlacing(); G.Editor.fitCrop();
+      toast(ok ? `Gel mapped to a rectangle: lanes ${S().geom.lanesPct > 0 ? '+' : ''}${S().geom.lanesPct} %, bands ${S().geom.bandsPct > 0 ? '+' : ''}${S().geom.bandsPct} %; lanes and markers detected again` : 'The box is not a convex quadrilateral');
+    }, 20);
+  };
+  $('btnGeomCancel').onclick = () => { stopPlacing(); G.Editor.draw(); };
   App.onCropDone = () => { App.redetectAll(); App.afterRangeChange(); };
   G.UI_geomSeg = geomSeg;
+  G.UI_placing = () => placing;
   const flipBtn = (id, axis) => { $(id).onclick = () => {
     if (!S()) return;
     App.busy(true, 'Flipping…');
