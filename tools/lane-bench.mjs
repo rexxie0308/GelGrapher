@@ -45,6 +45,12 @@ for (const preset of ['dna', 'sds', 'western']) {
     cases.push({ name: `${preset} ${JSON.stringify(v)}`, img: { w: g.width, h: g.height, data: g.data }, truth: Array.from({ length: n }, (_, k) => 260 + 80 * k) });
   }
 }
+// wells cut off before imaging (wellAmp 0): the lanes come from the bands alone; the last well is
+// empty in both presets and, with neither a band nor a pocket to show it, is not expected
+for (const preset of ['dna', 'sds']) {
+  const g = Demo.makeGel({ preset, wellAmp: 0 }), n = (preset === 'dna' ? 12 : 10) - 1;
+  cases.push({ name: `${preset} no wells`, img: { w: g.width, h: g.height, data: g.data }, truth: Array.from({ length: n }, (_, k) => 260 + 80 * k) });
+}
 // strips: a gel cut to two or three lanes, photographed as such (the frame is only a little wider
 // than the strip); the lane detector's scale must then come from the lanes, not from the frame
 for (const preset of ['dna', 'sds']) {
