@@ -807,8 +807,8 @@
       App.S.crop = cb; App.removeLane(App.S.lanes.findIndex(l => Math.abs(l.x - xHand) < 1)); App.commit();
       // the detection polarity can be overridden by hand and flipped back
       const b0 = App.S.bright, lanes0 = App.S.lanes.length;
-      App.setBright(!b0); const polFlipped = App.S.bright === !b0 && !App.S.geom;
-      App.setBright(b0); const polBack = App.S.bright === b0 && Math.abs(App.S.lanes.length - lanes0) <= 1;
+      await App.setBright(!b0); const polFlipped = App.S.bright === !b0 && !App.S.geom;
+      await App.setBright(b0); const polBack = App.S.bright === b0 && Math.abs(App.S.lanes.length - lanes0) <= 1;
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid, handKept, polFlipped, polBack,

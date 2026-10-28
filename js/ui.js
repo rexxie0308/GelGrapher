@@ -442,7 +442,7 @@
   $('btnPolDetect').onclick = () => {
     if (needImage()) return;
     App.busy(true, 'Detecting again…');
-    setTimeout(() => { try { App.setBright(!S().bright); App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Detection reads ${S().bright ? 'bright bands on a dark background' : 'dark bands on a light background'}; lanes, ladders and geometry found again`); }, 20);
+    setTimeout(async () => { try { await App.setBright(!S().bright); await App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Detection reads ${S().bright ? 'bright bands on a dark background' : 'dark bands on a light background'}; lanes, ladders and geometry found again`); }, 20);
   };
   $('lvBlack').addEventListener('input', live(e => { S().levels.black = Math.min(fromSlider(+e.target.value), S().levels.white - 0.0005); $('lvBlackV').textContent = pct(S().levels.black); drawHisto(); updateClipLine(); }));
   $('lvWhite').addEventListener('input', live(e => { S().levels.white = Math.max(fromSlider(+e.target.value), S().levels.black + 0.0005); $('lvWhiteV').textContent = pct(S().levels.white); drawHisto(); updateClipLine(); }));
@@ -488,9 +488,9 @@
     stopPlacing();
     if (m === 'auto') {
       App.busy(true, 'Measuring the geometry…');
-      setTimeout(() => {
+      setTimeout(async () => {
         if (S().geom && S().geom.mode === 'manual') App.setGeom(null);
-        const r = App.autoGeometry(); App.busy(false);
+        const r = await App.autoGeometry(); App.busy(false);
         if (r.applied) { App.afterGeom(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
         geomSeg(); toast(r.message, 6000);
       }, 20);

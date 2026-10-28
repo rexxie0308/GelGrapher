@@ -535,13 +535,27 @@
   function warpGrid(img, g, M) {
     const { w, h, data } = img, out = new Float32Array(w * h);
     const useM = M && !M3.isIdentity(M);
+    // inside one grid cell the source coordinate is bilinear in (x, y), so along a row it is linear
+    // in x; when M is affine (a rotation) so is the composition: the row is stepped cell by cell
+    // from two evaluations instead of one object per pixel
+    const affine = !useM || (Math.abs(M[6]) < 1e-12 && Math.abs(M[7]) < 1e-12 && Math.abs(M[8] - 1) < 1e-9);
+    const map = (x, y) => { let s = Grid.at(g, x, y); if (useM) s = M3.apply(M, s.x, s.y); return s; };
+    const cw = g.W / (g.nx - 1);
+    const sample = (o, sx, sy) => {
+      sx = clamp(sx, 0, w - 1.001); sy = clamp(sy, 0, h - 1.001);
+      const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, k = y0 * w + x0;
+      out[o] = (data[k] * (1 - fx) + data[k + 1] * fx) * (1 - fy) + (data[k + w] * (1 - fx) + data[k + w + 1] * fx) * fy;
+    };
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let s = Grid.at(g, x, y);
-        if (useM) s = M3.apply(M, s.x, s.y);
-        const sx = clamp(s.x, 0, w - 1.001), sy = clamp(s.y, 0, h - 1.001);
-        const x0 = sx | 0, y0 = sy | 0, fx = sx - x0, fy = sy - y0, k = y0 * w + x0;
-        out[y * w + x] = (data[k] * (1 - fx) + data[k + 1] * fx) * (1 - fy) + (data[k + w] * (1 - fx) + data[k + w + 1] * fx) * fy;
+      const row = y * w;
+      if (!affine) { for (let x = 0; x < w; x++) { const s = map(x, y); sample(row + x, s.x, s.y); } continue; }
+      for (let i = 0; i < g.nx - 1; i++) {
+        const xa = Math.ceil(i * cw - 1e-9), xb = Math.min(w - 1, Math.ceil((i + 1) * cw - 1e-9) - 1);
+        if (xb < xa) continue;
+        const sa = map(xa, y), sb = xb > xa ? map(xb, y) : sa, nn = xb - xa;
+        const dsx = nn ? (sb.x - sa.x) / nn : 0, dsy = nn ? (sb.y - sa.y) / nn : 0;
+        let sx = sa.x, sy = sa.y;
+        for (let x = xa; x <= xb; x++, sx += dsx, sy += dsy) sample(row + x, sx, sy);
       }
     }
     return { w, h, data: out };
@@ -1110,7 +1124,13 @@
   // ---------- lanes ----------
   function findPeaks(p, minDist, minProm) {
     const n = p.length, cand = [];
-    for (let i = 1; i < n - 1; i++) if (p[i] > p[i - 1] && p[i] >= p[i + 1]) cand.push(i);
+    // a saturated band is a plateau: its peak is the plateau's centre, not its first row
+    for (let i = 1; i < n - 1; i++) {
+      if (!(p[i] > p[i - 1])) continue;
+      let j = i; while (j + 1 < n && p[j + 1] === p[i]) j++;
+      if (j + 1 < n && p[j + 1] > p[i]) continue;
+      cand.push((i + j) >> 1);
+    }
     // prominence
     const out = [];
     for (const i of cand) {
@@ -1555,8 +1575,19 @@
     if (anchors.length) {
       for (const an of anchors) for (let i = 0; i < ys.length; i++) for (let q = 0; q < n; q++) if (q !== an.k) tryModel(an.y, X[an.k], ys[i], X[q]);
     } else {
-      for (let i = 0; i < ys.length; i++) for (let j = i + 1; j < ys.length; j++)
-        for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) tryModel(ys[i], X[p], ys[j], X[q]);
+      // models from the twelve strongest peaks only, and from size pairs that span at least a third of
+      // the ladder with a plausible slope (the ladder's log range covers between a fifteenth and the
+      // whole of the lane height): a fraction of the pairs, the same models that win
+      const vs = D.vs || [], order = ys.map((y, i) => i).sort((a, b) => (vs[b] || 0) - (vs[a] || 0)).slice(0, 12).sort((a, b) => a - b);
+      const span = Math.max(1, Math.floor(n / 3)), bMin = -h, bMax = -h / 15 / Math.max(1e-9, X[0] - X[n - 1]) * (X[0] - X[n - 1]);
+      for (let ii = 0; ii < order.length; ii++) for (let jj = ii + 1; jj < order.length; jj++) {
+        const i = order[ii], j = order[jj];
+        for (let p = 0; p < n; p++) for (let q = p + span; q < n; q++) {
+          const b = (ys[i] - ys[j]) / (X[p] - X[q]);
+          if (b < bMin || b > bMax) continue;
+          tryModel(ys[i], X[p], ys[j], X[q]);
+        }
+      }
     }
     cands.sort((a, b) => b.s - a.s);
     const out = [];

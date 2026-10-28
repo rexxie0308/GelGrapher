@@ -51,6 +51,10 @@
     const t = document.getElementById('busyText'); if (t && on) t.textContent = text || 'Working…';
   }
   App.busy = busy;
+  // progress text during a long automatic step (the interface shows it in the busy overlay) and a
+  // yield to the browser so that it is painted; both are no-ops outside the interface
+  App.progress = function (text) { const t = document.getElementById('busyText'); if (t && text) t.textContent = text; };
+  App.yield = () => new Promise(r => setTimeout(r, 0));
   App.defaultStyle = defaultStyle;
   App.onDropFile = null;   // set by the UI layer
 
@@ -71,11 +75,11 @@
   /* Detection polarity by hand: bright = bands brighter than the background. Everything that reads the
    * pixels (crop, lanes, bands, ladders, densitometry) runs on this, so it is detected again from the
    * crop on; a geometry correction made with the wrong polarity is dropped. The figure keeps its look. */
-  App.setBright = function (bright) {
+  App.setBright = async function (bright) {
     const S = App.S, dark = S.levels.invert === S.bright;   // the figure shows dark bands?
     S.bright = !!bright; S.levels.invert = dark === S.bright;
     if (S.geom) App.setGeom(null);
-    App.autoAll(false);
+    await App.autoAll(false);
   };
   function typeDefaults(type, bright) {
     const t = G.Gels.get(type), tp = typePrefs(t.id);
@@ -145,7 +149,7 @@
   };
 
   // install a decoded image as the current source and run the automatic pipeline
-  function startFrom(input, gelType) {
+  async function startFrom(input, gelType) {
     App._libSkip = null;
     const img = input.img;
     App.src0 = App.src = { w: img.width, h: img.height, data: img.data };
@@ -172,7 +176,7 @@
     };
     App.loadWarnings = img.warnings || [];
     App.hist = []; App.future = [];
-    App.autoAll(true);
+    await App.autoAll(true);
     // the state right after automatic processing: target of "reset everything"
     App.initial = App.snapshot();
     App.autoRotation = App.S.rotation;
@@ -189,7 +193,7 @@
       const input = await App.readInput(file);
       App.exposures = null;
       App.isExample = false;
-      startFrom(input, gelType);
+      await startFrom(input, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
@@ -228,7 +232,7 @@
       App.exposures = list;
       App.expIdx = bestInput.k;
       App.isExample = false;
-      startFrom(bestInput, gelType);
+      await startFrom(bestInput, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
@@ -267,7 +271,7 @@
         return { ok: true, kept: true };
       }
       const names = App.figureLanes().map(i => S.lanes[i].name);
-      startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 }, S.gelType);
+      await startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 }, S.gelType);
       const fl = App.figureLanes();
       const same = fl.length === names.length;
       if (same) { fl.forEach((i, j) => { App.S.lanes[i].name = names[j]; }); App.commit(); }
@@ -581,7 +585,7 @@
     pk /= xs.length; va /= xs.length - 1;
     return { peak: pk, valley: va, ratio: pk > 0 ? va / pk : null };
   };
-  App.autoGeometry = function () {
+  App.autoGeometry = async function () {
     App.autoGeometry.debug = []; const tStart = performance.now(); App.autoGeometry.debug.ms = () => Math.round(performance.now() - tStart);
     // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
     let S = App.S;
@@ -592,7 +596,7 @@
     // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
     // walls sit between the lanes and would offset the comb by half a pitch
     const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 1.5 : null; };
-    const hook = l => { App.autoGeometry.debug.push({ step: l, ms: App.autoGeometry.debug.ms() }); if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); };
+    const hook = async (l, text) => { App.autoGeometry.debug.push({ step: l, ms: App.autoGeometry.debug.ms() }); if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); if (text) { App.progress(text); await App.yield(); } };
     // the resolution of the lanes in the column density: the mean density half-way between
     // neighbouring lanes divided by the mean at the lanes (lower = lanes better separated)
     const contrast = () => { const r = App.laneContrast(); return r ? r.ratio : null; };
@@ -609,6 +613,7 @@
      * is kept only when it leaves the lane lines straighter than before (or straight enough when
      * they could not be measured before). */
     if (!grid) {
+      App.progress('Gel shape: measuring the slab outline…'); await App.yield();
       const c = S.crop, q = E.slabQuad(App.ensureRot(), { x: c.x + c.w / 2, y: c.y + c.h / 2, win: { x0: c.x - c.w * 0.5, x1: c.x + c.w * 1.5, y0: c.y - c.h * 0.5, y1: c.y + c.h * 1.5 } });
       const Hq = q && E.homographyFromQuad(q);
       if (Hq && E.Grid.maxScale(E.Grid.fromH(Hq, W, Hh)) < 0.45) {
@@ -621,7 +626,7 @@
         // (the outline alone is no evidence: a gel whose lanes cannot be measured is left as it is)
         const ok = before != null && after != null && Math.abs(before) >= 0.03 && Math.abs(after) < Math.abs(before) * 0.5;
         App.autoGeometry.debug.push({ slab: true, before: before != null ? +before.toFixed(4) : null, after: after != null ? +after.toFixed(4) : null, ok, report: E.keystoneReport(Hq, c) });
-        if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; hook('slab'); }
+        if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; await hook('slab', 'Gel shape: slab outline mapped, lanes detected again…'); }
         else { App.S = S = JSON.parse(snap); App.rot = null; App.ensureRot(); grid = null; }
       }
     }
@@ -657,14 +662,15 @@
       App.setGeom({ mode: 'auto', grid, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0, slab: !!slab });
       applied = true;
       App.autoLanes();   // the lanes again on the corrected image
-      hook('keystone ' + (rounds + 1));
+      await hook('keystone ' + (rounds + 1), `Gel shape: camera angle round ${rounds + 1} (${v && v.change > 0 ? '+' : ''}${v ? (v.change * 100).toFixed(1) : '?'} %), lanes detected again…`);
     }
     /* 2. per-lane straightening, once, on the keystone-corrected image: traces that scatter more
      * than a tenth of the pitch (a faint ladder under a smear, a torn lane) are not trusted and
      * follow their neighbours' shift; the bend of the gel is the median over lanes, so one bad lane
      * neither drives nor hides the correction; the round is kept only when the median bend falls. */
-    if (!S.markers.length) App.autoMarkers();   // once per load: the ladders (for the row levelling and the figure)
+    if (!S.markers.length) { App.progress('Gel shape: finding the ladders…'); await App.yield(); App.autoMarkers(); }   // once per load: the ladders (for the row levelling and the figure)
     {
+      App.progress('Gel shape: tracing the lanes…'); await App.yield();
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       const trusted = T => T.map(t => (t && t.res <= P * 0.1 ? t : null));
       const bendOf = T => { const b = T.filter(Boolean).map(t => Math.max(Math.abs(t.at(c.y + c.h * 0.1) - t.a), Math.abs(t.at(c.y + c.h * 0.9) - t.a))).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : 0; };
@@ -692,7 +698,7 @@
         const cAfter = contrast();
         App.autoGeometry.debug[App.autoGeometry.debug.length - 1].contrast = [cBefore, cAfter];
         if (bendAfter > bendBefore * 0.9 || (cBefore != null && cAfter != null && cAfter > cBefore - 0.005)) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
-        else { grid = g; applied = true; rounds++; App.autoLanes(); hook('straighten'); }
+        else { grid = g; applied = true; rounds++; App.autoLanes(); await hook('straighten', 'Gel shape: lanes straightened, lanes detected again…'); }
       }
     }
     // after a straightening the lanes are cleaner: the ladders are looked for once more, which is
@@ -1208,7 +1214,7 @@
     return Math.max(1, S.crop.w - hidden);
   };
 
-  App.autoAll = function (fresh) {
+  App.autoAll = async function (fresh) {
     const S = App.S;
     const T = (s) => { if (App.debug) document.title = 'STAGE ' + s; };
     T('deskew');
@@ -1232,7 +1238,7 @@
     const geometry = fresh && !App.noAutoGeometry;
     if (!geometry) App.autoMarkers();
     T('geometry');
-    if (geometry) { try { App.autoGeometry(); } catch (e) { console.error(e); } }
+    if (geometry) { try { await App.autoGeometry(); } catch (e) { console.error(e); } }
     if (!S.markers.length && geometry) App.autoMarkers();
     T('fix');
     App.fixIndices();
