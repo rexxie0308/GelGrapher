@@ -784,6 +784,9 @@
       // the stated perspective is near the truth (the two are measured over different frames)
       const vFinal = E.laneComb(App.ensureRot(), st.bright, st.crop, st.lanes.map(l => l.x), st.lanePitch), residual = vFinal ? +vFinal.change.toFixed(4) : null;
       const autoAtLoad = !!g && g.mode === 'auto' && Math.abs(g.lanesPct - truth.lanesPct) <= 6 && residual != null && Math.abs(residual) < 0.02 && st.lanes.length === 10;
+      // the red box holds its outer lanes whole: each side at least 0.4 lane spacing beyond the outer lane centre it holds
+      const inC = st.lanes.filter(l => l.x >= st.crop.x && l.x <= st.crop.x + st.crop.w), Pc = st.lanePitch;
+      const framed = inC.length >= 2 && inC[0].x - st.crop.x >= Pc * 0.4 && st.crop.x + st.crop.w - inC[inC.length - 1].x >= Pc * 0.4;
       const segAuto = $('geomSeg').querySelector('[data-geom=auto]').classList.contains('on') && /auto/.test($('ksNote').textContent);
       const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Geometry-corrected/.test(h) && /perspective/.test(h)) && !!G.Export.processingLog(st).geometry && G.Export.processingLog(st).geometry.grid.pts.length === st.geom.grid.nx * st.geom.grid.ny * 2;
       const lanesOn = st.lanes.map(l => l.x), frame0 = App.frameKey(st);
@@ -813,8 +816,8 @@
       await App.setBright(b0); const polBack = App.S.bright === b0 && Math.abs(App.S.lanes.length - lanes0) <= 1;
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
-      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid, handKept, polFlipped, polBack,
-        ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid && handKept && polFlipped && polBack };
+      R.keystone = { autoAtLoad, framed, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid, handKept, polFlipped, polBack,
+        ok: autoAtLoad && framed && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid && handKept && polFlipped && polBack };
     }
     // 49. a strip of two or three lanes (a cut gel photographed as such) finds exactly its lanes: the lane detector's
     // scale comes from the lanes, not from the frame; the lane-fix fold holds its tools in two rows without hint text

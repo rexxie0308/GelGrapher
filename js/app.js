@@ -500,10 +500,12 @@
       // strips and band boxes span the crop: carried at its horizontal centre like arrows
       A.strips.concat(A.quant.rows).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
       A.lanes.forEach(l => { l.x = P(l.x, ccy).x; });
-      const nc = P(ccx, ccy);
-      // the crop keeps its size: a homography scales the centre by 1, a rotation not at all
-      const w = Math.min(c.w, W), h = Math.min(c.h, H);
-      A.crop = { x: Math.round(Math.max(0, Math.min(W - w, nc.x - w / 2))), y: Math.round(Math.max(0, Math.min(H - h, nc.y - h / 2))), w: Math.round(w), h: Math.round(h) };
+      // the crop is carried by the midpoints of its four sides, so a keystone that spreads the lanes
+      // spreads the box with them (carried by its centre at a fixed size, its sides cut into the
+      // outer lanes after a correction); a rotation moves the midpoints hardly at all
+      const x0 = P(c.x, ccy).x, x1 = P(c.x + c.w, ccy).x, y0 = P(ccx, c.y).y, y1 = P(ccx, c.y + c.h).y;
+      const cx0 = Math.max(0, Math.min(x0, x1)), cx1 = Math.min(W, Math.max(x0, x1)), cy0 = Math.max(0, Math.min(y0, y1)), cy1 = Math.min(H, Math.max(y0, y1));
+      A.crop = { x: Math.round(cx0), y: Math.round(cy0), w: Math.max(10, Math.round(cx1 - cx0)), h: Math.max(10, Math.round(cy1 - cy0)) };
     };
     carry(S);
     Object.values(S.rowStash || {}).forEach(carry);
@@ -768,6 +770,9 @@
       const P = S.lanePitch || (S.laneHalfW / 0.3), vf = inCrop().length >= 4 ? E.laneComb(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, 3, yMin()) : null;
       S.geom.residualPct = vf ? +(vf.change * 100).toFixed(1) : null;
       S.geom.scaleMax = +(E.Grid.maxScale(S.geom.grid) * 100).toFixed(1);
+      // the box is framed again on the lanes it holds: the lanes were detected again on the corrected
+      // image, and a side of the box must sit in the gap beside the outer lane, never on the lane
+      App.reframeCrop();
     }
     S.geomChecked = true;   // the panel says "checked, none needed" rather than "off" when nothing was applied
     const k = S.geom, dl = S.lanes.length - lanes0;
@@ -996,6 +1001,12 @@
     const nb = l[a + dir];
     const x = nb ? (l[a].x + nb.x) / 2 : l[a].x + dir * p * 0.5;
     return Math.max(0, Math.min(App.ensureRot().w, x));
+  };
+  // the box's sides moved to the gaps beside the outer lanes whose centres it holds (y untouched)
+  App.reframeCrop = function () {
+    const S = App.S, c = S.crop, inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
+    if (inside.length) App.setLaneRange(inside[0], inside[inside.length - 1]);
+    return inside.length;
   };
   // show lanes a..b: crop x follows the lane boundaries, y untouched
   App.setLaneRange = function (a, b) {
