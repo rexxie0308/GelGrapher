@@ -1447,7 +1447,25 @@
     if (!S.markers.length && geometry) App.autoMarkers();
     // and its rows on the bands (the well row served the detection; the figure starts at the bands);
     // the geometry's figures are stated over the box, so they are worked out again for the new rows
-    if (fresh && App.reframeCropRows() && S.geom) Object.assign(S.geom, App.geomReport());
+    if (fresh && App.reframeCropRows()) {
+      if (S.geom) Object.assign(S.geom, App.geomReport());
+      // the ladders are looked for once more on the framed box, as the Re-detect button does: a
+      // ladder in a torn corner that the wide box missed is found on the tight one (the ladder in
+      // use is the usual one for this search, so it is cheap)
+      // ...and it may only add ladder lanes: every lane the wide box took stays (a faint ladder the
+      // tight box no longer sees, or trades for a lysate lane, on the synthetic Western), and the
+      // lanes the tight box adds join them
+      // (only when the wide box found a ladder: with none found, the search that follows the load
+      // in the interface keeps its own pick, which a low-scoring pick here would spoil)
+      T('marker2');
+      const before = JSON.parse(JSON.stringify(S.markers));
+      if (before.length && App.secondLadderSearch !== false) {
+        App.relaneMarkers(() => 0);
+        const added = S.markers.filter(m => !before.some(q => q.lane === m.lane));
+        S.markers = before.concat(added).sort((a, b) => a.lane - b.lane);
+        if (added.length) App.matchMarkers(true);
+      }
+    }
     T('fix');
     App.fixIndices();
     App.updateSaturation();
