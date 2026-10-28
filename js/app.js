@@ -547,6 +547,19 @@
    * the corrected image (names kept by position) and the round repeats until the lane count and
    * positions settle and the lanes bend by less than 3 % of the pitch. The markers are then found
    * again, keeping any ladder chosen by hand. Returns { applied, rounds, lanes, bendPx, lanesPct, bandsPct, converged, message }. */
+  /* Lane resolution in the column density over the crop: {peak, valley, ratio}. peak = the mean
+   * presence at the lanes, valley = the mean half-way between neighbouring lanes, ratio = valley /
+   * peak (lower = lanes better separated). Null with fewer than two lanes in the crop. */
+  App.laneContrast = function () {
+    const S = App.S, c = S.crop, img = App.ensureRot(), P = S.lanePitch || (S.laneHalfW / 0.3);
+    const xs = S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5).sort((a, b) => a - b);
+    if (xs.length < 2) return null;
+    const x0 = Math.max(0, Math.round(c.x - P)), band = E.cropImg(img, { x: x0, y: c.y, w: c.w + 2 * P, h: c.h });
+    const q = E.presenceProfile(E.signal(band, S.bright), c.w), at = x => { const i = Math.round(x - x0); return i >= 0 && i < q.length ? q[i] : 0; };
+    let pk = 0, va = 0; xs.forEach((x, k) => { pk += at(x); if (k) va += at((x + xs[k - 1]) / 2); });
+    pk /= xs.length; va /= xs.length - 1;
+    return { peak: pk, valley: va, ratio: pk > 0 ? va / pk : null };
+  };
   App.autoGeometry = function () {
     App.autoGeometry.debug = [];
     // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
@@ -559,6 +572,9 @@
     // walls sit between the lanes and would offset the comb by half a pitch
     const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 1.5 : null; };
     const hook = l => { if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); };
+    // the resolution of the lanes in the column density: the mean density half-way between
+    // neighbouring lanes divided by the mean at the lanes (lower = lanes better separated)
+    const contrast = () => { const r = App.laneContrast(); return r ? r.ratio : null; };
     // convergence of the lane lines in the current frame (null when too few lanes are measurable)
     const convergence = () => {
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
@@ -634,13 +650,19 @@
       let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows) : null;
       if (sg && sg.maxShift > P) sg = null;   // a shift of more than a lane pitch is a wrong trace, not a bend
       if (sg) {
+        const cBefore = contrast();
         const snapRound = App.snapshot(), gridBefore = grid, g = grid ? E.Grid.compose(grid, sg.grid) : sg.grid;
         App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
         const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, yMin()));
         const bendAfter = bendOf(tr2);
         App.autoGeometry.debug.push({ round: rounds, straighten: true, widthLanes: E.straightenGrid.widthLanes, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
           before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null) });
-        if (bendAfter > bendBefore * 0.9) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
+        // kept only when the median bend falls AND the lanes come out better separated in the
+        // column density (an independent test: a warp built from the chains always flattens the
+        // chains, but only a real straightening sharpens the lanes)
+        const cAfter = contrast();
+        App.autoGeometry.debug[App.autoGeometry.debug.length - 1].contrast = [cBefore, cAfter];
+        if (bendAfter > bendBefore * 0.9 || (cBefore != null && cAfter != null && cAfter > cBefore - 0.005)) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
         else { grid = g; applied = true; rounds++; App.autoLanes(); hook('straighten'); }
       }
     }

@@ -192,31 +192,73 @@
   // the lane near x0 followed band by band from the middle row outward: each row's centroid is
   // looked for within ±half a pitch of the previous row's; rows without a lane (above the wells,
   // below the dye front) are skipped. Returns points {y, x, w}.
+  /* The lane near x0 followed down the crop as a chain of bands. In every horizontal band the
+   * candidates are the peaks of the presence profile within 1.2 pitch of the lane's lattice
+   * position (refined to their centroid, with their strength and width); the chain through them is
+   * the best path of a Viterbi search whose prior says that a lane keeps its direction: the step
+   * from one band to the next should repeat the previous step (a lane that leans keeps leaning, a
+   * bend is gradual), a band may be missing at a price, and a weak pull towards the lattice
+   * position keeps the chain from wandering into the neighbour. So a ladder that leans by most of
+   * a lane spacing is followed band by band instead of being cut by a vertical line.
+   * Returns the chosen points {y, x, w, ext, s} (bands without a band are left out). */
   function trackLane(rows, x0, crop, pitch, half) {
-    const gmx = rows.gmx;
-    const centroidNear = (r, xp) => {
-      if (r.mx < gmx * 0.15) return null;
-      const a = clamp(Math.round(xp - crop.x - pitch * half), 0, r.q.length - 1), b = clamp(Math.round(xp - crop.x + pitch * half), 0, r.q.length - 1);
-      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
-      let sw = 0, sxw = 0; for (let x = a; x <= b; x++) { const v = r.q[x] - lo; sw += v; sxw += v * x; }
-      if (sw <= 0 || sw / (b - a + 1) < gmx * 0.06) return null;
-      const cx = sxw / sw + crop.x;
-      if (Math.abs(cx - xp) > pitch * (half - 0.1)) return null;
-      // the lane's width in this band: the extent above half of its peak over the local floor
-      const ci = clamp(Math.round(cx - crop.x), 0, r.q.length - 1);
-      let pk = 0; for (let x = Math.max(a, ci - Math.round(pitch * 0.15)); x <= Math.min(b, ci + Math.round(pitch * 0.15)); x++) pk = Math.max(pk, r.q[x]);
-      const th = lo + (pk - lo) * 0.5;
+    const gmx = rows.gmx, W = pitch * 1.2, n = rows.length;
+    const refine = (r, pk, a, b, lo) => {
+      const ra = Math.max(a, pk - Math.round(pitch * 0.3)), rb = Math.min(b, pk + Math.round(pitch * 0.3));
+      let sw = 0, sxw = 0; for (let x = ra; x <= rb; x++) { const v = Math.max(0, r.q[x] - lo); sw += v; sxw += v * x; }
+      const cx = sw > 0 ? sxw / sw : pk;
+      const ci = clamp(Math.round(cx), 0, r.q.length - 1);
+      let top = 0; for (let x = Math.max(a, ci - Math.round(pitch * 0.15)); x <= Math.min(b, ci + Math.round(pitch * 0.15)); x++) top = Math.max(top, r.q[x]);
+      const th = lo + (top - lo) * 0.5;
       let l = ci, rr = ci; while (l > a && r.q[l - 1] >= th) l--; while (rr < b && r.q[rr + 1] >= th) rr++;
-      return { y: r.y, x: cx, w: sw, ext: rr - l + 1 };
+      return { y: r.y, x: cx + crop.x, w: Math.sqrt(Math.max(0, r.q[pk] - lo)), s: Math.max(0, r.q[pk] - lo) / gmx, ext: rr - l + 1 };
     };
-    const mid = rows.length >> 1, pts = [];
-    for (const dir of [1, -1]) {
-      let xp = x0;
-      for (let k = dir > 0 ? mid : mid - 1; k >= 0 && k < rows.length; k += dir) {
-        const c = centroidNear(rows[k], xp);
-        if (c) { pts.push(c); xp = c.x; }
-      }
+    // candidates per band (the strongest six)
+    const cand = rows.map(r => {
+      if (r.mx < gmx * 0.15) return [];
+      const a = clamp(Math.round(x0 - crop.x - W), 0, r.q.length - 1), b = clamp(Math.round(x0 - crop.x + W), 0, r.q.length - 1);
+      let lo = Infinity; for (let x = a; x <= b; x++) lo = Math.min(lo, r.q[x]);
+      const out = [];
+      for (let x = a + 1; x < b; x++) if (r.q[x] > r.q[x - 1] && r.q[x] >= r.q[x + 1] && r.q[x] - lo >= gmx * 0.06) out.push(refine(r, x, a, b, lo));
+      return out.sort((p, q) => q.s - p.s).slice(0, 6);
+    });
+    // Viterbi over pairs (candidate at the band before, candidate at this band); -1 = missing
+    const MISS = 1.3, SLOPE = 0.25 * pitch, STEP = 0.5 * pitch, PULL = 1.5 * pitch;
+    const unary = (k, j) => (j < 0 ? MISS : (1 - Math.min(1, cand[k][j].s)) + 0.2 * ((cand[k][j].x - x0) / PULL) ** 2);
+    const X = (k, j) => cand[k][j].x;
+    const trans = (k, h, i, j) => {   // h at k-2, i at k-1, j at k
+      if (j < 0) return 0;
+      if (i >= 0 && h >= 0) { const d = (X(k, j) - X(k - 1, i)) - (X(k - 1, i) - X(k - 2, h)); return (d / SLOPE) ** 2; }
+      if (i >= 0) return ((X(k, j) - X(k - 1, i)) / STEP) ** 2;
+      if (h >= 0) return ((X(k, j) - X(k - 2, h)) / (2 * STEP)) ** 2;
+      return 0;
+    };
+    const states = k => [-1].concat(cand[k].map((c, j) => j));
+    // dp[k] maps "i,j" -> {cost, back: "h,i"}
+    let dp = new Map();
+    if (n < 2) return [];
+    for (const i of states(0)) for (const j of states(1)) {
+      const c = unary(0, i) + unary(1, j) + (i >= 0 && j >= 0 ? ((X(1, j) - X(0, i)) / STEP) ** 2 : 0);
+      dp.set(i + ',' + j, { cost: c, back: null, i, j });
     }
+    const hist = [dp];
+    for (let k = 2; k < n; k++) {
+      const next = new Map();
+      for (const [key, st] of dp) for (const j of states(k)) {
+        const c = st.cost + unary(k, j) + trans(k, st.i, st.j, j);
+        const nk = st.j + ',' + j, cur = next.get(nk);
+        if (!cur || c < cur.cost) next.set(nk, { cost: c, back: key, i: st.j, j });
+      }
+      dp = next; hist.push(dp);
+    }
+    let best = null; for (const st of dp.values()) if (!best || st.cost < best.cost) best = st;
+    if (!best) return [];
+    // backtrack: the chosen candidate per band
+    const chosen = new Array(n).fill(-1);
+    // hist[k - 1] holds the pairs ending at band k; a pair's back key is in the map before it
+    for (let st = best, k = n - 1; st && k >= 1; k--) { chosen[k] = st.j; if (k === 1) { chosen[0] = st.i; break; } st = hist[k - 2].get(st.back); }
+    const pts = [];
+    chosen.forEach((j, k) => { if (j >= 0) pts.push(cand[k][j]); });
     return pts;
   }
 
@@ -622,42 +664,39 @@
     return [hh[0], hh[1], hh[2], hh[3], hh[4], hh[5], hh[6], hh[7], 1];
   }
 
-  /* Lane traces: the path of every lane down the crop as points {y, x} in nBands bands (the
-   * centroid of the band's presence profile near the lane, tracked band by band from the centre
-   * outward), smoothed by a quadratic in y. Lanes with fewer than 4 points give null. */
+  /* Lane traces: the path of every lane down the crop as a chain of bands (trackLane: the best
+   * chain of band candidates under a keep-your-direction prior), lightly smoothed and joined by
+   * straight segments, held beyond the first and last band. Lanes with fewer than 4 bands or a
+   * jittery chain give null. */
   function laneTraces(img, bright, crop, laneXs, pitch, nBands, yMin) {
     nBands = nBands || 16;
     const yc = crop.y + crop.h / 2, rows = laneRows(img, bright, crop, nBands, yMin);
     const sg = signal(cropImg(img, crop), bright);
-    const fit = pts => {
-      if (pts.length < 4) return null;
-      // weighted quadratic x = a + b t + c t^2, t = y - yc
-      let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
-      pts.forEach(p => { const t = p.y - yc, w = p.w; S0 += w; S1 += w * t; S2 += w * t * t; S3 += w * t * t * t; S4 += w * t * t * t * t; T0 += w * p.x; T1 += w * t * p.x; T2 += w * t * t * p.x; });
-      const M = [S0, S1, S2, S1, S2, S3, S2, S3, S4], inv = M3.inv(M);
-      if (!inv) return null;
-      const a = inv[0] * T0 + inv[1] * T1 + inv[2] * T2, b = inv[3] * T0 + inv[4] * T1 + inv[5] * T2, c = inv[6] * T0 + inv[7] * T1 + inv[8] * T2;
-      let res = 0, worst = -1; pts.forEach((p, i) => { const t = p.y - yc, e = Math.abs(p.x - (a + b * t + c * t * t)); if (e > res) { res = e; worst = i; } });
-      return { a, b, c, res, worst };
-    };
     return laneXs.map(x0 => {
-      let pts = trackLane(rows, x0, crop, pitch, 0.4);
-      // rows off the curve (sheared well pockets, a smear joining the neighbour) are dropped, never
-      // more than a third of them
-      let f = fit(pts);
-      const keep = Math.max(4, Math.ceil(pts.length * 2 / 3));
-      while (f && f.res > pitch * 0.1 && pts.length > keep) { pts = pts.filter((p, i) => i !== f.worst); f = fit(pts); }
-      if (!f || f.res > pitch * 0.15) return null;
-      const { a, b, c, res } = f;
-      // the trace is only known where the lane was seen: beyond its first and last point it is held
-      const t0 = Math.min(...pts.map(p => p.y)) - yc, t1 = Math.max(...pts.map(p => p.y)) - yc;
-      const at = y => { const t = clamp(y - yc, t0, t1); return a + b * t + c * t * t; };
-      // the lane's width down the gel, measured at its bands (a band is a clear peak of the lane's
-      // profile; its width is the extent of its rows above half their peak). A strong band is a
-      // little wider than a faint one, so the widths scatter about a mean, but a steady widening or
-      // narrowing is a local stretch of the gel. A linear trend is kept when it is at least 15 % of
-      // the mean width over the lane's rows and the widths follow it (scatter under 35 % of the
-      // mean); otherwise the width is its mean.
+      let pts = trackLane(rows, x0, crop, pitch, 0.4).sort((p, q) => p.y - q.y);
+      if (pts.length < 4) return null;
+      // the trace follows the chain: each point replaced by the weighted mean of itself and its two
+      // neighbours (a band's centroid jitters, the lane does not), joined by straight segments and
+      // held beyond the first and last band. A point further than 0.2 pitch from the smoothed chain
+      // is a wrong band and is dropped once.
+      // five-point weighted mean (1 2 3 2 1, times the band's strength), applied twice: it follows a
+      // lean and a gradual bend but not the jitter of single centroids, so a straight lane measures
+      // straight and is not "straightened" on noise
+      const smooth1 = P => P.map((p, k) => { let sw = 0, sx = 0; [[-2, 1], [-1, 2], [0, 3], [1, 2], [2, 1]].forEach(([d, g]) => { const q = P[k + d]; if (q) { sw += g * q.w; sx += g * q.w * q.x; } }); return { y: p.y, x: sw > 0 ? sx / sw : p.x, w: p.w }; });
+      const smooth = P => smooth1(smooth1(P));
+      let sm = smooth(pts);
+      const dev = pts.map((p, k) => Math.abs(p.x - sm[k].x));
+      if (Math.max(...dev) > pitch * 0.2) { const kw = dev.indexOf(Math.max(...dev)); pts = pts.filter((p, k) => k !== kw); if (pts.length < 4) return null; sm = smooth(pts); }
+      let res = 0; pts.forEach((p, k) => { res = Math.max(res, Math.abs(p.x - sm[k].x)); });
+      if (res > pitch * 0.15) return null;
+      const at = y => {
+        if (y <= sm[0].y) return sm[0].x;
+        if (y >= sm[sm.length - 1].y) return sm[sm.length - 1].x;
+        let k = 0; while (k < sm.length - 2 && sm[k + 1].y < y) k++;
+        const f = (y - sm[k].y) / (sm[k + 1].y - sm[k].y);
+        return sm[k].x * (1 - f) + sm[k + 1].x * f;
+      };
+      const t0 = sm[0].y - yc, t1 = sm[sm.length - 1].y - yc, a = at(yc);
       const bw = bandWidths(sg, crop, pitch, at);
       let w0 = 0, w1 = 0, nb = bw.length;
       if (nb) { let W = 0, st = 0, se = 0, stt = 0, ste = 0; bw.forEach(p => { const t = p.y - yc; W += p.v; st += p.v * t; se += p.v * p.w; stt += p.v * t * t; ste += p.v * t * p.w; });
@@ -670,7 +709,9 @@
           if (Math.abs(k1) * (t1 - t0) >= 0.15 * w0 && scatter < 0.35 * w0) { w0 = k0; w1 = k1; }
         } }
       const wAt = y => Math.max(w0 * 0.3, w0 + w1 * clamp(y - yc, t0, t1));
-      return { a, b, c, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, w0, w1, nb, wTrend: w0 > 0 ? +(w1 * (t1 - t0) / w0).toFixed(3) : 0, at, wAt };
+      // b: the mean lean (px per px of height) over the chain, for callers that want a slope
+      const b = sm.length > 1 ? (sm[sm.length - 1].x - sm[0].x) / Math.max(1, sm[sm.length - 1].y - sm[0].y) : 0;
+      return { a, b, c: 0, n: pts.length, res, y0: t0 + yc, y1: t1 + yc, w0, w1, nb, wTrend: w0 > 0 ? +(w1 * (t1 - t0) / w0).toFixed(3) : 0, at, wAt, chain: sm };
     });
   }
 
