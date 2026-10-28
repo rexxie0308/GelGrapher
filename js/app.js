@@ -1030,14 +1030,28 @@
     const S = App.S, c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3), H = App.ensureRot().h;
     let top = Infinity, bot = -Infinity;
     S.markers.forEach(m => { const l = S.lanes[m.lane]; if (!l || l.x < c.x || l.x > c.x + c.w) return; m.bands.forEach(b => { if (b.y == null) return; top = Math.min(top, b.y); bot = Math.max(bot, b.y); }); });
-    App._peakCrop = App.bandStrip();
-    try {
-      const inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
-      const all = inside.map(i => App.lanePeaks(i)), mx = Math.max(0, ...all.flat().map(q => q.v));
-      // a lane counts when loaded (its strongest band a sixth of the gel's); its clear bands (a sixth
-      // of its own strongest) set the extent, so a faint top band of a ladder is not cut
-      all.forEach(pk => { const lm = Math.max(0, ...pk.map(q => q.v)); if (lm < mx * 0.15) return; pk.forEach(q => { if (q.v >= lm * 0.15) { top = Math.min(top, c.y + q.y); bot = Math.max(bot, c.y + q.y); } }); });
-    } finally { App._peakCrop = null; }
+    const strip = App.bandStrip();
+    const inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
+    // the ladders' bands set the extent when there are ladders; the lanes' own peaks can only extend
+    // it (a sample band below the lowest ladder band), and only from below the well pockets (2.5
+    // spacings under the well row: the outline of a pocket's bottom is as lane-local as a band)
+    const yMin = App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 2.5 : -Infinity;
+    // a band belongs to one lane: strong at the lane and weak in the gaps beside it. The dark
+    // outlines of the well pockets and the gel's top edge cross every lane and show as peaks in a
+    // lane's profile too, but they are as strong half a lane spacing to either side; those are not bands
+    const gapPeaks = x => E.detectBands(E.laneProfile(strip, S.bright, x, Math.max(2, S.laneHalfW * 0.6)));
+    const all = inside.map(i => {
+      const x = S.lanes[i].x, pk = E.detectBands(E.laneProfile(strip, S.bright, x, S.laneHalfW));
+      const gl = gapPeaks(x - P / 2), gr = gapPeaks(x + P / 2);
+      const gapAt = y => Math.max(0, ...gl.concat(gr).filter(g => Math.abs(g.y - y) <= 3).map(g => g.v));
+      return pk.filter(q => c.y + q.y >= yMin && q.v > 1.4 * gapAt(q.y));
+    });
+    const mx = Math.max(0, ...all.flat().map(q => q.v)), ext = [];
+    // a lane counts when loaded (its strongest band a sixth of the gel's); only its clear bands (a
+    // third of its own strongest) extend the ladders' extent: the faint tail of a smear or the
+    // foot of a heavy band is not a band
+    all.forEach((pk, k) => { const lm = Math.max(0, ...pk.map(q => q.v)); if (lm < mx * 0.15) return; pk.forEach(q => { if (q.v >= lm * 0.3) { const y = c.y + q.y; if (y < top || y > bot) ext.push({ lane: inside[k], y: Math.round(y), v: +(q.v / lm).toFixed(2) }); top = Math.min(top, y); bot = Math.max(bot, y); } }); });
+    App.reframeCropRows.debug = { top: Math.round(top), bot: Math.round(bot), ext };
     if (!isFinite(top) || bot - top < P) return false;
     const m = P * 0.6, y0 = Math.round(Math.max(0, top - m)), y1 = Math.round(Math.min(H, bot + m));
     if (y1 - y0 < 10) return false;
