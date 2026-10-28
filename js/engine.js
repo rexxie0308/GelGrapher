@@ -782,23 +782,40 @@
       const f = (x - Ed[i].x0) / d;
       return sh[i] * (1 - f) + sh[i + 1] * f;
     };
+    // a vertical shift is capped at 0.3 of the local row spacing: a larger one would move a sample
+    // band past its neighbouring ladder band, which no smile does
     const dyAt = (x, y) => {
       if (!R.length) return 0;
       const sh = R.map(r => r.at(x) - r.yc);
-      if (y <= R[0].yc) return sh[0];
-      if (y >= R[R.length - 1].yc) return sh[sh.length - 1];
       let i = 0; while (i < R.length - 1 && R[i + 1].yc < y) i++;
+      const sp = R.length > 1 ? Math.abs(R[Math.min(i + 1, R.length - 1)].yc - R[Math.max(0, Math.min(i, R.length - 2))].yc) : Infinity;
+      const cap = v => Math.max(-0.3 * sp, Math.min(0.3 * sp, v));
+      if (y <= R[0].yc) return cap(sh[0]);
+      if (y >= R[R.length - 1].yc) return cap(sh[sh.length - 1]);
       const f = (y - R[i].yc) / (R[i + 1].yc - R[i].yc);
-      return sh[i] * (1 - f) + sh[i + 1] * f;
+      return cap(sh[i] * (1 - f) + sh[i + 1] * f);
     };
-    let maxShift = 0;
+    let maxShift = 0, maxDx = 0, maxDy = 0;
     for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
       const k = (j * g.nx + i) * 2, x = g.pts[k], y = g.pts[k + 1];
       const dx = dxAt(x, y) * fadeY(y), dy = dyAt(x, y) * fadeX(x);
+      maxDx = Math.max(maxDx, Math.abs(dx)); maxDy = Math.max(maxDy, Math.abs(dy));
       maxShift = Math.max(maxShift, Math.abs(dx), Math.abs(dy));
       g.pts[k] = x + dx; g.pts[k + 1] = y + dy;
     }
-    return { grid: g, maxShift, lanes: T.length, rows: R.length, xc, yc };
+    // the field must not fold (a cell's source quadrilateral turned inside out) and must not scale any
+    // cell inside the crop by more than a quarter: either would be a wrong trace, not a bend
+    let folded = false, scaleMax = 0;
+    const cw = g.W / (g.nx - 1), ch = g.H / (g.ny - 1);
+    for (let j = 0; j < g.ny - 1; j++) for (let i = 0; i < g.nx - 1; i++) {
+      const X = i * cw, Y = j * ch;
+      if (X + cw < crop.x || X > crop.x + crop.w || Y + ch < crop.y || Y > crop.y + crop.h) continue;
+      const k = (j * g.nx + i) * 2, kr = k + 2, kd = k + g.nx * 2;
+      const ax = g.pts[kr] - g.pts[k], ay = g.pts[kr + 1] - g.pts[k + 1], bx = g.pts[kd] - g.pts[k], by = g.pts[kd + 1] - g.pts[k + 1];
+      if (ax * by - ay * bx <= 0) folded = true;
+      scaleMax = Math.max(scaleMax, Math.abs(Math.hypot(ax, ay) / cw - 1), Math.abs(Math.hypot(bx, by) / ch - 1));
+    }
+    return { grid: g, maxShift, maxDx, maxDy, folded, scaleMax, lanes: T.length, rows: R.length, xc, yc };
   }
 
   function cropImg(img, r) {
@@ -1239,7 +1256,10 @@
       if (t.length >= 6) {
         let e = 0, o = 0, ne = 0, no = 0; t.forEach((v, k) => { if (k % 2) { o += v; no++; } else { e += v; ne++; } });
         e /= Math.max(1, ne); o /= Math.max(1, no);
-        if (Math.min(e, o) < Math.max(e, o) * 0.55) { if (o > e) O += P; P *= 2; detectLanes.debug.halfPitch = true; }
+        // ...and the weak teeth must be no lanes of their own (alternate loading, every second well empty
+        // with a faint lane in it, keeps every tooth)
+        const weakIdx = o > e ? 0 : 1; let empty = 0, nw = 0; t.forEach((v, k) => { if (k % 2 === weakIdx) { nw++; if (v < mx * 0.06) empty++; } });
+        if (Math.min(e, o) < Math.max(e, o) * 0.55 && empty >= nw * 0.7) { if (o > e) O += P; P *= 2; detectLanes.debug.halfPitch = true; }
       }
     }
     // two passes: teeth with a lane give centroids, a least-squares lattice through them refines

@@ -68,6 +68,15 @@
   // true when the figure shows dark bands on a light background
   App.darkBands = function () { const S = App.S; return S.bright ? !!S.levels.invert : !S.levels.invert; };
   App.setDarkBands = function (dark) { App.S.levels.invert = !!dark === App.S.bright; };
+  /* Detection polarity by hand: bright = bands brighter than the background. Everything that reads the
+   * pixels (crop, lanes, bands, ladders, densitometry) runs on this, so it is detected again from the
+   * crop on; a geometry correction made with the wrong polarity is dropped. The figure keeps its look. */
+  App.setBright = function (bright) {
+    const S = App.S, dark = S.levels.invert === S.bright;   // the figure shows dark bands?
+    S.bright = !!bright; S.levels.invert = dark === S.bright;
+    if (S.geom) App.setGeom(null);
+    App.autoAll(false);
+  };
   function typeDefaults(type, bright) {
     const t = G.Gels.get(type), tp = typePrefs(t.id);
     const lad = G.Ladders.get(tp.ladderId);
@@ -474,10 +483,13 @@
   App.setGeom = function (next) {
     const S = App.S, W = App.src.w, H = App.src.h;
     const G0 = App.geomGrid(S), G1 = next && next.grid ? next.grid : null;
-    App.carryFrame((x, y) => {
+    const f = (x, y) => {
       const r = G0 ? E.Grid.at(G0, x, y) : { x, y };
       return G1 ? E.Grid.inv(G1, r.x, r.y) : r;
-    });
+    };
+    App.carryFrame(f);
+    // the well line found by the auto crop follows the frame too (the comb and the traces stop above it)
+    if (App.cropMeta && App.cropMeta.wellY != null) App.cropMeta.wellY = f(S.crop.x + S.crop.w / 2, App.cropMeta.wellY).y;
     S.geom = next && next.grid ? next : null;
     App.sortLanesIfNeeded();
     App.ensureRot();
@@ -492,11 +504,14 @@
   /* The band rows of the ladders: every size matched in two or more marker lanes gives a line
    * y = a + b (x - xc) through those bands; their vanishing point (or null), and the rows
    * themselves (for the straightening: {at: x => y, yc}). */
-  App.bandRows = function () {
+  App.bandRows = function () {   // ladder band rows across the marker lanes (the vertical reference of the straightening)
     const S = App.S, c = S.crop, xc = c.x + c.w / 2;
     // only markers that fit their ladder well anchor the geometry
     const mk = S.markers.filter(m => S.lanes[m.lane] && (m.score == null || m.score >= 0.6));
     if (mk.length < 2) return { lines: [], rows: [] };
+    // the vertical levelling (rows) needs three ladders: a row through two points has no residual to
+    // judge it by, and one mis-assigned band would tilt every sample band between the ladders
+    const rowsOk = mk.length >= 3;
     const bySize = new Map();
     mk.forEach(m => m.bands.forEach(b => {
       if (!(b.matched || b.manual) || b.bp == null) return;
@@ -512,17 +527,21 @@
       if (den <= 0) return;
       const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
       lines.push({ a, b, n });
+      if (!rowsOk) return;
       const x0 = Math.min(...pts.map(q => q.x)), x1 = Math.max(...pts.map(q => q.x)), cl = x => Math.max(x0, Math.min(x1, x));   // held beyond the outermost marker
-      if (pts.length >= 3) {
-        // a quadratic across the markers (a smile), anchored on the ladders only
-        let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
-        pts.forEach(q => { const t = q.x - xc; S0++; S1 += t; S2 += t * t; S3 += t * t * t; S4 += t * t * t * t; T0 += q.y; T1 += t * q.y; T2 += t * t * q.y; });
-        const inv = E.M3.inv([S0, S1, S2, S1, S2, S3, S2, S3, S4]);
-        if (inv) { const A = inv[0] * T0 + inv[1] * T1 + inv[2] * T2, B = inv[3] * T0 + inv[4] * T1 + inv[5] * T2, C = inv[6] * T0 + inv[7] * T1 + inv[8] * T2; rows.push({ yc: A, at: x => { const t = cl(x) - xc; return A + B * t + C * t * t; } }); return; }
-      }
-      rows.push({ yc: a, at: x => a + b * (cl(x) - xc) });
+      // a straight row through the markers (never an exact fit through three points); its residual is
+      // judged below against the spacing of the neighbouring rows
+      let res = 0; pts.forEach(q => { res = Math.max(res, Math.abs(q.y - (a + b * (q.x - xc)))); });
+      rows.push({ yc: a, res, at: x => a + b * (cl(x) - xc) });
     });
-    return { lines, rows };
+    // a row whose markers scatter by more than 0.3 of the local band spacing is a mis-assigned band, not a smile
+    rows.sort((p, q) => p.yc - q.yc);
+    const kept = rows.filter((r, i) => {
+      const sp = Math.min(i > 0 ? r.yc - rows[i - 1].yc : Infinity, i < rows.length - 1 ? rows[i + 1].yc - r.yc : Infinity);
+      return sp !== Infinity && r.res <= 0.3 * sp;
+    });
+    return { lines, rows: kept.length >= 3 ? kept : [] };
+
   };
   App.bandRowVanishing = function () { const r = App.bandRows(); return r.lines.length >= 3 ? E.vanishing(r.lines, App.S.crop.x + App.S.crop.w / 2, App.S.crop.w) : null; };
   /* After the lanes are rebuilt (fn), find the marker lanes again but keep the ladder the user chose
@@ -531,7 +550,9 @@
     const S = App.S, tol = (S.lanePitch || 40) * 0.5;
     const prev = S.markers.map(m => ({ x: S.lanes[m.lane] ? S.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
     const n = fn();
-    App.autoMarkers();
+    // the ladder already in use is the usual one for this search (no library-wide search again)
+    const keepPref = App.prefLadder; if (prev.length && prev[0].ladderId) App.prefLadder = prev[0].ladderId;
+    try { App.autoMarkers(); } finally { App.prefLadder = keepPref; }
     let changed = false;
     S.markers.forEach(m => {
       const q = prev.find(q => Math.abs(q.x - S.lanes[m.lane].x) < tol);
@@ -561,7 +582,7 @@
     return { peak: pk, valley: va, ratio: pk > 0 ? va / pk : null };
   };
   App.autoGeometry = function () {
-    App.autoGeometry.debug = [];
+    App.autoGeometry.debug = []; const tStart = performance.now(); App.autoGeometry.debug.ms = () => Math.round(performance.now() - tStart);
     // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
     let S = App.S;
     const W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
@@ -571,7 +592,7 @@
     // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
     // walls sit between the lanes and would offset the comb by half a pitch
     const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 1.5 : null; };
-    const hook = l => { if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); };
+    const hook = l => { App.autoGeometry.debug.push({ step: l, ms: App.autoGeometry.debug.ms() }); if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); };
     // the resolution of the lanes in the column density: the mean density half-way between
     // neighbouring lanes divided by the mean at the lanes (lower = lanes better separated)
     const contrast = () => { const r = App.laneContrast(); return r ? r.ratio : null; };
@@ -620,6 +641,9 @@
       const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
       const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
       App.autoGeometry.debug.push({ round: rounds, keystone: true, frame: App.frameKey(S), xs: xs.map(Math.round), P: +P.toFixed(1), crop: c, bands: lines, combDbg: E.laneComb.debug, lanes: v && +v.change.toFixed(4), lanesSig: v && v.se ? +(Math.abs(v.change) / v.se).toFixed(1) : null, rows: u && +u.change.toFixed(4) });
+      // a first-round keystone must move the far lane by at least 0.15 pitch over the crop (a smaller
+      // one is within the comb's own noise and would only put a spurious line into the legend)
+      if (V && !rounds && Math.abs(v.change) < 0.3 / Math.max(1, xs.length - 1)) { converged = true; break; }
       if (!V && !U) { converged = true; break; }
       // a spacing that would more than double over the crop is not a camera angle
       if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
@@ -639,6 +663,7 @@
      * than a tenth of the pitch (a faint ladder under a smear, a torn lane) are not trusted and
      * follow their neighbours' shift; the bend of the gel is the median over lanes, so one bad lane
      * neither drives nor hides the correction; the round is kept only when the median bend falls. */
+    if (!S.markers.length) App.autoMarkers();   // once per load: the ladders (for the row levelling and the figure)
     {
       const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
       const trusted = T => T.map(t => (t && t.res <= P * 0.1 ? t : null));
@@ -647,12 +672,16 @@
       bendBefore = bendOf(tr);
       const rows = App.bandRows().rows;
       // a bend worth straightening is more than noise: 5 % of the pitch and at least 3 px
-      let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows) : null;
+      // the grid's nodes sit closer than half a lane pitch, so the field between lanes is realised and
+      // not blurred over a lane (33 x 33 over a photograph is 60 px apart)
+      const nx = Math.max(33, Math.min(129, Math.ceil(2 * W / P) + 1)), ny = Math.max(33, Math.min(65, Math.ceil(2 * Hh / P) + 1));
+      let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows, nx, ny) : null;
       if (sg && sg.maxShift > P) sg = null;   // a shift of more than a lane pitch is a wrong trace, not a bend
+      if (sg && (sg.folded || sg.scaleMax > 0.25)) { App.autoGeometry.debug.push({ straighten: true, rejected: 'fold or local scale', scaleMax: sg.scaleMax, folded: sg.folded }); sg = null; }
       if (sg) {
         const cBefore = contrast();
         const snapRound = App.snapshot(), gridBefore = grid, g = grid ? E.Grid.compose(grid, sg.grid) : sg.grid;
-        App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
+        App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, dyPx: sg.maxDy, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
         const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, yMin()));
         const bendAfter = bendOf(tr2);
         App.autoGeometry.debug.push({ round: rounds, straighten: true, widthLanes: E.straightenGrid.widthLanes, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
@@ -666,7 +695,10 @@
         else { grid = g; applied = true; rounds++; App.autoLanes(); hook('straighten'); }
       }
     }
-    if (applied && S.geom) { if (slab) S.geom.slab = true; App.relaneMarkers(() => 0); Object.assign(S.geom, App.geomReport()); }
+    // after a straightening the lanes are cleaner: the ladders are looked for once more, which is
+    // cheap now that the gel's ladder is known (a lane that fits it names itself); otherwise re-fitted
+    if (applied && S.geom) { if (slab) S.geom.slab = true; if (S.markers.length && !(S.geom.bendPx > 0)) App.matchMarkers(true); else App.relaneMarkers(() => 0); Object.assign(S.geom, App.geomReport()); }
+    S.geomChecked = true;   // the panel says "checked, none needed" rather than "off" when nothing was applied
     const k = S.geom, dl = S.lanes.length - lanes0;
     if (!applied) return { applied: false, rounds, lanes: S.lanes.length, converged, message: S.lanes.length < 3 ? 'Geometry needs at least three lanes (add them with "+ Add lane" or "Space evenly", then try again)' : `No correction needed: the lanes run straight and parallel (${lines} bands of lanes measured, largest bend ${bendBefore.toFixed(1)} px).` };
     const parts = [];
@@ -877,6 +909,7 @@
     n = Math.max(1, Math.min(60, Math.round(n || S.lanes.filter(l => l.x >= c.x && l.x <= c.x + c.w).length || 1)));
     const p = c.w / n;
     replaceInCrop(Array.from({ length: n }, (_, k) => c.x + (k + 0.5) * p), p);
+    S.lanes.forEach(l => { if (l.x >= c.x && l.x <= c.x + c.w) l.manual = true; });   // spaced by hand
     return n;
   };
 
@@ -944,7 +977,7 @@
 
   App.addLane = function (x) {
     const S = App.S;
-    S.lanes.push({ x, name: '', hidden: false });
+    S.lanes.push({ x, name: '', hidden: false, manual: true });   // placed by hand: a red-box drag never replaces it
     const order = S.lanes.map((l, i) => i).sort((a, b) => S.lanes[a].x - S.lanes[b].x);
     App.reorderLanes(order);
     return S.lanes.findIndex(l => l.x === x);
@@ -1043,7 +1076,7 @@
           const clear = peaks[i].filter(p => p.v >= vmax * 0.08), top = clear.filter(p => p.v >= vmax * 0.12).map(p => p.v / vmax);
           const mean = top.reduce((a, b) => a + b, 0) / Math.max(1, top.length);
           const cv = Math.sqrt(top.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, top.length)) / Math.max(1e-9, mean);
-          return { v: r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.max(0, cv - 0.45)), id: r[0].id };
+          return { v: r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.min(0.2, Math.max(0, cv - 0.45))), id: r[0].id };
         };
         // one ladder per gel: the lane that looks most like a ladder of the whole library names the
         // ladder, and the other lanes are kept only when they fit THAT ladder about as well. A lysate
@@ -1195,9 +1228,12 @@
     const loaded = App.loadedLaneRange();
     if (loaded) App.setLaneRange(loaded[0], loaded[1]);
     T('marker');
-    App.autoMarkers();
+    // the ladder search runs once: inside the geometry (after the keystone rounds) when that runs
+    const geometry = fresh && !App.noAutoGeometry;
+    if (!geometry) App.autoMarkers();
     T('geometry');
-    if (fresh && !App.noAutoGeometry) { try { App.autoGeometry(); } catch (e) { console.error(e); } }
+    if (geometry) { try { App.autoGeometry(); } catch (e) { console.error(e); } }
+    if (!S.markers.length && geometry) App.autoMarkers();
     T('fix');
     App.fixIndices();
     App.updateSaturation();
@@ -1269,7 +1305,7 @@
     const S = App.S, a = Math.min(i, j), b = Math.max(i, j), n = b - a;
     if (n < 2) return false;
     const x0 = S.lanes[a].x, x1 = S.lanes[b].x;
-    for (let k = 1; k < n; k++) S.lanes[a + k].x = x0 + (x1 - x0) * k / n;
+    for (let k = 1; k < n; k++) { S.lanes[a + k].x = x0 + (x1 - x0) * k / n; S.lanes[a + k].manual = true; }
     return true;
   };
   App.estimateBp = function (yAbs) { const r = App.estimateInfo(yAbs); return r ? r.bp : null; };

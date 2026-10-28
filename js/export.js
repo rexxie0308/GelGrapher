@@ -332,7 +332,7 @@
     if (g.mode === 'manual') parts.push(`one projective (perspective) transform of the whole image from four slab corners marked by hand: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
     else {
       if (Math.abs(g.lanesPct) >= 0.5 || Math.abs(g.bandsPct) >= 0.5) parts.push(`one projective (perspective) transform of the whole image ${g.slab ? 'from the outline of the slab, checked against the lane lines' : `estimated from the lane lines${g.rows ? ' and the ladder bands' : ''}`}: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
-      if (g.bendPx >= 0.5) parts.push(`a smooth displacement field that straightens the traced lanes (${g.lanes} lanes, largest shift ${g.bendPx.toFixed(1)} px)${g.rows ? ` and levels the ladder band rows across ${g.rows >= 1 ? 'the marker lanes' : ''}` : ''}; sample bands were not used as anchors`);
+      if (g.bendPx >= 0.5) parts.push(`a smooth displacement field that straightens the traced lanes (${g.lanes} lanes, largest horizontal shift ${g.bendPx.toFixed(1)} px)${g.rows ? ` and levels ${g.rows} ladder band rows across the marker lanes (largest vertical shift ${(g.dyPx || 0).toFixed(1)} px, capped at 0.3 of the row spacing)` : ''}; sample bands were not used as anchors`);
     }
     return parts.join(', and ');
   }

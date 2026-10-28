@@ -475,7 +475,7 @@
     }
     if (d.h.type === 'crop' || d.h.type === 'cropmove') { App.updateSaturation(); if (App.onCropDone) App.onCropDone(); else if (App.afterRangeChange) App.afterRangeChange(); }
     if (d.h.type === 'corner' || d.h.type === 'edge') { App.pendingCorners = d.corners; draw(); return; }   // applied with the Apply button
-    if (d.h.type === 'lane') { const prim = S.lanes[d.h.i], objs = d.lanes.map(([l]) => l); App.sortLanesIfNeeded(); App.selectLanes(objs.map(o => S.lanes.indexOf(o)), S.lanes.indexOf(prim)); }
+    if (d.h.type === 'lane') { const prim = S.lanes[d.h.i], objs = d.lanes.map(([l]) => l); objs.forEach(o => { o.manual = true; }); App.sortLanesIfNeeded(); App.selectLanes(objs.map(o => S.lanes.indexOf(o)), S.lanes.indexOf(prim)); }
     // a dragged arrow takes its size from where it now sits: a typed size no longer applies
     if (d.h.type === 'arrow') { const a = S.arrows[d.h.i]; if (a && a.sizeText && App.parseSize(a.sizeText) != null) a.sizeText = ''; }
     if (d.h.type === 'band') App.matchMarkers(false);

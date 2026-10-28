@@ -184,7 +184,7 @@
     const S = App.S, out = [];
     out.push(['# GelGrapher densitometry', S.file.name, 'SHA-256 ' + S.file.sha256]);
     out.push(['# background', R.method, 'measure', R.mode === 'box' ? 'whole box' : 'band pixels above the noise floor', 'box width (px)', num(R.halfWidthPx * 2, 1), 'reference lane', R.ref + 1, 'normalized to', R.normLabel || 'nothing']);
-    out.push(['# integrated density of raw pixel values (rotation only, no contrast) after background subtraction; arbitrary units']);
+    out.push([`# integrated density of raw pixel values (${S.geom && S.geom.grid ? 'rotation and geometry correction in one bilinear resampling' : 'rotation only'}, no contrast) after background subtraction; arbitrary units`]);
     const head = ['well', 'lane'];
     R.rows.forEach(r => { head.push(`${r.name} volume`); head.push(`${r.name} saturated px`); });
     R.rows.forEach((r, k) => { if (R.normLabel && k !== R.control) head.push(`${r.name} / ${R.normLabel}`); });

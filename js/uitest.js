@@ -799,10 +799,20 @@
       const q = corners.map(p => p.slice()); q[0][0] += 60; q[1][0] -= 60; App.pendingCorners = q;
       $('btnGeomApply').click(); await wait(2500);
       const trapezoid = !!App.S.geom && App.S.geom.mode === 'manual' && App.S.geom.lanesPct > 5 && App.S.lanes.length >= 9 && !G.UI_placing() && /four slab corners/.test(G.Export.legendHints(App.S).join(' '));
+      // a lane placed by hand survives a red-box change (the box's release re-detects only lanes found automatically)
+      const sb = App.S, cb = { ...sb.crop }, xHand = sb.lanes[0].x + (sb.lanes[1].x - sb.lanes[0].x) * 0.5, nb = sb.lanes.length;
+      App.addLane(xHand); App.commit();
+      App.S.crop = { ...cb, x: cb.x + 6, w: cb.w - 6 }; App.onCropDone(); await wait(800);
+      const handKept = App.S.lanes.length === nb + 1 && App.S.lanes.some(l => l.manual && Math.abs(l.x - xHand) < 1);
+      App.S.crop = cb; App.removeLane(App.S.lanes.findIndex(l => Math.abs(l.x - xHand) < 1)); App.commit();
+      // the detection polarity can be overridden by hand and flipped back
+      const b0 = App.S.bright, lanes0 = App.S.lanes.length;
+      App.setBright(!b0); const polFlipped = App.S.bright === !b0 && !App.S.geom;
+      App.setBright(b0); const polBack = App.S.bright === b0 && Math.abs(App.S.lanes.length - lanes0) <= 1;
       await App.load(new File([keep.buf], keep.name), keep.type);
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
-      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid,
-        ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid };
+      R.keystone = { autoAtLoad, got: g && { lanesPct: g.lanesPct, bendPx: g.bendPx }, truth, residual, segAuto, disclosed, rotatedOn, undone, off, manualBox, trapezoid, handKept, polFlipped, polBack,
+        ok: autoAtLoad && segAuto && disclosed && rotatedOn && undone && off && manualBox && trapezoid && handKept && polFlipped && polBack };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {

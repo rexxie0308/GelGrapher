@@ -438,6 +438,12 @@
 
   /* ---------- 1 image ---------- */
   document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { App.setDarkBands(b.dataset.dark === '1'); App.invertInherited = false; }));
+  // detection polarity by hand (the auto-detected one can be wrong on a dark tray or a white frame)
+  $('btnPolDetect').onclick = () => {
+    if (needImage()) return;
+    App.busy(true, 'Detecting again…');
+    setTimeout(() => { try { App.setBright(!S().bright); App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Detection reads ${S().bright ? 'bright bands on a dark background' : 'dark bands on a light background'}; lanes, ladders and geometry found again`); }, 20);
+  };
   $('lvBlack').addEventListener('input', live(e => { S().levels.black = Math.min(fromSlider(+e.target.value), S().levels.white - 0.0005); $('lvBlackV').textContent = pct(S().levels.black); drawHisto(); updateClipLine(); }));
   $('lvWhite').addEventListener('input', live(e => { S().levels.white = Math.max(fromSlider(+e.target.value), S().levels.black + 0.0005); $('lvWhiteV').textContent = pct(S().levels.white); drawHisto(); updateClipLine(); }));
   $('lvBlack').addEventListener('change', done()); $('lvWhite').addEventListener('change', done());
@@ -517,9 +523,13 @@
       try {
         // lanes inside the box again (fast); the ladder search (slow) only when the box gained lanes,
         // otherwise the markers there follow their lanes and are only re-fitted
-        const n0 = S().lanes.length;
-        App.redetectLanesInCrop();
-        if (S().lanes.length > n0) App.relaneMarkers(() => 0); else App.afterRangeChange();
+        const c = S().crop, byHand = S().lanes.some(l => l.manual && l.x >= c.x && l.x <= c.x + c.w);
+        if (byHand) { App.afterRangeChange(); if (note) note.textContent = 'Lanes placed by hand are kept (Re-detect in box replaces them)'; }
+        else {
+          const n0 = S().lanes.length;
+          App.redetectLanesInCrop();
+          if (S().lanes.length > n0) App.relaneMarkers(() => 0); else App.afterRangeChange();
+        }
         App.commit();
       } finally { if (note) note.textContent = ''; }
     }, 350);
@@ -919,6 +929,7 @@
     document.querySelectorAll('#polSeg button').forEach(b => b.classList.toggle('on', (b.dataset.dark === '1') === dark));
     // which of the two looks is the image as it came from the imager
     document.querySelectorAll('#polSeg .pol-note').forEach(n => { n.textContent = (n.dataset.k === '1') === !st.bright ? 'as imaged' : 'inverted'; });
+    $('btnPolDetect').textContent = `Detection: ${st.bright ? 'bright bands on dark' : 'dark bands on light'} · change`;
     $('lvBlack').value = toSlider(st.levels.black); $('lvWhite').value = toSlider(st.levels.white);
     $('lvBlackV').textContent = pct(st.levels.black); $('lvWhiteV').textContent = pct(st.levels.white);
     $('rot').value = st.rotation; $('rotNum').value = st.rotation; $('rotV').textContent = st.rotation + '°';
@@ -926,7 +937,7 @@
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
     const k = st.geom;
-    $('ksNote').textContent = !k ? 'off' : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}`;
+    $('ksNote').textContent = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}`;
     geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';

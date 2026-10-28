@@ -103,6 +103,7 @@
           <button data-dark="0"><span>Bright bands, dark background</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span>Dark bands, light background</span><small class="pol-note" data-k="1"></small></button>
         </div>
         <p class="hint" id="invNote"></p>
+        <button class="btn sm ghost" id="btnPolDetect" title="Which way the detection reads the bands; change it when the lanes or ladders are found on the wrong features">Detection polarity</button>
         <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span></div>
         <div class="seg" id="geomSeg">
           <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
@@ -164,7 +165,7 @@
         </div>
         <div class="field inline range-row">
           <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
-          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
+          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Loaded only</button>
         </div>
         <p class="hint">Or drag the red box on the image (its sides snap to the gaps between lanes; Alt moves freely).</p>
         <div class="field inline">
@@ -407,7 +408,7 @@
               <canvas id="qProfile" height="130"></canvas>
               <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
             </details>
-            <p class="hint" id="quantNote">Integrated density of each box, from the raw pixel values (only rotation is applied; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+            <p class="hint" id="quantNote">Integrated density of each box, from the raw pixel values (rotation, and the geometry correction when one is on, in one bilinear resampling; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
           </div>
           <div id="quantSize" class="hidden">
             <p class="lead">Every band in every lane of the figure, sized against the marker.</p>
