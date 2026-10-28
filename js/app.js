@@ -1036,6 +1036,15 @@
     // only the lane's own peaks (App.laneLocalPeaks: an outline or the dye front is as dark in the gaps)
     const peaksOf = inside.map(i => App.laneLocalPeaks(strip, S.bright, S.lanes[i].x, S.laneHalfW, P).filter(q => c.y + q.y >= yMin));
     const mx = Math.max(0, ...peaksOf.flat().map(q => q.v));
+    // a ladder's assigned band counts when it sits on one of the lane's own peaks (the matcher may
+    // have put a size on an outline), and, with several marker lanes, when it does so in at least
+    // two of them: the marker lanes carry the same ladder, so a size that sits on a peak in one lane
+    // only is the outline of that lane's pocket, which a list with one band too many (the ladder
+    // chosen on the wide box of the detection is not final) took for a band
+    const onPeak = (m, b) => { const k = inside.indexOf(m.lane); return k >= 0 && b.y != null && peaksOf[k].find(q => Math.abs(c.y + q.y - b.y) <= P * 0.1); };
+    const support = new Map();
+    S.markers.forEach(m => m.bands.forEach(b => { if (onPeak(m, b)) support.set(b.bp, (support.get(b.bp) || 0) + 1); }));
+    const need = Math.min(2, S.markers.filter(m => inside.includes(m.lane)).length);
     let top = Infinity, bot = -Infinity;
     const lanes = [];
     inside.forEach((i, k) => {
@@ -1043,9 +1052,7 @@
       // a lane counts when loaded (its strongest band a sixth of the gel's); only its clear bands (a
       // third of its own strongest) count: the faint tail of a smear or the foot of a heavy band is not a band
       const cand = lm >= mx * 0.15 ? pk.filter(q => q.v >= lm * 0.3).map(q => ({ y: c.y + q.y, v: q.v / lm })) : [];
-      // a ladder's assigned band counts when it sits on one of the lane's own peaks (the matcher
-      // may have put a size on an outline)
-      S.markers.forEach(m => { if (m.lane === i) m.bands.forEach(b => { if (b.y == null) return; const q = pk.find(q => Math.abs(c.y + q.y - b.y) <= P * 0.1); if (q) cand.push({ y: b.y, v: q.v / Math.max(1e-9, lm) }); }); });
+      S.markers.forEach(m => { if (m.lane === i) m.bands.forEach(b => { const q = onPeak(m, b); if (q && (support.get(b.bp) || 0) >= need) cand.push({ y: b.y, v: q.v / Math.max(1e-9, lm) }); }); });
       cand.sort((p, q) => p.y - q.y);
       // the same row from the ladder's assignment and the lane's own peak counts once
       for (let j = cand.length - 1; j > 0; j--) if (cand[j].y - cand[j - 1].y < P * 0.1) cand.splice(j, 1);
@@ -1188,9 +1195,9 @@
    * judged together (the lower quartile over every gap of the gel at that row: three quarters of
    * them must show the feature), so a wide ladder band that smears into its own two gaps, or a
    * row where lysate smears fill some gaps, still counts, while a line across the gel does not. A peak whose
-   * baseline-corrected height at the lane is not 1.3 times the gaps' figure at that row is left
-   * out, once the gaps show a real feature (a sixth of the lane's strongest), so neither the ladder
-   * matching nor the framing of the box takes an outline for a band. */
+   * baseline-corrected height at the lane is not twice the gaps' figure at that row is left
+   * out, once the gaps show a real feature (a sixth of the lane's strongest), so the framing of the
+   * box does not take an outline for a band. */
   const gapCache = new WeakMap();
   App.laneLocalPeaks = function (strip, bright, x, halfW, P) {
     const S = App.S, prof = E.laneProfile(strip, bright, x, halfW), h = prof.length, r = Math.round(h / 12);
@@ -1212,8 +1219,10 @@
     const gapAt = y => { const v = gaps.profiles.map(g => win(g, y)).sort((p, q) => p - q); return v[Math.floor((v.length - 1) * 0.25)]; };
     let qmax = 0; for (let y = 0; y < h; y++) qmax = Math.max(qmax, q[y]);
     // (a faint top band of a ladder is a twentieth of its strongest: the gaps must show more than a
-    // sixth of the lane's strongest before they can disqualify a peak, and then 1.3 times is enough)
-    const pk = E.detectBands(prof).filter(k => { const g = gapAt(k.y); return g < qmax * 0.15 || q[k.y] > 1.3 * g; }).sort((a, b) => a.y - b.y);
+    // sixth of the lane's strongest before they can disqualify a peak, and then the lane must show
+    // twice what they do: on the sanity-check photograph the outline of the pocket bottoms is 0.8
+    // to 1.4 times the gaps' figure at the lanes, the real bands 2.7 times and more)
+    const pk = E.detectBands(prof).filter(k => { const g = gapAt(k.y); return g < qmax * 0.15 || q[k.y] > 2 * g; }).sort((a, b) => a.y - b.y);
     // bands come in a run. The outline of a pocket's bottom sits above the first band with nothing
     // above it and a long empty stretch below it (on a photograph the comb's fingers cover only part
     // of the gel, so the gaps alone do not always tell it): a topmost peak whose gap to the next is
@@ -1269,19 +1278,20 @@
         // every ladder of the kind is a candidate (the preferred ones first): a gel run with a ladder
         // the user has not used before must still find its ladder lanes
         const memo = new Map();
-        const ladderness = (i, lib) => {
-          const key = i + '|' + lib.map(l => l.id).join(',');
+        // (fair: without the bonus the usual ladders get, so a tie can go against them)
+        const ladderness = (i, lib, fair) => {
+          const key = i + '|' + (fair ? 'fair|' : '') + lib.map(l => l.id).join(',');
           if (memo.has(key)) return memo.get(key);
-          const v = ladderness0(i, lib); memo.set(key, v); return v;
+          const v = ladderness0(i, lib, fair); memo.set(key, v); return v;
         };
-        const ladderness0 = (i, lib) => {
-          const r = lib.length ? E.jointLadders([peaks[i]], lib, h, prefer) : null;
-          if (!r) return { v: 0, id: null };
+        const ladderness0 = (i, lib, fair) => {
+          const r = lib.length ? E.jointLadders([peaks[i]], lib, h, fair ? [] : prefer) : null;
+          if (!r) return { v: 0, id: null, frac: 0 };
           const vmax = Math.max(0, ...peaks[i].map(p => p.v));
           const clear = peaks[i].filter(p => p.v >= vmax * 0.08), top = clear.filter(p => p.v >= vmax * 0.12).map(p => p.v / vmax);
           const mean = top.reduce((a, b) => a + b, 0) / Math.max(1, top.length);
           const cv = Math.sqrt(top.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, top.length)) / Math.max(1e-9, mean);
-          return { v: r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.min(0.2, Math.max(0, cv - 0.45))), id: r[0].id };
+          return { v: r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.min(0.2, Math.max(0, cv - 0.45))), id: r[0].id, frac: r[0].frac || 0, s: r.score };
         };
         // one ladder per gel: the lane that looks most like a ladder of the whole library names the
         // ladder, and the other lanes are kept only when they fit THAT ladder about as well. A lysate
@@ -1294,9 +1304,27 @@
         const fitL = new Map(lanes.map(i => [i, ladderness(i, likely)])), fitAll = new Map(), allOf = i => { if (!fitAll.has(i)) fitAll.set(i, ladderness(i, all)); return fitAll.get(i); };
         let bestL = lanes[0];
         lanes.forEach(i => { if (fitL.get(i).v > fitL.get(bestL).v) bestL = i; });
-        let starId = null;
-        if (fitL.get(bestL).v >= 0.7) starId = fitL.get(bestL).id;
-        else {
+        let starId = null; App.autoMarkers.alt = null;
+        if (fitL.get(bestL).v >= 0.7) {
+          starId = fitL.get(bestL).id;
+          // a usual ladder that fits well but not perfectly, or only with a band left outside the
+          // box, is checked against the whole library on the three lanes it fits best: the ladder
+          // remembered from the last gel, with one band more than the gel's, fits it at 0.9, or in
+          // full with its extra band pushed out of the box and every size one band off; the right
+          // ladder fits every band with every band inside. A library ladder takes over when it fits
+          // 0.95 or more (the fit itself; the ladder-likeness below it also weighs the lane's band
+          // strengths) with nine tenths of its own bands matched, and is either 0.05 more
+          // ladder-like or as much with a larger share of its bands matched; the user is told
+          // (App.ladderNotice).
+          const u = fitL.get(bestL);
+          if (u.v < 0.97 || u.frac < 1) {
+            const top = lanes.slice().sort((a, b) => fitL.get(b).v - fitL.get(a).v).slice(0, 3);
+            let alt = null;
+            top.forEach(i => { const a = ladderness(i, all, true); if (a.id && a.id !== starId && a.s >= 0.95 && a.frac >= 0.9 && (a.v >= u.v + 0.05 || (a.v >= u.v - 1e-6 && a.frac > u.frac + 0.02)) && (!alt || a.v > alt.v || (a.v === alt.v && a.frac > alt.frac))) alt = a; });
+            App.autoMarkers.alt = { top: top.map(i => { const a = ladderness(i, all, true); return [i, a.id, +a.v.toFixed(3), +a.s.toFixed(3), +a.frac.toFixed(2)]; }), usual: [starId, +u.v.toFixed(3), +u.s.toFixed(3), +u.frac.toFixed(2)], took: alt ? alt.id : null };
+            if (alt) starId = alt.id;
+          }
+        } else {
           // the ladder that explains the candidate lanes jointly: every lane's own best ladder is tried,
           // and the one with the most clear fits (above 0.45) across lanes wins, so three ladder lanes
           // of one product beat one lane that happens to fit another product a little better
@@ -1339,6 +1367,9 @@
       }
       if (picks && favs.length && picks.some(p => !favs.includes(p.id)) && !App.ladderNotice)
         App.ladderNotice = `Detected ladder is not among your favourites: ${picks.filter(p => !favs.includes(p.id)).map(p => G.Ladders.get(p.id).name).join(', ')} — please check`;
+      const alt = App.autoMarkers.alt;
+      if (picks && alt && alt.took && picks.some(p => p.id === alt.took) && !App.ladderNotice)
+        App.ladderNotice = `${G.Ladders.get(alt.took).name} fits the marker lanes better than the usual ${G.Ladders.get(alt.usual[0]).name} and is used — please check`;
       S.markers = lanes.map((ln, k) => App.newMarker(ln, picks ? picks[k].id : prefer[0]));
       App.matchMarkers(true);
       // a lane that fits its ladder poorly next to one that fits well is a sample lane, not a marker
@@ -1448,23 +1479,41 @@
     // and its rows on the bands (the well row served the detection; the figure starts at the bands);
     // the geometry's figures are stated over the box, so they are worked out again for the new rows
     if (fresh && App.reframeCropRows()) {
-      if (S.geom) Object.assign(S.geom, App.geomReport());
       // the ladders are looked for once more on the framed box, as the Re-detect button does: a
-      // ladder in a torn corner that the wide box missed is found on the tight one (the ladder in
-      // use is the usual one for this search, so it is cheap)
-      // ...and it may only add ladder lanes: every lane the wide box took stays (a faint ladder the
-      // tight box no longer sees, or trades for a lysate lane, on the synthetic Western), and the
-      // lanes the tight box adds join them
+      // ladder in a torn corner that the wide box missed is found on the tight one, and the ladder
+      // is chosen afresh there: on the wide box the outlines of the pockets and the gel's edge add
+      // peaks to every lane, and a list with one band more than the gel's ladder fits them better
+      // than the right one (the sanity-check photograph: a 12-band list on an 11-band ladder, every
+      // size one band high). The new ladder is taken when it fits the lanes clearly better;
+      // otherwise the search may only add ladder lanes: every lane the wide box took stays (a faint
+      // ladder the tight box no longer sees, or trades for a lysate lane, on the synthetic Western)
       // (only when the wide box found a ladder: with none found, the search that follows the load
       // in the interface keeps its own pick, which a low-scoring pick here would spoil)
       T('marker2');
+      if (S.markers.length) App.matchMarkers(true);   // the scores on the framed box, to compare with
       const before = JSON.parse(JSON.stringify(S.markers));
       if (before.length && App.secondLadderSearch !== false) {
-        App.relaneMarkers(() => 0);
-        const added = S.markers.filter(m => !before.some(q => q.lane === m.lane));
-        S.markers = before.concat(added).sort((a, b) => a.lane - b.lane);
-        if (added.length) App.matchMarkers(true);
+        const mean = ms => ms.reduce((a, m) => a + (m.score || 0), 0) / Math.max(1, ms.length);
+        // the share of the ladder's own bands matched: a 12-band list whose twelfth band falls below
+        // the box scores as well as the gel's 11-band ladder, and explains the lanes with one band
+        // left over
+        const frac = ms => ms.reduce((a, m) => a + m.bands.filter(b => b.matched).length / Math.max(1, m.bands.length), 0) / Math.max(1, ms.length);
+        App.autoMarkers();
+        const fresh = S.markers, d = mean(fresh) - mean(before);
+        const better = fresh.length > 0 && fresh[0].ladderId !== before[0].ladderId && (d >= 0.05 || (d > -0.02 && frac(fresh) > frac(before) + 0.02));
+        App.autoAll.ladderChanged = better ? [before[0].ladderId, fresh[0].ladderId, +mean(before).toFixed(3), +mean(fresh).toFixed(3)] : null;
+        if (!better) {
+          const added = fresh.filter(m => !before.some(q => q.lane === m.lane)).map(m => Object.assign(m, { ladderId: before[0].ladderId, unit: before[0].unit }));
+          S.markers = before.concat(added).sort((a, b) => a.lane - b.lane);
+          if (added.length) {
+            App.matchMarkers(true);
+            // an added lane that fits the ladder in use poorly is a sample lane
+            S.markers = S.markers.filter(m => m.score == null || m.score >= 0.45 || before.some(q => q.lane === m.lane));
+          }
+        } else if (App.reframeCropRows()) App.matchMarkers(true);   // the rows framed again with the right ladder's bands (its faint top band)
       }
+      // the geometry's figures are stated over the box: worked out again for the new rows
+      if (S.geom) Object.assign(S.geom, App.geomReport());
     }
     T('fix');
     App.fixIndices();

@@ -857,6 +857,25 @@
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.smallInFrame = { lanes: st.lanes.length, hit, crop: c, passes, onGel, rowsFramed, ok: hit === 12 && st.lanes.length === 12 && onGel && rowsFramed && passes >= 2 };
     }
+    // 51. a remembered ladder with one band more than the gel's does not stick: a usual ladder that fits
+    // well but not perfectly is checked against the whole library, and the ladder that fits every band
+    // wins (the sanity-check photograph: a 12-band list on an 11-band ladder put every size one band high);
+    // a usual ladder that fits perfectly stays
+    {
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      // (a 100 bp ladder in the first and the last lane, so that the gel's ladder is not the type's default,
+      // which is always among the usual ladders; the remembered list is that ladder with a band too many at the top)
+      const right = G.Ladders.get('neb100'), longer = G.Ladders.saveCustom('uitest one band more', right.sizes.concat([2000]), 'dna');
+      const samples = [null, [[1500, 0.55]], [[1500, 0.6]], [[1500, 0.5], [60, 0.15]], [], [[850, 0.5]], [[850, 0.45], [3000, 0.12]], [[480, 0.65]], [[480, 0.62]], [[2200, 0.4], [700, 0.4]], [[60, 0.2]], right.sizes.map(z => [z, right.ref.includes(z) ? 0.75 : 0.38])];
+      await App.load(new File([G.Demo.encodeTiff16(G.Demo.makeGel({ preset: 'dna', tilt: 0, samples, ladder: 'neb100' }))], 'dna_two_ladders.tif'), 'dna-agarose');
+      const keepPref = App.prefLadder;
+      App.prefLadder = longer.id; App.autoMarkers(); const got = App.S.markers.map(m => m.ladderId), notice = App.ladderNotice || '';
+      App.prefLadder = 'neb100'; App.autoMarkers(); const kept = App.S.markers.map(m => m.ladderId), quiet = App.ladderNotice || '';
+      App.prefLadder = keepPref; G.Ladders.removeCustom(longer.id);
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.ladderRecheck = { got, kept, notice, quiet, ok: got.length === 2 && got.every(id => id === 'neb100') && /fits the marker lanes better/.test(notice) && kept.length === 2 && kept.every(id => id === 'neb100') && !quiet };
+    }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

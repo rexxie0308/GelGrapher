@@ -58,8 +58,8 @@
     P('biounstained', 'Bio-Rad Precision Plus Unstained (1610363)', BIORAD, [75, 50, 25]),
     P('biowesternc', 'Bio-Rad Precision Plus WesternC (1610376)', BIORAD, [75, 50, 25]),
     P('nebp7712', 'NEB Color Prestained Protein Standard, Broad Range 11–245 kDa (P7712S / P7712L)', [245, 190, 135, 100, 80, 58, 46, 32, 25, 22, 17, 11]),
-    P('nebp7718', 'NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7718S / P7718L)', [250, 180, 130, 95, 72, 55, 43, 34, 26, 17, 10], [72, 26]),
-    P('nebp7717', 'NEB Unstained Protein Standard, Broad Range 10–200 kDa (P7717S / P7717V)', [250, 150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 10]),
+    P('nebp7719s', 'NEB Color Prestained Protein Standard, Broad Range 10–250 kDa (P7719S / P7719L)', [250, 180, 130, 95, 72, 55, 43, 34, 26, 17, 10], [72, 26]),
+    P('nebp7703', 'NEB Protein Ladder 10–250 kDa (P7703S)', [250, 150, 100, 80, 60, 50, 40, 30, 25, 20, 15, 10], [80, 25]),
     P('novexsharp', 'Invitrogen Novex Sharp Pre-stained (LC5800)', [260, 160, 110, 80, 60, 50, 40, 30, 20, 15, 10, 3.5]),
     P('seeblueTG', 'Invitrogen SeeBlue Plus2, Tris-glycine (LC5925)', [250, 148, 98, 64, 50, 36, 22, 16, 6, 4]),
     P('seeblueMES', 'Invitrogen SeeBlue Plus2, Bis-Tris MES (LC5925)', [188, 98, 62, 49, 38, 28, 17, 14, 6, 3]),
@@ -120,8 +120,10 @@
   }
   // kind: optional filter ('dna' | 'rna' | 'protein' | 'native')
   function all(kind) { const a = L.concat(loadCustom()); return kind ? a.filter(l => l.kind === kind) : a; }
-  // ids of earlier versions: 'nebp7719' carried the 11–245 kDa list, which is P7712's
-  const ALIAS = { nebp7719: 'nebp7712' };
+  // ids of earlier versions (docs/ladder-sources.md): 'nebp7719' carried the 11–245 kDa list, which is
+  // P7712's; 'nebp7718' the 10–250 kDa colour list, which is P7719's; 'nebp7717' the 12-band 10–250 kDa
+  // list, which is the Protein Ladder P7703's (P7717 has 13 bands, 10–200 kDa, and is not in the library yet)
+  const ALIAS = { nebp7719: 'nebp7712', nebp7718: 'nebp7719s', nebp7717: 'nebp7703' };
   function get(id) { id = ALIAS[id] || id; return all().find(l => l.id === id); }
   // portable definitions of the custom ladders among `ids` (built-ins never need to travel)
   function defsFor(ids) { return [...new Set(ids)].map(get).filter(l => l && l.custom).map(l => ({ id: l.id, name: l.name, sizes: l.sizes, ref: l.ref || [], kind: l.kind })); }

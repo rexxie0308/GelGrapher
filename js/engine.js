@@ -1981,12 +1981,22 @@
   function jointLaddersFast(peaksList, ladders, h, preferIds) {
     const fav = new Set(Array.isArray(preferIds) ? preferIds : preferIds ? [preferIds] : []);
     const bonus = id => (fav.has(id) ? FAV_BONUS : 0);
+    // the fast score (greedy assignment, a band beyond the crop free) saturates at 1 for every list
+    // that is about as long as the lane's peaks, so the shortlist of each lane is scored again with
+    // the full chain assignment, which tells an 11-band ladder that explains every peak from a
+    // 12- or 14-band list that leaves one unmatched
+    // (ties, e.g. an 11-band ladder and a 12-band list whose twelfth band falls below the box, go
+    // to the ladder with the larger share of its own bands matched: the list that explains the lane
+    // with nothing left over)
+    const full = (pk, c) => { matchMulti.fast = false; try { const r = matchMulti([{ peaks: pk, sizes: c.sizes, models: c.models }], h); return { score: r.score, frac: (r[0].matchedCount || 0) / c.sizes.length }; } finally { matchMulti.fast = true; } };
     const per = peaksList.map(pk => ladders.map(l => {
       const D = prepLane({ peaks: pk, sizes: l.sizes });
       const models = D.ys.length >= 2 ? ransacModels(D, h, 12) : [];
       const r = models.length ? matchMulti([{ peaks: pk, sizes: l.sizes, models }], h) : null;
-      return { id: l.id, sizes: l.sizes, models, score: r ? r.score : 0 };
-    }).filter(c => c.score >= 0.4).sort((a, b) => (b.score + bonus(b.id)) - (a.score + bonus(a.id))).slice(0, 7));
+      return { id: l.id, sizes: l.sizes, models, score: r ? r.score : 0, frac: 0 };
+    }).filter(c => c.score >= 0.4).sort((a, b) => (b.score + bonus(b.id)) - (a.score + bonus(a.id))).slice(0, 7)
+      .map(c => Object.assign(c, { fast: c.score }, c.models.length ? full(pk, c) : { score: 0, frac: 0 }))
+      .sort((a, b) => ((b.score + bonus(b.id)) - (a.score + bonus(a.id))) || (b.frac - a.frac)));
     if (per.some(c => !c.length)) return null;
     const combos = per.reduce((acc, cands) => {
       const out = [];
@@ -1997,9 +2007,11 @@
     for (const combo of combos) {
       const r = combo.length === 1 ? null : matchMulti(combo.map((c, i) => ({ peaks: peaksList[i], sizes: c.sizes, models: c.models })), h);
       const s = r ? r.score : combo[0].score;
-      const obj = s + combo.reduce((a, c) => a + bonus(c.id), 0) / combo.length;
+      // (a tie between combinations goes to the one whose ladders explain their lanes with the
+      // larger share of their own bands)
+      const obj = s + combo.reduce((a, c) => a + bonus(c.id), 0) / combo.length + combo.reduce((a, c) => a + c.frac, 0) / combo.length * 1e-3;
       if (jointLadders.trace) jointLadders.trace.push([combo.map(c => c.id).join('+'), +s.toFixed(3)]);
-      if (obj > bestObj) { bestObj = obj; best = combo.map((c, i) => ({ id: c.id, score: r ? r[i].score : c.score })); best.score = s; }
+      if (obj > bestObj) { bestObj = obj; best = combo.map((c, i) => ({ id: c.id, score: r ? r[i].score : c.score, frac: c.frac })); best.score = s; }
     }
     return best;
   }

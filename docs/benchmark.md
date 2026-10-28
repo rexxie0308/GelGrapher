@@ -35,6 +35,7 @@ The images never leave your machine: `bench/real/` is ignored by git.
 | `lanes` | how many wells the gel has (the lattice must find exactly this many) |
 | `laneX`, `laneY` | the lane centres in pixels of the original image, measured along the row `laneY` (the middle of the image when left out); every centre must be found within 0.3 lane pitch |
 | `ladders` | the wells that hold a ladder, counted from 1 on the left (the automatic markers must be exactly these) |
+| `ladderId` | the id of the ladder product (`js/ladders.js`) every marker lane must be matched with, e.g. `nebp7719s` |
 | `keystonePct`, `keystoneRows`, `keystoneTol` | the perspective you measured (the Manual box's figure, or the lane spacing at the top over the bottom, minus 1, in %), with a tolerance in points (4 when left out). The figure is stated over the rows of a box, so give the height in pixels of the box you measured it over (`keystoneRows`); the bench scales it to the rows the app framed |
 
 3. Run it:
