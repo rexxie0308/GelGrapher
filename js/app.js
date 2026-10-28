@@ -342,6 +342,37 @@
    * source: a keystone, the per-lane straightening, or both composed), composed with the
    * rotation so the pixels are resampled once. Every annotation lives in this frame. */
   App.geomGrid = function (S) { S = S || App.S; return S.geom && S.geom.grid ? S.geom.grid : null; };
+  /* The original pixels for densitometry. sourceRegion() returns null when the working frame is the
+   * source itself (no rotation, no geometry); otherwise a function (xa, xb, ya, yb) -> rows that maps
+   * the working-frame rectangle [xa, xb) x [ya, yb) back to the source (geometry grid, then the
+   * inverse rotation) as a quadrilateral of its four corners and returns, for every source row the
+   * quadrilateral crosses, the raw values of the source pixels whose centres lie inside it
+   * ({ y, v: Float32Array }): every original pixel once, none resampled. */
+  App.sourceRegion = function () {
+    const S = App.S, g = App.geomGrid(S), R = App.rotM(S);
+    if (!g && E.M3.isIdentity(R)) return null;
+    App.applyFlip();
+    const Ri = E.M3.inv(R), src = App.src, w = src.w, h = src.h;
+    const map = (x, y) => { const s = g ? E.Grid.at(g, x, y) : { x, y }; return E.M3.apply(Ri, s.x, s.y); };
+    return (xa, xb, ya, yb) => {
+      const q = [map(xa, ya), map(xb, ya), map(xb, yb), map(xa, yb)];
+      const Y0 = Math.max(0, Math.floor(Math.min(...q.map(p => p.y)))), Y1 = Math.min(h - 1, Math.ceil(Math.max(...q.map(p => p.y))));
+      const rows = [];
+      for (let Y = Y0; Y <= Y1; Y++) {
+        // the quadrilateral's span on the line through the row's pixel centres
+        const yc = Y + 0.5; let xl = Infinity, xr = -Infinity;
+        for (let k = 0; k < 4; k++) {
+          const a = q[k], b = q[(k + 1) % 4];
+          if ((a.y <= yc && b.y > yc) || (b.y <= yc && a.y > yc)) { const x = a.x + (b.x - a.x) * (yc - a.y) / (b.y - a.y); xl = Math.min(xl, x); xr = Math.max(xr, x); }
+        }
+        if (xr < xl) continue;
+        const X0 = Math.max(0, Math.ceil(xl - 0.5)), X1 = Math.min(w - 1, Math.floor(xr - 0.5));
+        if (X1 < X0) continue;
+        rows.push({ y: Y, v: src.data.subarray(Y * w + X0, Y * w + X1 + 1) });
+      }
+      return rows;
+    };
+  };
   App.rotM = function (S) { S = S || App.S; const W = App.src.w, H = App.src.h; return E.M3.rotation(S.rotation, (W - 1) / 2, (H - 1) / 2); };
   App.frameKey = function (S) {
     S = S || App.S; const g = App.geomGrid(S);
@@ -547,6 +578,20 @@
     return { lines, rows: kept.length >= 3 ? kept : [] };
 
   };
+  /* The band rows' vanishing point from the slab's top and bottom edges (the four corners of the
+   * outline): the two edges meet where the band rows would; used when fewer than three ladders can
+   * give it. Null unless the gel's height differs by at least 2 % between the crop's left and right. */
+  App.slabRowVanishing = function (q, c) {
+    const [TL, TR, BR, BL] = q;
+    const top = x => TL[1] + (TR[1] - TL[1]) * (x - TL[0]) / Math.max(1e-9, TR[0] - TL[0]), bot = x => BL[1] + (BR[1] - BL[1]) * (x - BL[0]) / Math.max(1e-9, BR[0] - BL[0]);
+    const hL = bot(c.x) - top(c.x), hR = bot(c.x + c.w) - top(c.x + c.w), change = (hR - hL) / Math.max(1e-9, (hR + hL) / 2);
+    if (!(Math.abs(change) >= 0.02) || hL <= 0 || hR <= 0) return null;
+    // intersection of the two edge lines
+    const d1 = [TR[0] - TL[0], TR[1] - TL[1]], d2 = [BR[0] - BL[0], BR[1] - BL[1]], den = d1[0] * d2[1] - d1[1] * d2[0];
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((BL[0] - TL[0]) * d2[1] - (BL[1] - TL[1]) * d2[0]) / den;
+    return { change, point: { x: TL[0] + d1[0] * t, y: TL[1] + d1[1] * t } };
+  };
   App.bandRowVanishing = function () { const r = App.bandRows(); return r.lines.length >= 3 ? E.vanishing(r.lines, App.S.crop.x + App.S.crop.w / 2, App.S.crop.w) : null; };
   /* After the lanes are rebuilt (fn), find the marker lanes again but keep the ladder the user chose
    * for a marker that is still at (about) the same position. Returns what fn returned. */
@@ -591,7 +636,7 @@
     let S = App.S;
     const W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
     let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, Hk = (S.geom && S.geom.H) || E.M3.I();
-    let grid = App.geomGrid(S), slab = null;
+    let grid = App.geomGrid(S), slab = null, qSlab = null, rowsFrom = null;
     const inCrop = () => { const c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3); return S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5); };
     // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
     // walls sit between the lanes and would offset the comb by half a pitch
@@ -615,8 +660,10 @@
     if (!grid) {
       App.progress('Gel shape: measuring the slab outline…'); await App.yield();
       const c = S.crop, q = E.slabQuad(App.ensureRot(), { x: c.x + c.w / 2, y: c.y + c.h / 2, win: { x0: c.x - c.w * 0.5, x1: c.x + c.w * 1.5, y0: c.y - c.h * 0.5, y1: c.y + c.h * 1.5 } });
+      qSlab = q;
       const Hq = q && E.homographyFromQuad(q);
-      if (Hq && E.Grid.maxScale(E.Grid.fromH(Hq, W, Hh)) < 0.45) {
+      // a global homography that scales any cell by more than a fifth is not a camera angle
+      if (Hq && E.Grid.maxScale(E.Grid.fromH(Hq, W, Hh)) < 0.2) {
         const before = convergence(), snap = App.snapshot();
         App.setGeom({ mode: 'auto', grid: E.Grid.fromH(Hq, W, Hh), H: Hq, corners: q, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0 });
         App.autoLanes();
@@ -644,11 +691,18 @@
       const v = E.laneComb(img, S.bright, c, xs, P, 16, rounds ? 1.5 : 3, yMin()), u = App.bandRowVanishing();
       lines = v ? v.n : 0;
       const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
-      const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
+      let U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
+      if (U) rowsFrom = 'ladder band rows';
+      // without three ladders the band rows' convergence is read from the slab's top and bottom
+      // edges (the well line and the slab bottom are straight lines of the gel, not sample bands)
+      // (tried at load and withheld: on the synthetic Western example the outline's top edge is fitted
+      // on the comb teeth and its tilt read as a 10 % row convergence on an undistorted gel; it needs a
+      // test that the two edges are straight and agree with the well line before it can be trusted)
+      if (!U && !rounds && qSlab && App.slabRowsFromOutline) { const su = App.slabRowVanishing(qSlab, c); if (su) { U = su.point; rowsFrom = 'slab edges'; } }
       App.autoGeometry.debug.push({ round: rounds, keystone: true, frame: App.frameKey(S), xs: xs.map(Math.round), P: +P.toFixed(1), crop: c, bands: lines, combDbg: E.laneComb.debug, lanes: v && +v.change.toFixed(4), lanesSig: v && v.se ? +(Math.abs(v.change) / v.se).toFixed(1) : null, rows: u && +u.change.toFixed(4) });
-      // a first-round keystone must move the far lane by at least 0.15 pitch over the crop (a smaller
+      // a first-round keystone must move the far lane by at least 0.1 pitch over the crop (a smaller
       // one is within the comb's own noise and would only put a spurious line into the legend)
-      if (V && !rounds && Math.abs(v.change) < 0.3 / Math.max(1, xs.length - 1)) { converged = true; break; }
+      if (V && !rounds && Math.abs(v.change) < 0.2 / Math.max(1, xs.length - 1)) { converged = true; break; }
       if (!V && !U) { converged = true; break; }
       // a spacing that would more than double over the crop is not a camera angle
       if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
@@ -703,7 +757,16 @@
     }
     // after a straightening the lanes are cleaner: the ladders are looked for once more, which is
     // cheap now that the gel's ladder is known (a lane that fits it names itself); otherwise re-fitted
-    if (applied && S.geom) { if (slab) S.geom.slab = true; if (S.markers.length && !(S.geom.bendPx > 0)) App.matchMarkers(true); else App.relaneMarkers(() => 0); Object.assign(S.geom, App.geomReport()); }
+    if (applied && S.geom) {
+      if (slab) S.geom.slab = true;
+      if (rowsFrom) S.geom.rowsFrom = rowsFrom;
+      if (S.markers.length && !(S.geom.bendPx > 0)) App.matchMarkers(true); else App.relaneMarkers(() => 0);
+      Object.assign(S.geom, App.geomReport());
+      // disclosed with the correction: what remains of the lane convergence, and the largest local scale of the map
+      const P = S.lanePitch || (S.laneHalfW / 0.3), vf = inCrop().length >= 4 ? E.laneComb(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, 3, yMin()) : null;
+      S.geom.residualPct = vf ? +(vf.change * 100).toFixed(1) : null;
+      S.geom.scaleMax = +(E.Grid.maxScale(S.geom.grid) * 100).toFixed(1);
+    }
     S.geomChecked = true;   // the panel says "checked, none needed" rather than "off" when nothing was applied
     const k = S.geom, dl = S.lanes.length - lanes0;
     if (!applied) return { applied: false, rounds, lanes: S.lanes.length, converged, message: S.lanes.length < 3 ? 'Geometry needs at least three lanes (add them with "+ Add lane" or "Space evenly", then try again)' : `No correction needed: the lanes run straight and parallel (${lines} bands of lanes measured, largest bend ${bendBefore.toFixed(1)} px).` };

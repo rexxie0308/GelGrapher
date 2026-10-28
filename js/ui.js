@@ -937,7 +937,7 @@
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
     const k = st.geom;
-    $('ksNote').textContent = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}`;
+    $('ksNote').textContent = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}${st.geom && st.geom.residualPct != null ? ` · residual ${st.geom.residualPct} %` : ''}`;
     geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';

@@ -336,7 +336,9 @@
     // over the whole crop is a compromise and its outer teeth sit off the lanes of any one band
     let c0m = idx[0].x, p0m = pitch;
     { let W = 0, si = 0, sx = 0, sii = 0, six = 0; idx.forEach(l => { W++; si += l.i; sx += l.x; sii += l.i * l.i; six += l.i * l.x; }); const den = W * sii - si * si; if (den > 0) { p0m = (W * six - si * sx) / den; c0m = (sx - p0m * si) / W; } }
-    // p and c linear in y; a band off the trend (sheared pockets, the dye front) is dropped, at most a quarter of them
+    // p and c linear in y by least squares over every fitted band (no band trimmed, so the standard
+    // error is not optimistic; a Theil-Sen slope was tried and swung the estimate on a gel whose
+    // spacing changes faster at the bottom than at the top)
     const line = (F, key) => {
       const n = F.length;
       let sy = 0, sv = 0, syy = 0, syv = 0;
@@ -376,14 +378,7 @@
       }
     }
     if (fits.length < 5) return null;
-    let F = fits.slice(), lp = line(F, 'p'), lc = line(F, 'c');
-    const keep = Math.max(5, Math.ceil(fits.length * 3 / 4));
-    while (lp && lc && F.length > keep) {
-      let worst = -1, we = 0;
-      F.forEach((f, k) => { const t = f.y - yc, e = Math.abs(f.p - (lp.b0 + lp.b1 * t)) / pitch + Math.abs(f.c - (lc.b0 + lc.b1 * t)) / pitch; if (e > we) { we = e; worst = k; } });
-      if (we < 0.03) break;
-      F = F.filter((f, k) => k !== worst); lp = line(F, 'p'); lc = line(F, 'c');
-    }
+    const F = fits.slice(), lp = line(F, 'p'), lc = line(F, 'c');
     if (!lp || !lc) return null;
     const p0 = lp.b0, p1 = lp.b1, c0 = lc.b0, c1 = lc.b1;
     const change = p1 * crop.h / p0, se = lp.se * crop.h / p0;

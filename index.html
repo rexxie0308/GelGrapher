@@ -408,7 +408,7 @@
               <canvas id="qProfile" height="130"></canvas>
               <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
             </details>
-            <p class="hint" id="quantNote">Integrated density of each box, from the raw pixel values (rotation, and the geometry correction when one is on, in one bilinear resampling; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+            <p class="hint" id="quantNote">Integrated density of each box, from the original pixel values (the box is mapped back through the rotation and the geometry correction and read at the original pixels; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
           </div>
           <div id="quantSize" class="hidden">
             <p class="lead">Every band in every lane of the figure, sized against the marker.</p>

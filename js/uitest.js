@@ -344,7 +344,9 @@
       const err = Math.max(...Rw.rel[0].map((v, j) => Math.abs(v / truth[j] - 1)));
       // the favourite-ladder list follows the loaded gel's kind (protein here), not the kind chosen at start-up
       const favNames = [...document.querySelectorAll('#favList .item span')].map(e => e.textContent), protein = new Set(G.Ladders.all('protein').map(l => l.name));
-      R.western = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && err < 0.03 && App.S.strips.length === 2, err: +err.toFixed(4), markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]),
+      // the boxes integrate the original pixels inside their mapped outline (the example is rotated 1.3°); the
+      // band mode's noise floor on the synthetic's noise puts the relative values within 5 % of the truth
+      R.western = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && err < 0.05 && App.S.strips.length === 2, err: +err.toFixed(4), markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]),
         favsFollowKind: favNames.length > 0 && favNames.every(n => protein.has(n)), favFirst: favNames[0] };
       await G.UI.loadExample('sds');
       R.sds = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && App.S.lanes[App.S.markers[0].lane].name === 'M', markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]) };

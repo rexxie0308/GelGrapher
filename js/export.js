@@ -332,9 +332,10 @@
     if (g.mode === 'manual') parts.push(`one projective (perspective) transform of the whole image from four slab corners marked by hand: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
     else {
       if (Math.abs(g.lanesPct) >= 0.5 || Math.abs(g.bandsPct) >= 0.5) parts.push(`one projective (perspective) transform of the whole image ${g.slab ? 'from the outline of the slab, checked against the lane lines' : `estimated from the lane lines${g.rows ? ' and the ladder bands' : ''}`}: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
+      if (g.rowsFrom === 'slab edges') parts.push('the band rows\' convergence read from the slab\'s top and bottom edges');
       if (g.bendPx >= 0.5) parts.push(`a smooth displacement field that straightens the traced lanes (${g.lanes} lanes, largest horizontal shift ${g.bendPx.toFixed(1)} px)${g.rows ? ` and levels ${g.rows} ladder band rows across the marker lanes (largest vertical shift ${(g.dyPx || 0).toFixed(1)} px, capped at 0.3 of the row spacing)` : ''}; sample bands were not used as anchors`);
     }
-    return parts.join(', and ');
+    return parts.join(', and ') + (g.residualPct != null || g.scaleMax != null ? `; after it the lanes converge by ${g.residualPct != null ? g.residualPct : '?'} % and the map scales no cell by more than ${g.scaleMax != null ? g.scaleMax : '?'} %` : '');
   }
   const KIND_LADDER = { dna: 'DNA ladders', rna: 'RNA ladders', protein: 'protein molecular-weight markers', native: 'native protein markers' };
   function legendHints(S) {
