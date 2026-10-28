@@ -1963,9 +1963,11 @@
   }
 
   // Count of distinct sharp bands: used to recognise ladder lanes
+  // clear bands of a lane: a fifth of its third-strongest peak or more, so one or two saturated
+  // bands (a ladder's reference bands, the heavy band at the foot of a lane) do not hide the rest
   function sharpBandCount(peaks) {
-    const vmax = Math.max(0, ...peaks.map(p => p.v));
-    return peaks.filter(p => p.v >= vmax * 0.2).length;
+    const vs = peaks.map(p => p.v).sort((a, b) => b - a), ref = vs[Math.min(2, vs.length - 1)] || 0;
+    return peaks.filter(p => p.v >= ref * 0.2).length;
   }
 
   /* Pick ladders for the marker lanes of one gel jointly (they must agree on one migration curve).
