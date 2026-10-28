@@ -59,6 +59,9 @@ const res = await pg.evaluate(async (gels) => {
     };
     const okLanes = r.lanesWant == null || (r.lanes === r.lanesWant && (!g.laneX || laneHits === g.laneX.length));
     const okLadders = !want.length || (ladderHit === want.length && ladders.length === want.length);
+    // the keystone is stated over the box's rows: a label measured over a taller box (keystoneRows)
+    // is scaled to the rows the app framed
+    if (r.keystoneWant != null && g.keystoneRows) r.keystoneWant = +(r.keystoneWant * S.crop.h / g.keystoneRows).toFixed(1);
     const okKeystone = r.keystoneWant == null || r.keystone == null || Math.abs(r.keystone - r.keystoneWant) <= (g.keystoneTol || 4);
     r.ok = okLanes && okLadders && okKeystone;
     r.miss = [!okLanes && 'lanes', !okLadders && 'ladders', !okKeystone && 'keystone'].filter(Boolean).join(' ');

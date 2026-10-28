@@ -1028,30 +1028,49 @@
   // a box drawn by hand would. Kept as it is when fewer than a lane spacing of bands is found.
   App.reframeCropRows = function () {
     const S = App.S, c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3), H = App.ensureRot().h;
-    let top = Infinity, bot = -Infinity;
-    S.markers.forEach(m => { const l = S.lanes[m.lane]; if (!l || l.x < c.x || l.x > c.x + c.w) return; m.bands.forEach(b => { if (b.y == null) return; top = Math.min(top, b.y); bot = Math.max(bot, b.y); }); });
     const strip = App.bandStrip();
     const inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
-    // the ladders' bands set the extent when there are ladders; the lanes' own peaks can only extend
-    // it (a sample band below the lowest ladder band), and only from below the well pockets (2.5
-    // spacings under the well row: the outline of a pocket's bottom is as lane-local as a band)
+    // per lane: the ladder's assigned bands when the lane is a marker, plus the lane's own clear
+    // peaks, from below the well pockets (2.5 spacings under the well row)
     const yMin = App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 2.5 : -Infinity;
-    // a band belongs to one lane: strong at the lane and weak in the gaps beside it. The dark
-    // outlines of the well pockets and the gel's top edge cross every lane and show as peaks in a
-    // lane's profile too, but they are as strong half a lane spacing to either side; those are not bands
-    const gapPeaks = x => E.detectBands(E.laneProfile(strip, S.bright, x, Math.max(2, S.laneHalfW * 0.6)));
-    const all = inside.map(i => {
-      const x = S.lanes[i].x, pk = E.detectBands(E.laneProfile(strip, S.bright, x, S.laneHalfW));
-      const gl = gapPeaks(x - P / 2), gr = gapPeaks(x + P / 2);
-      const gapAt = y => Math.max(0, ...gl.concat(gr).filter(g => Math.abs(g.y - y) <= 3).map(g => g.v));
-      return pk.filter(q => c.y + q.y >= yMin && q.v > 1.4 * gapAt(q.y));
+    // only the lane's own peaks (App.laneLocalPeaks: an outline or the dye front is as dark in the gaps)
+    const peaksOf = inside.map(i => App.laneLocalPeaks(strip, S.bright, S.lanes[i].x, S.laneHalfW, P).filter(q => c.y + q.y >= yMin));
+    const mx = Math.max(0, ...peaksOf.flat().map(q => q.v));
+    let top = Infinity, bot = -Infinity;
+    const lanes = [];
+    inside.forEach((i, k) => {
+      const pk = peaksOf[k], lm = Math.max(0, ...pk.map(q => q.v));
+      // a lane counts when loaded (its strongest band a sixth of the gel's); only its clear bands (a
+      // third of its own strongest) count: the faint tail of a smear or the foot of a heavy band is not a band
+      const cand = lm >= mx * 0.15 ? pk.filter(q => q.v >= lm * 0.3).map(q => ({ y: c.y + q.y, v: q.v / lm })) : [];
+      // a ladder's assigned band counts when it sits on one of the lane's own peaks (the matcher
+      // may have put a size on an outline)
+      S.markers.forEach(m => { if (m.lane === i) m.bands.forEach(b => { if (b.y == null) return; const q = pk.find(q => Math.abs(c.y + q.y - b.y) <= P * 0.1); if (q) cand.push({ y: b.y, v: q.v / Math.max(1e-9, lm) }); }); });
+      cand.sort((p, q) => p.y - q.y);
+      // the same row from the ladder's assignment and the lane's own peak counts once
+      for (let j = cand.length - 1; j > 0; j--) if (cand[j].y - cand[j - 1].y < P * 0.1) cand.splice(j, 1);
+      // bands come in a run; the outline of a pocket's bottom (above the first band, with nothing
+      // above it and a long empty stretch below it) and the dye front far below the last band do
+      // not. An end candidate is dropped when its gap to its neighbour is over 2.2 times the next
+      // gap along the lane and over 1.5 lane spacings (the top two bands of a ladder are spaced
+      // like the bands below them), and when it is no stronger than the lane's typical band (a
+      // heavy band standing alone at the bottom of a sparse lane stays); two close peaks both stay
+      const dropped = [];
+      const weak = k => { const others = cand.filter((q, j) => j !== k).map(q => q.v).sort((p, q) => p - q); return cand[k].v <= 0.8 * others[others.length >> 1]; };
+      for (let pass = 0; pass < 2 && cand.length >= 3; pass++) {
+        const n = cand.length, ys = cand.map(q => q.y), g0 = ys[1] - ys[0], g1 = ys[2] - ys[1], gN = ys[n - 1] - ys[n - 2], gM = ys[n - 2] - ys[n - 3];
+        if (g0 > Math.max(2.2 * g1, 1.5 * P) && weak(0)) dropped.push(cand.shift().y);
+        else if (gN > Math.max(2.2 * gM, 1.5 * P) && weak(n - 1)) dropped.push(cand.pop().y);
+        else break;
+      }
+      lanes.push({ lane: i, n: cand.length, rows: cand.map(q => Math.round(q.y)), dropped: dropped.map(Math.round) });
     });
-    const mx = Math.max(0, ...all.flat().map(q => q.v)), ext = [];
-    // a lane counts when loaded (its strongest band a sixth of the gel's); only its clear bands (a
-    // third of its own strongest) extend the ladders' extent: the faint tail of a smear or the
-    // foot of a heavy band is not a band
-    all.forEach((pk, k) => { const lm = Math.max(0, ...pk.map(q => q.v)); if (lm < mx * 0.15) return; pk.forEach(q => { if (q.v >= lm * 0.3) { const y = c.y + q.y; if (y < top || y > bot) ext.push({ lane: inside[k], y: Math.round(y), v: +(q.v / lm).toFixed(2) }); top = Math.min(top, y); bot = Math.max(bot, y); } }); });
-    App.reframeCropRows.debug = { top: Math.round(top), bot: Math.round(bot), ext };
+    // lanes with a run of three or more bands set the extent; a lane with fewer (two peaks, one of
+    // which may be an outline that passed every test) cannot extend it. Only when no lane has a
+    // run (a blot with one or two bands per lane) do all lanes count.
+    const runs = lanes.filter(l => l.n >= 3), use = runs.length ? runs : lanes;
+    use.forEach(l => { if (l.n) { top = Math.min(top, l.rows[0]); bot = Math.max(bot, l.rows[l.n - 1]); } });
+    App.reframeCropRows.debug = { top: Math.round(top), bot: Math.round(bot), lanes };
     if (!isFinite(top) || bot - top < P) return false;
     const m = P * 0.6, y0 = Math.round(Math.max(0, top - m)), y1 = Math.round(Math.min(H, bot + m));
     if (y1 - y0 < 10) return false;
@@ -1160,6 +1179,28 @@
     return { lane, ladderId: ladderId || G.Ladders.favorites(kind)[0] || App.prefLadder || App.gelType().ladder, unit: App.prefUnit || App.baseUnit(), side: 'auto', bands: [] };
   };
 
+  /* The bands of a lane: the peaks of its profile that are the lane's own. A band is strong at the
+   * lane and weak in the gaps beside it; the dark outlines of the well pockets, the gel's edges and
+   * the dye front cross every lane and are as dark half a lane spacing to either side (the walls
+   * between the pockets, the edge itself). A peak whose baseline-corrected height at the lane is not
+   * 1.4 times what the gaps show at that row is left out, so the framing of the box never takes an
+   * outline for a band. (Tried for the ladder matching too and withdrawn: the changed peak lists
+   * let an empty lane's noise win the ladder on the sanity-check photograph.) */
+  App.laneLocalPeaks = function (strip, bright, x, halfW, P) {
+    const prof = E.laneProfile(strip, bright, x, halfW), h = prof.length, r = Math.round(h / 12);
+    const resid = p => { const b = E.baseline(p, r), q = new Float32Array(p.length); for (let y = 0; y < p.length; y++) q[y] = Math.max(0, p[y] - b[y]); return q; };
+    const q = resid(prof), gw = Math.max(2, halfW * 0.5);
+    const gl = resid(E.laneProfile(strip, bright, x - P / 2, gw)), gr = resid(E.laneProfile(strip, bright, x + P / 2, gw));
+    // the clearer of the two gaps decides: an outline, an edge or the dye front is dark on both sides,
+    // while an outer lane has the slab's margin or a torn corner on one side only (and a wide ladder
+    // band reaches into one gap)
+    const side = (g, y) => { let m = 0; for (let k = Math.max(0, y - 2); k <= Math.min(h - 1, y + 2); k++) m = Math.max(m, g[k]); return m; };
+    const gapAt = y => Math.min(side(gl, y), side(gr, y));
+    // a faint band's gaps hold only noise: the gaps must show a real feature (a tenth of the lane's
+    // strongest band) before they can disqualify a peak
+    let qmax = 0; for (let y = 0; y < h; y++) qmax = Math.max(qmax, q[y]);
+    return E.detectBands(prof).filter(k => { const g = gapAt(k.y); return g < qmax * 0.1 || q[k.y] > 1.4 * g; });
+  };
   App.lanePeaks = function (i) {
     const S = App.S, c = App._peakCrop || App.bandStrip();
     return E.detectBands(E.laneProfile(c, S.bright, S.lanes[i].x, S.laneHalfW));
@@ -1373,8 +1414,9 @@
       if (loaded2) App.setLaneRange(loaded2[0], loaded2[1]);
     }
     if (!S.markers.length && geometry) App.autoMarkers();
-    // and its rows on the bands (the well row served the detection; the figure starts at the bands)
-    if (fresh) App.reframeCropRows();
+    // and its rows on the bands (the well row served the detection; the figure starts at the bands);
+    // the geometry's figures are stated over the box, so they are worked out again for the new rows
+    if (fresh && App.reframeCropRows() && S.geom) Object.assign(S.geom, App.geomReport());
     T('fix');
     App.fixIndices();
     App.updateSaturation();
