@@ -297,12 +297,12 @@
       resolution: { gelWidthMm: A.gelWidthMm(), gelPixelsAcross: A.visibleWidthPx(), effectiveGelDpi: Math.round(A.effectiveDpi()), exportDpi: S.style.dpi },
       lanes: S.lanes.map((l, i) => ({ well: i + 1, x: Math.round(l.x * 10) / 10, name: l.name, removedFromFigure: !!l.hidden,
         removal: l.hidden ? { reason: l.hiddenReason || 'manual', xFrom: Math.round(bounds[i][0]), xTo: Math.round(bounds[i][1]) } : undefined })),
-      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, fitScore: m.score, unit: m.unit,
+      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, ladderConfirmedByUser: !!m.confirmed, fitScore: m.score, unit: m.unit,
         bands: m.bands.map(b => ({ size: b.bp, y: Math.round(b.y * 10) / 10, autoMatched: b.matched, manual: b.manual, labelled: b.show })) })),
       arrows: S.arrows.map(a => {
-        const e = A.estimateInfo(a.y);
+        const e = A.estimateInfo(a.y, a.x);
         return { text: a.text, y: Math.round(a.y * 10) / 10, label: A.arrowLabel(a), userSize: a.sizeText || null,
-          estimatedSize: e ? rnd(e.bp) : null, unit, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [],
+          estimatedSize: e ? rnd(e.bp) : null, unit, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [], sizing: e ? e.how : null,
           perMarker: e ? e.perMarker.map(p => ({ well: p.lane + 1, size: rnd(p.bp), extrapolated: p.extrap })) : [] };
       }),
       groups: S.groups.map(g => ({ fromWell: Math.min(g.from, g.to) + 1, toWell: Math.max(g.from, g.to) + 1, text: g.text })),
@@ -356,10 +356,14 @@
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
     const short = n => n.replace(/\s*\([^()]*\)\s*$/, '');   // the name without its trailing catalogue numbers
     const names = [...new Set(lads.map(l => short(l.name)))];
-    if (names.length === 1) h.push(`M, ${names[0]}.`);
+    const unconfirmed = S.markers.some(m => !m.confirmed);
+    if (names.length === 1) h.push(`M, ${names[0]}${unconfirmed ? ' (identified from the band pattern; not confirmed)' : ''}.`);
     else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${short(G.Ladders.get(m.ladderId).name)}`).join('; ')}).`);
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
-    if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
+    if (S.markers.length && A.kind() === 'native') h.push('Sizes on a native gel are apparent: mobility depends on shape and charge as well as mass.');
+    if (lads.some(l => l.id === 'nebscextend')) h.push('The supercoiled ladder sizes supercoiled plasmid DNA only; linear and nicked or relaxed forms run differently.');
+    if (S.markers.length >= 2 && S.arrows.some(a => a.size && !a.sizeText)) h.push('Sizes were interpolated between the ladder lanes on either side of each lane.');
+    if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y, a.x) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
       // the same words as the methods text and the CSV (G.Quant.describe), shortened for a legend
       const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
@@ -388,7 +392,9 @@
   }
   /* Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes
    * (CSV), the processing log and the methods text. fig = {svg, w, h}; chart = {svg, w, h} or null. */
-  async function packageBlob(S, base, fig, chart, dpi) {
+  /* opts.archive: { original: {name, buffer, sha256}, marker: {name, buffer, sha256} | null, project: Blob }:
+   * the complete archive adds the original file(s), byte-identical, and the project file that reopens it all */
+  async function packageBlob(S, base, fig, chart, dpi, opts) {
     const A = G.App, files = [], add = (name, data) => files.push({ name: `${base}/${name}`, data });
     const figPng = await pngBlob(fig.svg, fig.w, fig.h, dpi, S);
     if (figPng) add(`${base}_figure_${dpi}dpi.png`, figPng);
@@ -407,6 +413,14 @@
     if (S.markers.length) add(`${base}_band_sizes.csv`, G.Quant.sizesCSV(A, G.Quant.bandSizes(A)));
     add(`${base}_processing_log.json`, JSON.stringify(processingLog(S), null, 2));
     add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION}\n`);
+    const ar = opts && opts.archive;
+    if (ar) {
+      const keep = f => { const ext = (f.name.match(/\.[^.]+$/) || ['.tif'])[0]; return f.name.replace(/\.[^.]+$/, '') + `_sha256-${String(f.sha256).slice(0, 12)}${ext}`; };
+      add(`original/${keep(ar.original)}`, ar.original.buffer);
+      if (ar.marker) add(`original/${keep(ar.marker)}`, ar.marker.buffer);
+      if (ar.project) add(`${base}.gelfig`, ar.project);
+      add('README.txt', `${base}: complete archive made with ${A.NAME} ${A.VERSION}\n\noriginal/   the source image${ar.marker ? ' and the marker image' : ''}, byte-identical (the SHA-256 in the name; check it with any SHA-256 tool)\n${base}.gelfig   the project: open it in ${A.NAME} (Open / Save > Project file) to continue exactly where this was exported\nthe rest    the figure, chart, measurements, band sizes, processing log and methods text\n`);
+    }
     return { blob: await G.Zip.make(files), files: files.map(f => f.name) };
   }
 

@@ -237,6 +237,16 @@
     });
   }
 
+  /* ---------- save status: the library is this browser's storage, not a backup ---------- */
+  function updateSaveNote() {
+    const el = $('saveNote'), st = App.saveState || {}, t = new Date(st.at || Date.now()).toTimeString().slice(0, 5);
+    const txt = !S() ? '' : st.status === 'saved' ? `Saved in this browser ${t}` : st.status === 'pending' ? 'Saving…' : st.status === 'failed' ? 'Not saved in this browser' : st.status === 'example' ? 'Example: not saved' : '';
+    el.textContent = txt; el.classList.toggle('hidden', !txt); el.classList.toggle('warn', st.status === 'failed');
+    el.title = st.status === 'failed' ? `This browser's storage refused the save (${st.error || 'private window or blocked site data'}). Save a project file (Open / Save → Project…) to keep your work.`
+      : 'Kept in this browser\'s Library, which is cleared with the browser\'s site data. For a portable backup, save a project file (Open / Save → Project…) or export a complete archive.';
+  }
+  App.on(what => { if (what === 'saved' || what === 'loaded' || what === 'closed') updateSaveNote(); });
+
   /* ---------- top bar ---------- */
   $('btnUndo').onclick = () => App.undo();
   $('btnRedo').onclick = () => App.redo();
@@ -248,7 +258,7 @@
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
   }
-  menu('btnTplMenu', 'tplMenu'); menu('btnExportMenu', 'exportMenu');
+  menu('btnTplMenu', 'tplMenu');
   document.addEventListener('click', () => document.querySelectorAll('.menu').forEach(x => x.classList.add('hidden')));
   window.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
@@ -256,7 +266,7 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? App.redo() : App.undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); App.redo(); }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && S()) { e.preventDefault(); printFigure(); }
-    if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); }
+    if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); $('exportDlg').classList.add('hidden'); }
   });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
   $('dpiTop').addEventListener('change', done(e => { S().style.dpi = +e.target.value; }));
@@ -304,14 +314,28 @@
         saved(await G.Export.exportPPTX(f.svg, `${baseName()}_figure.pptx`, S(), { crop: App._lastCrop, gel: App._lastGel }), 'Exported an editable PowerPoint slide');
         return;
       }
+      if (kind === 'svg') { saved(await G.Export.exportSVG(f.svg, baseName() + '_figure.svg'), 'Exported SVG'); return; }
       const fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
       const st = kind === 'tiff' ? await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S())
         : await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
       saved(st, `Exported ${dpi} dpi ${fmt}` + (eff < dpi ? ` (the gel itself is ${eff} dpi)` : ''));
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPNGItem').onclick = () => exportFigure('png');
-  $('btnFigExport').onclick = () => exportFigure($('figFmt').value);
+  /* ---------- the export dialog: one decision with four scoped answers ---------- */
+  function openExport(card) {
+    if (needImage()) return;
+    const has = !!(S().quant.rows.length && G.QuantUI && G.QuantUI.chart());
+    $('expChartCard').classList.toggle('off', !has); $('btnExpChart').disabled = !has; $('qChartFmt').disabled = !has;
+    $('expDpiNote').textContent = `Raster exports at ${S().style.dpi} dpi (the resolution menu in the top bar)`;
+    document.querySelectorAll('#exportDlg .exp-card').forEach(c => c.classList.toggle('focus', c.dataset.card === card));
+    $('exportDlg').classList.remove('hidden');
+  }
+  const closeExport = () => $('exportDlg').classList.add('hidden');
+  $('btnExport').onclick = () => openExport();
+  $('btnExportClose').onclick = closeExport;
+  $('btnFigExport').onclick = () => openExport('figure');
+  $('btnPNGItem').onclick = () => { closeExport(); exportFigure($('figFmt').value); };
+  $('btnExpChart').onclick = () => { closeExport(); G.QuantUI.exportChart($('qChartFmt').value); };
   /* ---------- print (for a lab notebook) ----------
    * A page with the figure at a readable size and a caption: file, experiment, date, the legend notes. Printed from a
    * hidden frame of this page, so nothing leaves the browser. The artifact viewer cannot print: there the same page is
@@ -341,25 +365,30 @@
     setTimeout(() => fr.remove(), 60000);
   }
   $('btnPrint').onclick = printFigure;
-  $('btnPrintMenu').onclick = printFigure;
-  $('btnTIFF').onclick = () => exportFigure('tiff');
-  $('btnPDF').onclick = () => exportFigure('pdf');
-  $('btnPPTX').onclick = () => exportFigure('pptx');
-  /* everything in one ZIP: figure, chart, measurements, band sizes, log, methods (the Claude viewer saves ZIPs) */
-  async function exportPackage() {
+  $('btnPrintMenu').onclick = () => { closeExport(); printFigure(); };
+  /* the results package: figure, chart, measurements, band sizes, log, methods in one ZIP (the Claude viewer
+   * saves ZIPs); archive: plus the original file(s), byte-identical, and the project file */
+  async function exportPackage(archive) {
     if (needImage()) return;
+    closeExport();
     if (!(await preflight())) return;
     App.busy(true, 'Packing…');
     try {
-      const f = figForExport(), ch = G.QuantUI ? G.QuantUI.chart() : null;
-      const r = await G.Export.packageBlob(S(), baseName(), f, ch, S().style.dpi);
-      saved(await G.Export.download(r.blob, baseName() + '_package.zip'), `Exported ${r.files.length} files in one ZIP`);
+      const f = figForExport(), ch = G.QuantUI ? G.QuantUI.chart() : null, st = S();
+      const opts = archive === true ? { archive: {
+        original: { name: st.file.name, buffer: App.srcBuffer, sha256: st.file.sha256 },
+        marker: App.hasMarkerImage() ? { name: st.markerImage.name, buffer: App.markerBuffer, sha256: st.markerImage.sha256 } : null,
+        project: await App.projectBlob() } } : undefined;
+      const r = await G.Export.packageBlob(st, baseName(), f, ch, st.style.dpi, opts);
+      saved(await G.Export.download(r.blob, baseName() + (archive === true ? '_archive.zip' : '_results.zip')), archive === true ? `Exported the complete archive (${r.files.length} files, with the original image and the project)` : `Exported the results package (${r.files.length} files)`);
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
-  $('btnPNG').onclick = exportPackage;   // the green button: everything in one ZIP
+  $('btnPNG').onclick = () => exportPackage(false);
+  $('btnArchive').onclick = () => exportPackage(true);
   // copy the figure as a PNG: the quickest way into a slide or a notebook entry
   $('btnCopyFig').onclick = async () => {
     if (needImage()) return;
+    closeExport();
     App.busy(true, 'Rendering…');
     try {
       const f = figForExport(), dpi = S().style.dpi;
@@ -372,7 +401,6 @@
       toast('The clipboard is not available here; use Export figure instead', 3600);
     } finally { App.busy(false); }
   };
-  $('btnSVG').onclick = async () => { if (needImage() || !(await preflight())) return; saved(await G.Export.exportSVG(figForExport().svg, baseName() + '_figure.svg'), 'Exported SVG'); };
   $('btnUncropped').onclick = async () => { if (needImage()) return; App.renderFull(); saved(await G.Export.exportUncropped(S(), App.fullCanvas, baseName() + '_uncropped_same-processing.png'), 'Exported the uncropped image (same processing as the figure)'); };
   $('btnOriginal').onclick = async () => {
     if (needImage()) return;
@@ -615,15 +643,18 @@
   };
   $('cropLaneN').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); evenCrop(); } });
 
-  // empty lanes inside the range: suggest cutting them (never done silently)
+  // low-signal lanes inside the range: ask what they are. A lane with no bands may be the experiment's
+  // negative control, so marking it as one comes first; leaving it out of the figure is the second choice
+  // (never done silently, never touching the analysis)
   const ignoredEmpty = new Set();
   function updateEmptyBar() {
-    const st = S(), empt = App.emptyLanes().filter(i => !ignoredEmpty.has(st.file.sha256 + ':' + i));
+    const st = S(), empt = App.emptyLanes().filter(i => !ignoredEmpty.has(st.file.sha256 + ':' + i) && !(st.lanes[i] && st.lanes[i].role === 'neg') && !st.lanes[i].hidden);
     $('emptyBar').classList.toggle('hidden', !empt.length);
     if (!empt.length) return;
     const wells = list(empt.map(i => i + 1));
-    $('emptyText').innerHTML = `Well${empt.length > 1 ? 's' : ''} <b>${wells}</b> look${empt.length > 1 ? '' : 's'} empty (almost no bands). Removing adds a splice gap and is recorded in the processing log.`;
-    $('btnCutEmpty').onclick = done(() => { empt.forEach(i => App.setLaneHidden(i, true, 'empty lane (suggested, user confirmed)')); toast(`Removed ${empt.length} empty lane${empt.length > 1 ? 's' : ''} (Ctrl+Z to undo)`); });
+    $('emptyText').innerHTML = `Low signal in well${empt.length > 1 ? 's' : ''} <b>${wells}</b>: check ${empt.length > 1 ? 'their roles' : 'its role'}. A negative control stays in the figure and the analysis.`;
+    $('btnNegEmpty').onclick = done(() => { empt.forEach(i => { st.lanes[i].role = 'neg'; }); toast(`Marked as negative control${empt.length > 1 ? 's' : ''}`); });
+    $('btnCutEmpty').onclick = done(() => { empt.forEach(i => App.setLaneHidden(i, true, 'empty lane (suggested, user confirmed)')); toast(`Left ${empt.length} lane${empt.length > 1 ? 's' : ''} out of the figure (the analysis is not affected; Ctrl+Z to undo)`); });
     $('btnIgnoreEmpty').onclick = () => { empt.forEach(i => ignoredEmpty.add(st.file.sha256 + ':' + i)); updateEmptyBar(); };
   }
   // cutting a marker lane removes the size reference: always ask. Resolves true when changed.
@@ -697,6 +728,8 @@
   });
   $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Marker image removed; marker bands are read from the blot itself again'); });
   $('mkOverlay').addEventListener('change', () => G.Editor.draw());
+  // the Original view: the file as decoded, to compare with the working image
+  $('btnOrig').onclick = () => { if (needImage()) return; const on = !G.Editor.original(); G.Editor.setOriginal(on); $('btnOrig').classList.toggle('on', on); $('btnOrig').setAttribute('aria-pressed', String(on)); $('btnOrig').textContent = on ? 'Back to working image' : 'Original'; };
   $('mkOpacity').addEventListener('input', () => G.Editor.draw());
 
   $('btnSaveLadder').onclick = () => {
@@ -746,15 +779,23 @@
       if (d && d.open && lane != null) wasOpen[lane] = card.querySelector('.list').scrollTop;
     });
     $('markerList').innerHTML = st.markers.map((m, mi) => {
-      const sc = m.score != null ? Math.round(m.score * 100) : null;
       const out = !r || m.lane < r[0] || m.lane > r[1];
       const shown = m.bands.filter(b => b.show).length;
-      return `<div class="mk-card${out ? ' out' : ''}" data-mi="${mi}">
+      // what the calibration rests on, instead of a fit percentage that reads like a confidence
+      const sm = out ? null : App.markerSummary(m), low = m.score != null && m.score < 0.6;
+      const fmt = v => App.fmtSize(v);
+      const status = out ? `<span class="h3-note">${'outside the figure'}</span>`
+        : `<span class="mk-score${low ? ' low' : ''}" title="${esc(`The ladder's bands that sit on peaks of this lane, and the size range they span (sizes outside it are extrapolated, marked ≈)${m.score != null ? `; fit score ${Math.round(m.score * 100)} %` : ''}`)}">${low ? 'Check ladder and band assignments' : `${sm.matched}/${sm.total} bands${sm.range ? ` · ${fmt(sm.range[0])}–${fmt(sm.range[1])}` : ''}`}</span>`;
+      const notes = sm ? [sm.extra ? `${sm.extra} clear peak${sm.extra > 1 ? 's' : ''} of this lane ${sm.extra > 1 ? 'are' : 'is'} not on a ladder band` : '',
+        sm.alts.length ? `Also fits about as well: ${sm.alts.map(a => esc(G.Ladders.get(a.id).name.replace(/\s*\([^()]*\)\s*$/, ''))).join('; ')}` : ''].filter(Boolean) : [];
+      return `<div class="mk-card${out ? ' out' : ''}${m.confirmed ? ' confirmed' : ''}" data-mi="${mi}">
         <div class="mk-head"><span class="mk-badge">${'Well'} ${m.lane + 1}</span>
-          ${out ? `<span class="h3-note">${'outside the figure'}</span>` : sc != null ? `<span class="mk-score${sc < 60 ? ' low' : ''}">${sc < 60 ? 'Poor fit — check the ladder' : 'Fit ' + sc + '%'}</span>` : ''}
+          ${status}
           <button class="star${G.Ladders.isFavorite(m.ladderId) ? '' : ' off'}" data-f="fav" title="${'Add this ladder to / remove it from favourites (preferred during detection)'}">★</button>
           <button class="x" data-f="del" title="${'Not a marker'}">×</button></div>
         <select data-f="ladder">${all.map(l => `<option value="${l.id}"${l.id === m.ladderId ? ' selected' : ''}>${G.Ladders.isFavorite(l.id) ? '★ ' : ''}${esc(l.name)}</option>`).join('')}</select>
+        <label class="switch mk-confirm" title="${'The ladder was identified from the band pattern; tick when it is the product you actually loaded. Legends and the log say whether it was confirmed'}"><input type="checkbox" data-f="confirm" ${m.confirmed ? 'checked' : ''}><span>${m.confirmed ? 'Confirmed: this is the ladder I loaded' : 'Confirm this is the ladder you loaded'}</span></label>
+        ${notes.length ? `<p class="hint mk-sum">${notes.join('. ')}.</p>` : ''}
         <div class="row2">
           <select data-f="side"><option value="auto">${'Labels: auto side'}</option><option value="left">${'Labels left'}</option><option value="right">${'Labels right'}</option></select>
           <select data-f="unit">${G.Ladders.unitsFor(kind).concat(G.Ladders.unitsFor(kind).includes(m.unit) ? [] : [m.unit]).map(u => `<option value="${u}">${u === 'auto' ? 'bp/kb' : u}</option>`).join('')}</select>
@@ -774,7 +815,9 @@
       const m = st.markers[+card.dataset.mi], q = f => card.querySelector(`[data-f="${f}"]`);
       q('side').value = m.side; q('unit').value = m.unit;
       if (m.lane in wasOpen) card.querySelector('.list').scrollTop = wasOpen[m.lane];
-      q('ladder').addEventListener('change', done(e => { m.ladderId = e.target.value; m.bands = []; App.prefLadder = m.ladderId; App.matchMarkers(false); }));
+      q('ladder').addEventListener('change', done(e => { m.ladderId = e.target.value; m.bands = []; m.confirmed = false; App.prefLadder = m.ladderId; App.matchMarkers(false); }));
+      // confirming one ladder lane confirms the gel's ladder: every marker lane carries the same product
+      q('confirm').addEventListener('change', done(e => { st.markers.forEach(k => { if (k.ladderId === m.ladderId) k.confirmed = e.target.checked; }); }));
       q('side').addEventListener('change', done(e => { m.side = e.target.value; }));
       q('unit').addEventListener('change', done(e => { m.unit = e.target.value; App.prefUnit = m.unit; }));
       q('del').onclick = done(() => { st.markers.splice(+card.dataset.mi, 1); });
@@ -790,13 +833,19 @@
   function renderLanes() {
     const st = S(), r = range(), empty = new Set(App.emptyLanes());
     const emptyShown = st.lanes.some((l, i) => empty.has(i) && !l.hidden && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]);
-    $('laneList').innerHTML = `<div class="pick">${'Show:'} <a href="#" data-pick="all">${'all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the empty wells'}</a>` : ''}</div>` + st.lanes.map((l, i) => {
-      const out = !r || i < r[0] || i > r[1];
+    // the lane table: name, role, in the figure, in the analysis, side by side (a figure choice never
+    // changes the analysis, and the other way round)
+    const measuring = st.quant.rows.length > 0, ga = G.Quant.region(st);
+    $('laneList').innerHTML = `<div class="pick">${'Figure:'} <a href="#" data-pick="all">${'show all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the low-signal wells'}</a>` : ''}<span class="lane-cols">${'Role'}<span>${'Fig.'}</span>${measuring ? `<span>${'Meas.'}</span>` : ''}</span></div>` + st.lanes.map((l, i) => {
+      const out = !r || i < r[0] || i > r[1], mk = isMarkerLane(i), inArea = l.x >= ga.x && l.x <= ga.x + ga.w;
+      const role = mk ? 'ladder' : l.role === 'neg' ? 'neg' : 'sample';
       return `<div class="item${App.selLanes.has(i) ? ' sel' : ''}${out ? ' out' : ''}">
         <span class="idx">${i + 1}</span>
-        <input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${isMarkerLane(i) ? 'M' : 'Name'}">
-        ${empty.has(i) ? `<span class="tag" title="${'almost no bands'}">${'empty'}</span>` : ''}
-        <label class="switch" title="${'Untick = remove from the figure (splice gap added); or select the lane and press H'}"><input type="checkbox" data-h="${i}" ${l.hidden ? '' : 'checked'}>${'Show'}</label>
+        <input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${mk ? 'M' : 'Name'}">
+        ${empty.has(i) && !mk && role !== 'neg' ? `<span class="tag warn" title="${'very little signal: an empty lane, or a negative control (set its role)'}">${'low signal'}</span>` : ''}${i === st.quant.ref && measuring ? `<span class="tag" title="${'the reference lane of the analysis (= 1.00)'}">ref</span>` : ''}
+        <select class="role" data-role="${i}" title="${'The lane\'s role: a sample, a negative control (kept and measured even with no signal), or the size ladder'}"><option value="sample"${role === 'sample' ? ' selected' : ''}>${'Sample'}</option><option value="neg"${role === 'neg' ? ' selected' : ''}>${'Neg. control'}</option><option value="ladder"${role === 'ladder' ? ' selected' : ''}>${'Ladder'}</option></select>
+        <label class="switch" title="${'In the figure. Untick = leave out of the figure (splice gap added; the analysis is not affected); or select the lane and press H'}"><input type="checkbox" data-h="${i}" ${l.hidden ? '' : 'checked'}><span class="sr">${'Show'}</span></label>
+        ${measuring ? `<label class="switch" title="${mk ? 'ladder lanes are never measured' : !inArea ? 'outside the analysis area' : 'In the analysis. Untick = leave out of the measurements (the figure is not affected)'}"><input type="checkbox" data-m="${i}" ${!mk && inArea && !l.noMeasure ? 'checked' : ''} ${mk || !inArea ? 'disabled' : ''}><span class="sr">${'Measure'}</span></label>` : ''}
         <button class="x" data-del="${i}" title="${'Delete this lane (if it was detected by mistake)'}">×</button></div>`;
     }).join('');
     $('laneList').querySelectorAll('input[type=text]').forEach(inp => {
@@ -809,10 +858,17 @@
       if (await toggleLaneHidden(+inp.dataset.h, !e.target.checked)) App.commit(); else e.target.checked = true;
     }));
     $('laneList').querySelectorAll('[data-del]').forEach(b => b.onclick = done(() => { App.removeLane(+b.dataset.del); App.selLane = -1; toast('Lane deleted (Ctrl+Z to undo)'); }));
+    $('laneList').querySelectorAll('[data-m]').forEach(inp => inp.addEventListener('change', done(e => { const l = st.lanes[+inp.dataset.m]; if (e.target.checked) delete l.noMeasure; else l.noMeasure = true; })));
+    // the role: a ladder role makes the lane a marker lane (and back)
+    $('laneList').querySelectorAll('[data-role]').forEach(sel => sel.addEventListener('change', done(e => {
+      const i = +sel.dataset.role, l = st.lanes[i], v = e.target.value, mi = st.markers.findIndex(m => m.lane === i);
+      if (v === 'ladder') { if (mi < 0) { st.markers.push(App.newMarker(i, (st.markers[0] || {}).ladderId)); st.markers.sort((a, b) => a.lane - b.lane); App.matchMarkers(true); } delete l.role; }
+      else { if (mi >= 0) st.markers.splice(mi, 1); if (v === 'neg') l.role = 'neg'; else delete l.role; }
+    })));
     $('laneList').querySelectorAll('[data-pick]').forEach(a => a.onclick = e => {
       e.preventDefault();
       if (a.dataset.pick === 'all') st.lanes.forEach(l => { l.hidden = false; });
-      else st.lanes.forEach((l, i) => { if (empty.has(i) && !isMarkerLane(i) && r && i >= r[0] && i <= r[1]) l.hidden = true; });
+      else st.lanes.forEach((l, i) => { if (empty.has(i) && !isMarkerLane(i) && l.role !== 'neg' && r && i >= r[0] && i <= r[1]) l.hidden = true; });
       App.commit();
     });
     $('laneCountNote').textContent = `${st.lanes.length} wells`;
@@ -901,16 +957,23 @@
     const visMk = r ? st.markers.filter(m => m.lane >= r[0] && m.lane <= r[1]) : [];
     const lowMk = visMk.filter(m => m.score != null && m.score < 0.6);
     const set = (id, txt, cls) => { const el = $(id); el.textContent = txt; el.className = 'sec-status' + (cls ? ' ' + cls : ''); };
+    // three states per step: detected and fine (a tick), detected but needs a look ('review': "!"), not done.
+    // Importing an image is not approval: saturation or a colour image keeps step 1 in review.
+    const sr = App.satReport(), imgReview = sr.kind === 'clipped' || sr.kind === 'probable' || sr.kind === 'unknown' || !!(App.acq && App.acq.colour);
     set('stImage', (st.rotation ? `rotated ${st.rotation}° · ` : '')
-      + (st.levels.invert ? 'inverted' : 'raw')
-      + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
+      + (st.levels.invert ? 'inverted' : 'as imaged')
+      + (sr.kind === 'clipped' ? ' · clipped bands' : sr.kind === 'probable' ? ' · probably clipped' : sr.kind === 'unknown' ? ' · saturation unknown' : '')
+      + (App.acq && App.acq.colour ? ' · colour' : ''), imgReview ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
     $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.geom ? ' · geometry' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
     set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
-    set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
+    const unconf = visMk.filter(m => !m.confirmed);
+    set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : unconf.length ? 'detected · not confirmed' : 'confirmed') : 'none', lowMk.length || unconf.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
-    const state = [true, !!r && named >= fl.length && fl.length > 0, visMk.length > 0 && !lowMk.length];
-    secs.forEach((s, i) => { s.classList.toggle('done', !!state[i]); s.classList.remove('todo'); });
+    // 'done' = fine, 'review' = detected but needs a look, false = to do
+    const state = [imgReview ? 'review' : 'done', !!r && named >= fl.length && fl.length > 0 ? 'done' : false,
+      visMk.length ? (lowMk.length || unconf.length ? 'review' : 'done') : false];
+    secs.forEach((s, i) => { s.classList.toggle('done', state[i] === 'done'); s.classList.toggle('review', state[i] === 'review'); s.classList.remove('todo'); });
     const firstTodo = state.findIndex(v => !v);
     if (firstTodo >= 0 && secs[firstTodo]) secs[firstTodo].classList.add('todo');
     // coach: the single most useful next step
@@ -920,13 +983,14 @@
     else if (!visMk.length) msg = App.gelType().western
       ? 'No marker in the figure: add the marker lane in step 3, or load the white-light marker image'
       : 'No marker in the figure: add the marker lane in step 3 on the left';
-    else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1} fits the chosen ladder poorly — <b>check the ladder</b>`;
+    else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1}: <b>check the ladder and its band assignments</b> (step 3)`;
+    else if (unconf.length) msg = `Step 3: <b>confirm the ladder</b> you loaded (${esc(G.Ladders.get(unconf[0].ladderId) ? G.Ladders.get(unconf[0].ladderId).name.replace(/\s*\([^()]*\)\s*$/, '') : 'unknown')}), or pick the right one`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
-    else { msg = 'Ready — <b>Export figure</b> above the figure, or <b>Export all</b> at the top right; add groups, arrows or strips on the left, band boxes in step 6'; ok = true; }
+    else { msg = 'Ready — <b>Export…</b> at the top right: the figure, a results package or a complete archive'; ok = true; }
     $('coachText').innerHTML = msg;
     $('coach').classList.toggle('done', ok);
-    $('imgChip').classList.toggle('warn', st.saturatedInCrop > 0);
-    $('imgChip').classList.toggle('ready', !st.saturatedInCrop);
+    $('imgChip').classList.toggle('warn', imgReview);
+    $('imgChip').classList.toggle('ready', !imgReview);
   }
 
   function syncControls() {
@@ -943,7 +1007,14 @@
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
     const k = st.geom;
-    $('ksNote').textContent = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}${st.geom && st.geom.residualPct != null ? ` · residual ${st.geom.residualPct} %` : ''}`;
+    // the correction in plain words (the percentages, as before, in the tooltip)
+    const plain = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : [k.mode === 'manual' ? 'by hand' : 'auto',
+      Math.abs(k.lanesPct) >= 0.5 ? `lanes were ${Math.abs(k.lanesPct)} % ${k.lanesPct > 0 ? 'wider apart' : 'closer'} at the bottom (camera angle), made parallel` : '',
+      (k.rows || k.mode === 'manual') && Math.abs(k.bandsPct) >= 0.5 ? `bands ${Math.abs(k.bandsPct)} % ${k.bandsPct > 0 ? 'wider' : 'narrower'} at the right, levelled` : '',
+      k.bendPx >= 0.5 ? `bent lanes straightened (up to ${k.bendPx.toFixed(1)} px)` : '',
+      st.geom && st.geom.residualPct != null ? `${st.geom.residualPct} % left` : ''].filter(Boolean).join(' · ');
+    $('ksNote').textContent = plain;
+    $('ksNote').title = k ? `lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % (spacing at the bottom of the figure area over the top, minus 1)${k.rows || k.mode === 'manual' ? `; bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % (right over left)` : ''}${k.bendPx >= 0.5 ? `; bend ${k.bendPx.toFixed(1)} px` : ''}. "Original" above the image shows it uncorrected.` : '';
     geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
@@ -958,6 +1029,7 @@
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
     updateClipLine(); updateDpiLine(); updateEmptyBar();
+    $('workNote').textContent = App.workingText(); $('workNote').title = App.workingText();
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
     $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('groupFit').value = y.groupFit || 'wrap'; $('font').value = G.Render.fontName(y.font);
@@ -1046,7 +1118,7 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage, openExport });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

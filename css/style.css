@@ -164,6 +164,9 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 .sec.done .sec-n { background: var(--ok-bg); color: var(--ok); }
 .sec.done .sec-n::before { content: "✓"; } .sec.done .sec-n { font-size: 0; } .sec.done .sec-n::before { font-size: 11px; }
 .sec.todo .sec-n { background: var(--accent); color: var(--on-accent); }
+/* detected but needs a look (saturation, an unconfirmed or poorly fitting ladder): not a tick */
+.sec.review .sec-n { background: var(--warn-bg); color: var(--warn); font-size: 0; }
+.sec.review .sec-n::before { content: "!"; font-size: 11px; font-weight: 700; }
 .sec-status { margin-left: auto; font-weight: 400; font-size: 11.5px; color: var(--faint); white-space: nowrap; }
 .sec-status.warn { color: var(--warn); }
 .h3-note { font-weight: 400; color: var(--faint); font-size: 11.5px; margin-left: 4px; }
@@ -485,3 +488,28 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .chip-c { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 4px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; background: var(--panel); }
 .chip-c input { margin: 0; }
 .chip-c.off { color: var(--faint); background: var(--panel-2); }
+/* marker card: the confirmation and what the calibration rests on */
+.mk-confirm { margin-top: 6px; font-size: 12px; }
+.mk-card.confirmed { border-color: var(--ok); }
+.mk-card.confirmed .mk-confirm span { color: var(--ok); }
+.mk-sum { margin: 4px 0 0; }
+/* the export dialog: four scoped choices */
+.dlg-body.exp { width: min(720px, calc(100vw - 32px)); }
+.exp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin: 8px 0 10px; }
+.exp-card { border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.exp-card > b { font-size: 14px; }
+.exp-card .hint { margin: 0; }
+.exp-card.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.exp-card.off { opacity: .55; }
+.exp-more { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.exp-opts { margin-top: 8px; gap: 10px 16px; }
+/* the lane table: role and the two inclusions */
+#laneList .item select.role { width: auto; flex: none; padding: 2px 4px; font-size: 11.5px; height: 24px; }
+#laneList .pick { display: flex; align-items: center; gap: 4px; }
+#laneList .lane-cols { margin-left: auto; display: inline-flex; gap: 10px; color: var(--faint); font-size: 11px; }
+.item .tag.warn { background: var(--warn-bg); color: var(--warn); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#qProfile { height: 150px; }
+.prof-read { margin: 6px 0 4px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.save-note { font-size: 11.5px; color: var(--top-muted); white-space: nowrap; }
+.save-note.warn { color: var(--warn); font-weight: 600; }

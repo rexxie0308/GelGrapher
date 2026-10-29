@@ -223,7 +223,7 @@
       return lanes.map((i, j) => {
         const lmax = Math.max(0, ...peaks[j].filter(q => !isWell(q.y)).map(q => q.v));
         const bands = mk.has(i) ? [] : peaks[j].filter(q => !isWell(q.y) && q.v >= lmax * 0.1 && q.v >= gmax * 0.05).map(q => {
-          const y = q.y + S.crop.y, e = App.estimateInfo(y);
+          const y = q.y + S.crop.y, e = App.estimateInfo(y, S.lanes[i].x);
           return { y, size: e ? e.bp : null, extrap: e ? e.extrap : null, strength: q.v / gmax };
         });
         return { lane: i, name: S.lanes[i].name || String(i + 1), marker: mk.has(i), bands };

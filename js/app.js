@@ -334,6 +334,7 @@
       const c = A.crop;
       if (axis === 'h') {
         A.lanes.forEach(l => { l.x = W - 1 - l.x; });
+        A.arrows.forEach(a => { if (a.x != null) a.x = W - 1 - a.x; });
         A.crop = { x: Math.round(Math.max(0, W - (c.x + c.w))), y: c.y, w: c.w, h: c.h };
         const g = A.quant.region; if (g) A.quant.region = { x: Math.round(Math.max(0, W - (g.x + g.w))), y: g.y, w: g.w, h: g.h };
       } else {
@@ -478,6 +479,29 @@
     App._gelKey = null;
   };
 
+  // the image as decoded (no flip, rotation or geometry), with the same display contrast, for the Original view
+  App.originalCanvas = function () {
+    const lv = App.S.levels, key = [App.S.file.sha256, lv.black, lv.white, lv.gamma, lv.invert].join('|');
+    if (App._origKey === key && App._origCanvas) return App._origCanvas;
+    const c = App._origCanvas || document.createElement('canvas'), src = App.src0;
+    c.width = src.w; c.height = src.h;
+    c.getContext('2d').putImageData(E.toImageData(src, lv), 0, 0);
+    App._origCanvas = c; App._origKey = key;
+    return c;
+  };
+  // what the working image is, in words: the transforms applied to the image as decoded
+  App.workingText = function () {
+    const S = App.S, g = S.geom, parts = [];
+    const f = G.Export ? G.Export.flipText(S) : '';
+    if (f) parts.push(f);
+    if (S.rotation) parts.push(`rotated ${S.rotation}°`);
+    if (g && g.grid) {
+      if (Math.abs(g.lanesPct || 0) >= 0.5 || Math.abs(g.bandsPct || 0) >= 0.5 || g.mode === 'manual') parts.push(`perspective corrected (${g.mode === 'manual' ? 'by hand' : 'automatic'}: the far side ${Math.abs(g.lanesPct || 0).toFixed(0)} % ${g.lanesPct < 0 ? 'narrower' : 'wider'})`);
+      if (g.bendPx >= 0.5) parts.push(`lanes straightened (largest shift ${g.bendPx.toFixed(1)} px)`);
+    }
+    return parts.length ? `Working image: ${parts.join(', ')}. Measurements read the original pixels.` : 'Working image = the image as decoded (no rotation, flip or geometry correction).';
+  };
+
   // shown in red on the working image (display only: the counts come from the original pixels)
   App.getSatCanvas = function () {
     if (App.satCanvas) return App.satCanvas;
@@ -587,7 +611,7 @@
       const c = A.crop, ccx = c.x + c.w / 2, ccy = c.y + c.h / 2;
       const laneX0 = A.lanes.map(l => l.x);
       A.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = P(lx, b.y).y; }); });
-      A.arrows.forEach(a => { a.y = P(ccx, a.y).y; });
+      A.arrows.forEach(a => { const p = P(a.x != null ? a.x : ccx, a.y); a.y = p.y; if (a.x != null) a.x = p.x; });
       // strips and band boxes span the crop: carried at its horizontal centre like arrows
       A.strips.concat(A.quant.rows).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
       A.lanes.forEach(l => { l.x = P(l.x, ccy).x; });
@@ -695,7 +719,7 @@
    * for a marker that is still at (about) the same position. Returns what fn returned. */
   App.relaneMarkers = function (fn) {
     const S = App.S, tol = (S.lanePitch || 40) * 0.5;
-    const prev = S.markers.map(m => ({ x: S.lanes[m.lane] ? S.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
+    const prev = S.markers.map(m => ({ x: S.lanes[m.lane] ? S.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side, confirmed: !!m.confirmed }));
     const n = fn();
     // the ladder already in use is the usual one for this search (no library-wide search again)
     const keepPref = App.prefLadder; if (prev.length && prev[0].ladderId) App.prefLadder = prev[0].ladderId;
@@ -703,7 +727,7 @@
     let changed = false;
     S.markers.forEach(m => {
       const q = prev.find(q => Math.abs(q.x - S.lanes[m.lane].x) < tol);
-      if (q) { if (m.ladderId !== q.ladderId) changed = true; Object.assign(m, { ladderId: q.ladderId, unit: q.unit, side: q.side }); }
+      if (q) { if (m.ladderId !== q.ladderId) changed = true; Object.assign(m, { ladderId: q.ladderId, unit: q.unit, side: q.side, confirmed: q.confirmed }); }
     });
     if (changed) App.matchMarkers(true);
     return n;
@@ -1289,7 +1313,7 @@
   // ---------- markers (one or more ladder lanes, matched jointly: same gel = same migration curve) ----------
   App.newMarker = function (lane, ladderId) {
     const kind = App.kind();
-    return { lane, ladderId: ladderId || G.Ladders.favorites(kind)[0] || App.prefLadder || App.gelType().ladder, unit: App.prefUnit || App.baseUnit(), side: 'auto', bands: [] };
+    return { lane, ladderId: ladderId || G.Ladders.favorites(kind)[0] || App.prefLadder || App.gelType().ladder, unit: App.prefUnit || App.baseUnit(), side: 'auto', bands: [], confirmed: false };
   };
 
   /* The bands of a lane: the peaks of its profile that are the lane's own. A band is strong at the
@@ -1655,7 +1679,7 @@
     if (a.size) {
       if (a.sizeText) sz = a.sizeText;
       else {
-        const info = App.estimateInfo(a.y);
+        const info = App.estimateInfo(a.y, a.x);
         // outside the marker range the number is an extrapolation: say so on the figure
         if (info) sz = (info.extrap || info.disagree ? '≈' : '') + App.fmtSize(info.bp);
       }
@@ -1665,18 +1689,48 @@
   };
 
   /* Size at a row from every marker that can see it. Markers inside their band range are preferred
-   * over extrapolating ones; the result is the geometric mean of those used. */
-  App.estimateInfo = function (yAbs) {
+   * over extrapolating ones. Given the lane's position xAbs and ladder lanes on both sides of it, the size
+   * is interpolated in x between the two nearest (log size linear in x): a smile or a tilt bends the rows
+   * of equal size, and the lane in between sits between its neighbours. Beyond the outermost ladder lane
+   * the nearest one is used; without a position, the geometric mean of those used. */
+  App.estimateInfo = function (yAbs, xAbs) {
     const S = App.S;
     const per = S.markers.map(m => {
       const r = E.estimateSizeInfo(yAbs, m.bands.filter(b => b.matched || b.manual).map(b => ({ bp: b.bp, y: b.y })));
-      return r && { lane: m.lane, ladderId: m.ladderId, bp: r.bp, extrap: r.extrap, range: r.range };
+      return r && S.lanes[m.lane] && { lane: m.lane, x: S.lanes[m.lane].x, ladderId: m.ladderId, bp: r.bp, extrap: r.extrap, range: r.range };
     }).filter(Boolean);
     if (!per.length) return null;
     const inside = per.filter(p => !p.extrap), used = inside.length ? inside : per;
-    const bp = Math.exp(used.reduce((s, p) => s + Math.log(p.bp), 0) / used.length);
+    let bp, how = 'mean';
+    if (xAbs != null && used.length >= 2) {
+      const xs = used.slice().sort((a, b) => a.x - b.x), left = xs.filter(p => p.x <= xAbs).pop(), right = xs.find(p => p.x >= xAbs);
+      if (left && right && left !== right) { const t = (xAbs - left.x) / (right.x - left.x); bp = Math.exp(Math.log(left.bp) + t * (Math.log(right.bp) - Math.log(left.bp))); how = 'interpolated'; }
+      else { bp = (left || right).bp; how = 'nearest'; }
+    } else bp = Math.exp(used.reduce((s, p) => s + Math.log(p.bp), 0) / used.length);
     const lo = Math.min(...used.map(p => p.bp)), hi = Math.max(...used.map(p => p.bp));
-    return { bp, extrap: !inside.length, disagree: used.length > 1 && hi / lo > 1.1, perMarker: per, used: used.map(p => p.lane) };
+    return { bp, extrap: !inside.length, disagree: used.length > 1 && hi / lo > 1.1, perMarker: per, used: used.map(p => p.lane), how };
+  };
+  /* What a marker lane's calibration rests on, for its card: the bands matched to lane peaks, the
+   * calibrated range, the lane's clear peaks no ladder band was put on, and the other ladders of the
+   * library that fit the lane about as well (cached per lane, ladder and frame). */
+  App.markerSummary = function (m) {
+    const S = App.S, matched = m.bands.filter(b => b.matched || b.manual), unit = App.baseUnit();
+    const range = matched.length ? [Math.min(...matched.map(b => b.bp)), Math.max(...matched.map(b => b.bp))] : null;
+    const key = [App.frameKey(S), S.crop.y, S.crop.h, m.lane, Math.round(S.lanes[m.lane] ? S.lanes[m.lane].x : 0), m.ladderId, matched.map(b => Math.round(b.y)).join()].join('|');
+    App._mkSum = App._mkSum || new Map();
+    if (App._mkSum.has(key)) return App._mkSum.get(key);
+    let extra = 0, alts = [];
+    try {
+      App._mkCrop = App.markerStrip();
+      const pk = App.markerPeaks(m.lane), vmax = Math.max(0, ...pk.map(p => p.v)), tol = Math.max(3, (S.lanePitch || 40) * 0.12);
+      extra = pk.filter(p => p.v >= vmax * 0.15 && !matched.some(b => Math.abs(b.y - (p.y + S.crop.y)) <= tol)).length;
+      const lib = G.Ladders.all(App.kind());
+      alts = E.ladderCandidates(pk, lib, App._mkCrop.h, 4).filter(c => c.id !== m.ladderId && G.Ladders.get(c.id).sizes.join() !== (G.Ladders.get(m.ladderId) || { sizes: [] }).sizes.join() && c.score >= (m.score || 0) - 0.05 && c.score >= 0.6);
+    } catch (e) { /* the summary is advisory */ } finally { App._mkCrop = null; }
+    const out = { matched: matched.length, total: m.bands.length, range, unit, extra, alts };
+    if (App._mkSum.size > 50) App._mkSum.clear();
+    App._mkSum.set(key, out);
+    return out;
   };
   Object.defineProperty(App, 'selLane', { configurable: true, get() { return App._selLane; }, set(v) { App._selLane = v; App.selLanes = v >= 0 ? new Set([v]) : new Set(); } });
   // several lanes at once (Shift / Ctrl + click on the raw image): `primary` is the one the keyboard and the list follow
@@ -1812,7 +1866,7 @@
     if (S.markers.some(m => S.lanes[m.lane] && S.lanes[m.lane].hidden)) out.warnings.push('A marker lane has been removed; its size labels are not shown');
     S.arrows.forEach(a => {
       if (!a.size || a.sizeText) return;
-      const info = App.estimateInfo(a.y);
+      const info = App.estimateInfo(a.y, a.x);
       if (info && info.extrap) out.warnings.push(`Arrow${a.text ? ' “' + a.text + '”' : ''} lies outside the marker range; its size is extrapolated (marked ≈)`);
     });
     return out;
@@ -1841,7 +1895,7 @@
     (fig.overlaps || []).forEach(w => add('warn', w));
     if (S.levels.gamma !== 1) add('warn', `Gamma = ${S.levels.gamma}: a non-linear adjustment that must be stated in the legend.`);
     if (S.lanes.some(l => l.hidden)) add('info', 'Lanes were removed: splice gaps are added; state this in the legend (see "Legend notes").');
-    if (S.arrows.some(a => a.size && !a.sizeText && (App.estimateInfo(a.y) || {}).extrap)) add('info', 'Some arrow sizes are extrapolated (marked ≈).');
+    if (S.arrows.some(a => a.size && !a.sizeText && (App.estimateInfo(a.y, a.x) || {}).extrap)) add('info', 'Some arrow sizes are extrapolated (marked ≈).');
     if (!S.markers.length) add('warn', 'The figure has no marker lane.');
     return out;
   };
@@ -2111,8 +2165,14 @@
   // was already due or under way must not write it back afterwards; _libSkip keeps a removed gel out until it is loaded again
   let libTimer = 0, libGen = 0;
   const savedBlobs = new Set();
+  /* App.saveState: where the open gel stands in this browser's library, shown in the top bar:
+   * 'pending' (a save is due), 'saved' (at: time), 'failed' (storage unavailable: save a project file),
+   * 'example' (examples are not kept) */
+  App.saveState = { status: 'none', at: 0 };
+  const setSave = (status, extra) => { App.saveState = Object.assign({ status, at: Date.now() }, extra || {}); App.emit('saved'); };
   App.saveDraftSoon = function () {
     clearTimeout(libTimer);
+    if (App.S && !App.isExample && App._libSkip !== App.S.file.sha256) setSave('pending');
     libTimer = setTimeout(App.saveDraft, 800);
   };
   // close the open gel: the workspace returns to the start screen; the gel stays in the library with its last state
@@ -2129,7 +2189,8 @@
   };
   App.saveDraft = async function () {
     // the synthetic examples are not kept: they are one click away
-    if (!App.S || !App.srcBuffer || App.isExample || App._libSkip === App.S.file.sha256) return;
+    if (App.S && App.isExample) { if (App.saveState.status !== 'example') setSave('example'); return; }
+    if (!App.S || !App.srcBuffer || App._libSkip === App.S.file.sha256) return;
     const gen = libGen, S = App.S, sha = S.file.sha256, mk = App.hasMarkerImage() ? S.markerImage : null;
     const meta = { sha256: sha, name: S.file.name, gelType: S.gelType, lanes: S.lanes.length, w: App.src0.w, h: App.src0.h, bits: S.file.bits,
       size: App.srcBuffer.byteLength + (mk && App.markerBuffer ? App.markerBuffer.byteLength : 0),
@@ -2150,7 +2211,8 @@
       });
       if (navigator.storage && navigator.storage.persist && !App._persistAsked) { App._persistAsked = true; navigator.storage.persist().catch(() => {}); }
       App.emit('library');
-    } catch (e) { /* private mode etc.: the library is best-effort */ }
+      if (gen === libGen) setSave('saved');
+    } catch (e) { setSave('failed', { error: String(e && e.message || e) }); /* private mode etc.: the library is best-effort, and says so */ }
   };
   App.library = {
     // newest first

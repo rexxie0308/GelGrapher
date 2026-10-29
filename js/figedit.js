@@ -27,7 +27,8 @@
     prev.classList.toggle('arming', m === 'arrow');
     if (m !== 'arrow') guide.classList.add('hidden');
     // every tool opens the view it works in: a band box the Densitometry view, an arrow, group line or strip the figure
-    if (m && G.QuantUI) G.QuantUI.follow(m === 'quant' ? 'quant' : 'figure');
+    // a tool that makes a band box or a strip works on that layer (the Editing switch shows it); the window follows
+    if (m && G.QuantUI) { if (m === 'quant' || m === 'strip') G.QuantUI.setLayer(m === 'quant' ? 'quant' : 'figure'); G.QuantUI.follow(m === 'quant' ? 'quant' : 'figure'); }
     G.Editor.draw();
   }
   $('modeCancel').onclick = () => setMode(null);
@@ -71,7 +72,7 @@
 
   App.placeArrow = function (x, y) {
     const sy = App.snapBandY(x, y);
-    S().arrows.push({ y: sy != null ? sy : y, text: '', size: true, side: '' });
+    S().arrows.push({ y: sy != null ? sy : y, x, text: '', size: true, side: '' });
     const k = S().arrows.length - 1;
     App.selArrow = k;
     setMode(null);
@@ -140,7 +141,7 @@
     if (!a) return;
     closeEd(false);
     popK = k; App.selArrow = k;
-    const info = App.estimateInfo(a.y), est = info && info.bp;
+    const info = App.estimateInfo(a.y, a.x), est = info && info.bp;
     // honest about where the number comes from: which marker(s), and whether it lies outside the ladder
     let estHtml = 'No usable marker; the size cannot be estimated';
     if (info) {
@@ -176,7 +177,7 @@
       if (a.sizeText) { a.size = true; pop.querySelector('#pSize').checked = true; }
       // bilateral: a typed size moves the arrow to where the markers put that size (the magenta line on the image follows)
       if (a.sizeText && App.arrowToSize(k, a.sizeText)) {
-        const i2 = App.estimateInfo(a.y);
+        const i2 = App.estimateInfo(a.y, a.x);
         pop.querySelector('.est').innerHTML = i2 ? `Moved to ${App.fmtSize(i2.bp)} on the marker scale${i2.extrap ? ' <span class="warn-t">(outside the marker range)</span>' : ''}` : estHtml;
       }
       upd();
@@ -248,7 +249,7 @@
   prev.addEventListener('pointermove', e => {
     const g = App.mode === 'arrow' && S() && App._lastGel ? e.target.closest('[data-edit="gel"]') : null;
     if (!g) { guide.classList.add('hidden'); return; }
-    const p = gelToRaw(e, g), c = S().crop, sy = App.snapBandY(p.x, p.y) ?? p.y, info = App.estimateInfo(sy);
+    const p = gelToRaw(e, g), c = S().crop, sy = App.snapBandY(p.x, p.y) ?? p.y, info = App.estimateInfo(sy, p.x);
     guide.style.left = p.rect.left + 'px'; guide.style.width = p.rect.width + 'px';
     guide.style.top = (p.rect.top + (sy - c.y) / c.h * p.rect.height) + 'px';
     guide.querySelector('span').textContent = info && info.bp ? (info.extrap ? '≈' : '') + App.fmtSize(info.bp) : '';

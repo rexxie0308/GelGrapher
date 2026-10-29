@@ -6,7 +6,7 @@
   const box = document.getElementById('editorBox');
   const ctx = cv.getContext('2d');
   const view = { s: 1, ox: 0, oy: 0 };
-  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null, cornersOn = false;
+  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null, cornersOn = false, origOn = false;
   const HIT = 7;
 
   const toImg = (sx, sy) => ({ x: (sx - view.ox) / view.s, y: (sy - view.oy) / view.s });
@@ -42,6 +42,16 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!App.S) return;
+    // the Original view: the image as decoded, fitted to the editor, with no overlay and nothing to drag
+    if (origOn) {
+      const oc = App.originalCanvas(), s = Math.min((w - 40) / oc.width, (h - 40) / oc.height);
+      ctx.imageSmoothingEnabled = s < 2;
+      ctx.drawImage(oc, (w - oc.width * s) / 2, (h - oc.height * s) / 2, oc.width * s, oc.height * s);
+      ctx.font = '600 12px -apple-system, Segoe UI, Arial, sans-serif'; ctx.textAlign = 'left';
+      const t = 'Original, as decoded: no flip, rotation, geometry or overlay';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, 12, 20); ctx.fillStyle = '#152229'; ctx.fillText(t, 12, 20);
+      return;
+    }
     App.renderFull();
     const S = App.S, rot = App.rot;
     ctx.imageSmoothingEnabled = view.s < 2;
@@ -258,9 +268,11 @@
     return [[c.x, c.y, 'nw'], [mx, c.y, 'n'], [c.x + c.w, c.y, 'ne'], [c.x + c.w, my, 'e'], [c.x + c.w, c.y + c.h, 'se'], [mx, c.y + c.h, 's'], [c.x, c.y + c.h, 'sw'], [c.x, my, 'w']];
   }
 
-  // the Densitometry view is open: band boxes are the active layer on the raw image (else the strips are)
-  const quantLayer = () => !!(G.QuantUI && G.QuantUI.view && G.QuantUI.view() === 'quant');
+  // the editing layer chosen with the Editing switch above the image: band boxes ('quant') or the figure's
+  // lanes, ladder bands and strips
+  const quantLayer = () => !!(G.QuantUI && G.QuantUI.layer && G.QuantUI.layer() === 'quant');
   function hitTest(sx, sy, shift) {
+    if (origOn) return null;
     const S = App.S; if (!S) return null;
     const c = S.crop, p = toImg(sx, sy), tol = HIT / view.s;
     if (spaceDown) return { type: 'pan' };
@@ -557,5 +569,5 @@
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
   // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null), setCorners: on => { cornersOn = !!on; draw(); } };
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null), setCorners: on => { cornersOn = !!on; draw(); }, setOriginal: on => { origOn = !!on; draw(); }, original: () => origOn };
 })(window);

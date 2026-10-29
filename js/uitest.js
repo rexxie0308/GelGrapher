@@ -636,12 +636,17 @@
       const pt = (x, y) => { const p = G.Editor.toScreen(x, y); return [p.x, p.y]; };
       const qy = Math.min(st.quant.rows[0].y0, st.quant.rows[0].y1), sy = Math.min(st.strips[0].y0, st.strips[0].y1);
       const strip = st.strips[0], sMid = (strip.y0 + strip.y1) / 2;
-      G.QuantUI.setView('figure');
+      G.QuantUI.setLayer('figure');
       const fQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, fS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
-      G.QuantUI.setView('quant');
+      document.querySelector('#editSeg [data-layer="quant"]').click();
       const qQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, qS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
-      G.QuantUI.setView('figure');
-      R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
+      // showing or activating a window does not change what the image edits
+      G.QuantUI.setView('figure'); const kept = G.QuantUI.layer() === 'quant';
+      G.QuantUI.setLayer('figure'); G.QuantUI.setView('quant'); const kept2 = G.QuantUI.layer() === 'figure';
+      // the + Band box tool works on the measurement layer and says so on the switch
+      G.FigEdit.setMode('quant'); const tool = G.QuantUI.layer() === 'quant' && document.querySelector('#editSeg [data-layer="quant"]').classList.contains('on'); G.FigEdit.setMode(null);
+      G.QuantUI.setLayer('figure'); G.QuantUI.setView('figure');
+      R.layers = { fQ, fS, qQ, qS, sMid, kept, kept2, tool, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' && kept && kept2 && tool };
     }
     // 41. long group labels: wrap (even lines), shrink (not below 5 pt) or one line; typed line breaks; the next tier moves up
     {
@@ -723,7 +728,7 @@
       $('viewSeg').querySelector('[data-view="quant"]').click(); const segOpens = vis($('quantView')) && G.QuantUI.view() === 'quant';
       $('figPane').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); const clickActivates = G.QuantUI.view() === 'figure' && vis($('quantView'));
       const page = only && both && split && figClosed && empty && figBack && segOpens && clickActivates, stepsHidden = true, anaShown = vis($('plotAdv')) || true;
-      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export results package' && $('btnExport').textContent === 'Export…' && !!$('btnArchive'), title = !!$('btnFigExport') && !!$('figFmt') && $('exportDlg').contains($('figFmt'));
       // plot options reach the chart
       q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
@@ -915,7 +920,7 @@
       const legend = App.S.markers[0] ? G.Export.legendHints(App.S).join(' ') : 'M, NEB Color Prestained Protein Standard, Broad Range (10-250 kDa).';
       App.S.markers.forEach((m, k) => { m.ladderId = keepM[k]; });
       R.ladderLibrary = { n: all.length, bad, fmt: fmt.length, once, starred, legend: legend.slice(0, 200),
-        ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)\./.test(legend) };
+        ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)( \(identified from the band pattern; not confirmed\))?\./.test(legend) };
     }
     // 53. saturation is read from the original pixels at the band end of the scale, where this file clips: dark bands
     // clipped at black, 12-bit data in a 16-bit file (a pile-up at 4095), floating-point data (cannot tell), a
@@ -958,6 +963,58 @@
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.saturation = { darkOk, twelve, twelveOk, floatOk, colourOk, sameFrame, diff, aligned, off, offsetSeen,
         ok: darkOk && twelveOk && floatOk && colourOk && sameFrame && aligned && offsetSeen };
+    }
+    // 54. what was detected is shown for review, and choices are explicit: the ladder card says what the calibration
+    // rests on and asks for confirmation; sizes interpolate between ladder lanes; lane roles; the low-signal prompt;
+    // the Original view; one export decision with a complete archive; the profile reads out what a box measured
+    {
+      const $ = id => document.getElementById(id);
+      await G.UI.loadExample('western');
+      const st = App.S, m = st.markers[0];
+      await wait(100);
+      const card = $('markerList').querySelector('.mk-card'), status = card.querySelector('.mk-score').textContent;
+      const shows = /\d+\/\d+ bands/.test(status) && !/Fit \d+%/.test(card.innerHTML);
+      const reviewBefore = document.querySelectorAll('#sections .sec')[2].classList.contains('review') && /not confirmed/.test(G.Export.legendHints(st).join(' '));
+      card.querySelector('[data-f="confirm"]').click(); await wait(50);
+      const confirmed = App.S.markers.every(k => k.confirmed) && !/not confirmed/.test(G.Export.legendHints(App.S).join(' ')) && document.querySelectorAll('#sections .sec')[2].classList.contains('done');
+      const logConf = G.Export.processingLog(App.S).markers[0].ladderConfirmedByUser === true;
+      // changing the ladder takes the confirmation back
+      const sel = $('markerList').querySelector('[data-f="ladder"]'), other = [...sel.options].find(o => o.value !== App.S.markers[0].ladderId).value;
+      sel.value = other; sel.dispatchEvent(new Event('change')); await wait(50);
+      const unconfirmedAgain = App.S.markers[0].confirmed === false;
+      App.undo(); App.undo(); await wait(50);
+      // two ladder lanes with a smile between them: a lane in the middle is sized between them
+      const keepM = JSON.stringify(App.S.markers), mk0 = JSON.parse(keepM)[0], lanes = App.S.lanes, far = lanes.length - 1;
+      const mk1 = Object.assign(JSON.parse(JSON.stringify(mk0)), { lane: far });
+      mk1.bands.forEach(b => { b.y += 20; });
+      App.S.markers = [mk0, mk1];
+      const mb = mk0.bands.filter(b => b.matched), yb = mb[Math.floor(mb.length / 2)].y + 10, xMid = (lanes[mk0.lane].x + lanes[far].x) / 2;
+      const eL = App.estimateInfo(yb, lanes[mk0.lane].x), eM = App.estimateInfo(yb, xMid), eR = App.estimateInfo(yb, lanes[far].x);
+      const interp = eM.how === 'interpolated' && eL.bp < eM.bp && eM.bp < eR.bp;
+      App.S.markers = JSON.parse(keepM); App.commit();
+      // lane roles: a negative control, and a ladder role that makes (and unmakes) a marker lane
+      const lane = G.Quant.quantLanes(App)[2], roleSel = () => $('laneList').querySelector(`[data-role="${lane}"]`);
+      roleSel().value = 'neg'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const neg = App.S.lanes[lane].role === 'neg';
+      roleSel().value = 'ladder'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const asLadder = App.S.markers.some(k => k.lane === lane);
+      roleSel().value = 'sample'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const back = !App.S.markers.some(k => k.lane === lane) && !App.S.lanes[lane].role;
+      const emptyWords = $('btnNegEmpty').textContent === 'Mark as negative control' && $('btnCutEmpty').textContent === 'Leave out of the figure';
+      // the Original view: the file as decoded, nothing to drag; the working image said in words
+      $('btnOrig').click(); const orig = G.Editor.original() && G.Editor.hit(200, 200) === null; $('btnOrig').click();
+      const work = /Working image/.test($('workNote').textContent) && !G.Editor.original();
+      // one export decision; the complete archive holds the original image and the project
+      $('btnExport').click(); const dlg = !$('exportDlg').classList.contains('hidden') && document.querySelectorAll('#exportDlg .exp-card').length === 4;
+      $('btnExportClose').click();
+      const f = App.buildFigure(false), ar = await G.Export.packageBlob(App.S, 'ar', f, G.QuantUI.chart(), 150, { archive: { original: { name: App.S.file.name, buffer: App.srcBuffer, sha256: App.S.file.sha256 }, marker: null, project: await App.projectBlob() } });
+      const arNames = ar.files, archive = arNames.some(n => n.startsWith('ar/original/')) && arNames.includes('ar/ar.gelfig') && arNames.includes('ar/README.txt');
+      // the profile: the first view of the analysis window, reading out the box's value and limits
+      G.QuantUI.setView('quant'); document.querySelector('#quantTabs [data-tab="prof"]').click(); await wait(60);
+      const prof = !$('quantProf').classList.contains('hidden') && /LOQ/.test($('qProfRead').textContent);
+      G.QuantUI.show('quant', false);
+      R.review = { shows, status, reviewBefore, confirmed, logConf, unconfirmedAgain, interp, eL: eL.bp, eM: eM.bp, eR: eR.bp, neg, asLadder, back, emptyWords, orig, work, dlg, archive, prof,
+        ok: shows && reviewBefore && confirmed && logConf && unconfirmedAgain && interp && neg && asLadder && back && emptyWords && orig && work && dlg && archive && prof };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {

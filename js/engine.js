@@ -2106,6 +2106,27 @@
     return best;
   }
 
+  /* The ladders that fit one lane about as well as the best, for the marker card: the fast score over the
+   * library (identical lists counted once), the seven best scored again with the full chain assignment.
+   * Returns [{ id, score, frac }] best first. */
+  function ladderCandidates(peaks, ladders, h, k) {
+    const lib = uniqueLadders(ladders);
+    matchMulti.fast = true;
+    let rows;
+    try {
+      rows = lib.map(l => {
+        const D = prepLane({ peaks, sizes: l.sizes });
+        const models = D.ys.length >= 2 ? ransacModels(D, h, 12) : [];
+        const r = models.length ? matchMulti([{ peaks, sizes: l.sizes, models }], h) : null;
+        return { id: l.id, sizes: l.sizes, models, score: r ? r.score : 0 };
+      }).filter(c => c.score >= 0.4).sort((a, b) => b.score - a.score).slice(0, 7);
+    } finally { matchMulti.fast = false; }
+    return rows.map(c => {
+      const r = matchMulti([{ peaks, sizes: c.sizes, models: c.models }], h);
+      return { id: c.id, score: r.score, frac: (r[0].matchedCount || 0) / c.sizes.length };
+    }).sort((a, b) => (b.score - a.score) || (b.frac - a.frac)).slice(0, k || 5);
+  }
+
   // Rank ladder presets by fit to the detected peaks of one lane
   function rankLadders(peaks, ladders, h) {
     return uniqueLadders(ladders).map(l => {
@@ -2189,6 +2210,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore, clipLevels, alignmentShift, sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore, clipLevels, alignmentShift, sharpBandCount, rankLadders, ladderCandidates, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
 })(window);
