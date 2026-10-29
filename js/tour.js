@@ -384,7 +384,7 @@
     const open = ['floatEd', 'popover'].filter(vis).map(id => rectOf($(id)));
     dim([r].concat(watch, open).filter(Boolean));
     // the card: in another column than the target, never over the target, the lit areas or the area to work in;
-    // for work in the settings panel it sits at the bottom left; centred without a target
+    // for work in the settings panel it sits at the bottom left (the top left when the control sits low); centred without a target
     const keep = [r].concat(watch, open, list(p.avoid).map(a => targetRect({ el: a }))).filter(Boolean);
     const pn = targetRect({ el: '#panel' }), ed = targetRect({ el: '#editorBox' }), wide = Math.min(360, vw - 24);
     const narrow = pn && pn.width >= 240 ? Math.min(wide, pn.width - 24) : wide;

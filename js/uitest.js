@@ -522,7 +522,11 @@
       const pageStill = document.scrollingElement.scrollTop === 0;   // the panel scrolled to the control, the page itself did not
       const confirmEl = document.querySelector('#markerList .mk-card .mk-confirm');
       const ringOnConfirm = within(spotR(), confirmEl.getBoundingClientRect(), 8);
-      const cardInPanel = cardR().right <= panelR.right + 1 && cardR().bottom > innerHeight - 40;   // bottom left while working in the panel
+      // while working in the panel the card keeps to the panel's column (its bottom, or its top when the control sits low)
+      // and never covers the control
+      const cr = cardR(), tr = confirmEl.getBoundingClientRect(), box4 = r => [r.left, r.top, r.right, r.bottom].map(Math.round);
+      const cardInPanel = cr.left >= panelR.left - 1 && cr.right <= panelR.right + 1 && !(cr.left < tr.right && cr.right > tr.left && cr.top < tr.bottom && cr.bottom > tr.top);
+      const cardAt = { card: box4(cr), control: box4(tr), panel: box4(panelR) };
       const glued = $('tourText').innerHTML.includes('<span class="tour-kb"><kbd class="tour-key">Confirm this is the ladder you loaded</kbd>.</span>');   // "." never starts a line
       confirmEl.querySelector('input').click(); log.push(await act('Name a lane·0'));
       const whyRefolded = !$('tourWhy').open;
@@ -597,7 +601,7 @@
       const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
       const checks = { ways, idle, short, order, menu, prepared, clickable, warnHidden, dimmed, waits, halfway, altWords, whyFolded, pageStill, ringOnConfirm, cardInPanel, glued, whyRefolded, typingWaits, noticesCard, exportWaits, dialogWaits, backWaits, endCard, doneKept,
         leftAt, tick, resume: !!resume, prepQuant, naWords, quantStage, profileOpen, proteinWords, measureDone, whereShown, ownGel, revertShown, reverted };
-      R.lessons = Object.assign({ bad, ok: !bad.length && Object.values(checks).every(Boolean) && !G.Tour.active() }, checks);
+      R.lessons = Object.assign({ bad, cardAt, ok: !bad.length && Object.values(checks).every(Boolean) && !G.Tour.active() }, checks);
       await G.UI.loadExample('western');                               // the sections that follow ran on the Western example
     }
     // 37. print: a page with the figure at a readable size and a caption with the legend notes
