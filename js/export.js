@@ -324,8 +324,8 @@
             threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined,
             normalized: r4(R.values.normalized[k2][j]), foldChange: r4(R.values.fold[k2][j]), unavailable: R.shownWhy[k2][j] || c.unavailable || undefined,
             ratioNeedsReview: R.shownCaveat && R.shownCaveat[k2][j] ? R.shownCaveat[k2][j] : undefined,
-            region: c.prov && c.prov.signal ? { signalCorners: c.prov.signal.corners, background: c.prov.background } : undefined }; }) })),
-        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1)
+            region: c.prov && c.prov.signal ? { signalCorners: c.prov.signal.corners, background: c.prov.background, manualBaseline: c.prov.manual } : undefined }; }) })),
+        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1), manuallyIntegratedWells: (R.manualLanes || []).map(i => i + 1)
       };
     }
     return log;
@@ -376,7 +376,8 @@
       const how = R.mode === 'box' ? 'background-corrected signal summed over a fixed region of the original pixel values in each lane' : 'thresholded signal (pixels above 3 σ of the background; exploratory) over a fixed region of the original pixel values';
       const blq = R.flags.flat().some(f => f && f.below) ? ' Values below the estimated 10σ noise threshold are marked.' : '';
       const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${R.reviewLanes.map(i => i + 1).join(', ')} were flagged for review.` : '';
-      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.output === 'fold' && R.refOk.some(Boolean) ? ` and expressed as fold change versus lane ${R.ref + 1}.` : '.') + blq + rev);
+      const man = R.manualLanes && R.manualLanes.length ? ` Lane${R.manualLanes.length > 1 ? 's' : ''} ${R.manualLanes.map(i => i + 1).join(', ')} ${R.manualLanes.length > 1 ? 'were' : 'was'} integrated manually (limits and baseline drawn on the lane profile).` : '';
+      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.output === 'fold' && R.refOk.some(Boolean) ? ` and expressed as fold change versus lane ${R.ref + 1}.` : '.') + blq + rev + man);
     }
     return h;
   }

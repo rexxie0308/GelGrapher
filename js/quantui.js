@@ -237,6 +237,7 @@
     if (f.clip) m.push(['clip', '⚠', f.clip === 'pileup' ? 'probably clipped' : 'clipped']);
     if (f.below) m.push(['low', '†', f.below === 't3' ? 'below 3σ noise' : 'below 10σ noise']);
     if ((c.review && c.review.length) || caveat) m.push(['rev', '?', caveat && !(c.review && c.review.length) ? caveat : 'needs review']);
+    if (f.manual) m.push(['man', '✎', 'baseline drawn by hand']);
     if (f.legacy) m.push(['old', 'v1', 'earlier method']);
     return m;
   }
@@ -264,6 +265,7 @@
     if (R.flags.flat().some(f => f && f.below)) notes.push(`<p class="hint">† Below the estimated 10σ noise threshold: too close to the background noise to compare; never used as a divisor or reference.</p>`);
     const cavLanes = R.lanes.filter((i, j) => (R.shownCaveat || []).some(r => r[j])), revL = [...new Set((R.reviewLanes || []).concat(cavLanes))].sort((a, b) => a - b);
     if (revL.length) notes.push(`<p class="hint warn-t">? Needs review: lane ${revL.map(i => i + 1).join(', ')} (open Profile for the reasons${cavLanes.length ? '; a ratio needs review when its divisor or reference lane does' : ''}).</p>`);
+    if (R.manualLanes && R.manualLanes.length) notes.push(`<p class="hint">✎ Integrated by hand (baseline drawn on the profile): lane ${R.manualLanes.map(i => i + 1).join(', ')}. The methods text and the log say so.</p>`);
     if (R.normMode === 'lane' && !R.laneTotal) notes.push(`<p class="hint warn-t">Divided by the total lane signal of this image. That is total-protein normalization only on a total-protein stain or stain-free image.</p>`);
     $('quantTable').innerHTML = `<div class="tscroll"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` + notes.join('');
     $('quantTable').querySelectorAll('tr[data-lane]').forEach(tr => { tr.onclick = () => selectLane(+tr.dataset.lane); tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectLane(+tr.dataset.lane); } }; });
@@ -294,100 +296,184 @@
       .concat(T.filter(l => !l.marker).map(l => [l.lane + 1, l.name, l.bands.map(b => (b.extrap ? '≈' : '') + (b.size ? App.fmtSize(b.size) : '?')).join(', ')].join('\t'))).join('\n');
   }
 
-  /* ---------- the diagnostic profile: the measured pixels, row by row along the lane ----------
-   * Built from the same pixels and background as the number: the mean signal of each row of the region (and of
-   * the background regions' rows), the background level the calculation used, and the counted signal (shaded).
-   * Thresholded signal: the line is the per-row mean of what was counted (the pixel selection itself is not a row
-   * quantity). "Compare lanes" draws every measured lane's corrected row profile on one scale. */
+  /* ---------- the lane profile: what is integrated, drawn from the same pixels as the number ----------
+   * One lane: the mean signal of each row of the lane's region width over the region and as much again above and
+   * below (the line), the rows the background came from (grey bands), the baseline the calculation subtracts
+   * (dashed; solid with two handles when drawn by hand) and the integrated area (shaded). Dragging on the profile
+   * from the start of the peak to its end draws a baseline there (manual integration, as in chromatography
+   * software: the limits and the baseline's two levels; its ends snap to the curve when near it, Alt keeps them
+   * free); its handles move an end. "Compare lanes" draws every measured lane's corrected profile on one scale. */
   function cssVar(n, d) { const v = getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v || d; }
+  let pmap = null, pdrag = null;
+  const f2 = v => (v == null || !isFinite(v) ? '–' : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(4));
   function drawProfile() {
     const cv = $('qProfile'), st = S(), R = lastR;
     if (!st || !cv.clientWidth || tab !== 'prof') return;
     const k = Math.min(selBox, st.quant.rows.length - 1), lane = App.selLane >= 0 && R && R.lanes.includes(App.selLane) ? App.selLane : R ? R.lanes[0] : -1;
-    $('qLaneAdj').classList.add('hidden');
-    if (!R || k < 0 || lane < 0) { $('qProfRead').textContent = ''; cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); return; }
+    const dpr = window.devicePixelRatio || 1, W = cv.width = cv.clientWidth * dpr, H = cv.height = cv.clientHeight * dpr, ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H); pmap = null;
+    const tools = on => { $('qLaneAdj').querySelectorAll('button').forEach(b => { b.disabled = !on; }); };
+    if (!R || k < 0 || lane < 0) { $('qProfRead').textContent = ''; $('qProfSum').textContent = ''; $('qProfMode').textContent = ''; tools(false); return; }
     if (+$('qProfLane').value !== lane) $('qProfLane').value = String(lane);
-    const j = R.lanes.indexOf(lane), c = R.cells[k][j], dpr = window.devicePixelRatio || 1, W = cv.width = cv.clientWidth * dpr, H = cv.height = 170 * dpr;
-    const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, W, H);
-    const accent = cssVar('--accent', '#176d7c'), okc = '#1f9d55', muted = cssVar('--faint', '#9aa2ad'), warn = cssVar('--warn', '#9F4E0C'), txt = cssVar('--muted', '#555');
-    const pad = 10 * dpr, all = $('qProfAll').checked;
-    if (!c.prof) { $('qProfKey').textContent = ''; readout(R, k, j, c); return; }
+    const j = R.lanes.indexOf(lane), c = R.cells[k][j], row = st.quant.rows[k], lid = App.laneId(lane);
+    const ink = cssVar('--text', '#1d2a30'), okc = '#1f9d55', muted = cssVar('--faint', '#9aa2ad'), manc = '#b45309', txt = cssVar('--muted', '#555');
+    const pad = 12 * dpr, all = $('qProfAll').checked;
+    ctx.font = `${11 * dpr}px sans-serif`;
     if (all) {
       // every measured lane's corrected row profile (row mean minus its background), one scale
       const series = R.lanes.map((i, jj) => { const cc = R.cells[k][jj]; return cc.prof ? cc.prof.map(p => ({ v: p.v, y: p.mean - (isNaN(p.bg) ? 0 : p.bg) })) : []; });
-      const vs = series.flat(); if (!vs.length) return;
-      let lo = Math.min(0, ...vs.map(p => p.y)), hi = Math.max(...vs.map(p => p.y)), vmin = Math.min(...vs.map(p => p.v)), vmax = Math.max(...vs.map(p => p.v));
-      if (hi <= lo) hi = lo + 1e-6;
-      const X = v => pad + (v - vmin) / Math.max(1e-9, vmax - vmin) * (W - 2 * pad), Y = y => H - pad - (y - lo) / (hi - lo) * (H - 2 * pad);
-      ctx.strokeStyle = muted; ctx.lineWidth = 1 * dpr; ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
-      series.forEach((s2, jj) => { if (!s2.length) return; const me = R.lanes[jj] === lane; ctx.strokeStyle = me ? accent : muted; ctx.lineWidth = (me ? 2.2 : 1) * dpr; ctx.globalAlpha = me ? 1 : 0.7; ctx.beginPath(); s2.forEach((p, t) => { if (t) ctx.lineTo(X(p.v), Y(p.y)); else ctx.moveTo(X(p.v), Y(p.y)); }); ctx.stroke(); });
-      ctx.globalAlpha = 1;
-      $('qProfKey').textContent = 'Every measured lane, row by row: signal minus its background, on one scale (selected lane thick). Zero line: the background.';
-    } else {
-      const pts = c.prof.map(p => ({ v: p.v, y: p.mean, bg: p.bg, loc: p.local, cnt: p.counted })), bgp = (c.bgProf || []).filter(p => !isNaN(p.mean));
-      const ys = pts.map(p => p.y).concat(pts.map(p => p.bg).filter(v => v != null && !isNaN(v)), bgp.map(p => p.mean));
-      let lo = Math.min(...ys), hi = Math.max(...ys); if (hi <= lo) hi = lo + 1e-6;
-      const vmin = Math.min(...pts.map(p => p.v), ...bgp.map(p => p.v)) - 0.5, vmax = Math.max(...pts.map(p => p.v), ...bgp.map(p => p.v)) + 0.5;
-      const X = v => pad + (v - vmin) / Math.max(1e-9, vmax - vmin) * (W - 2 * pad), Y = y => H - pad - (y - lo) / (hi - lo) * (H - 2 * pad);
-      const v0 = pts[0].v - 0.5, v1 = pts[pts.length - 1].v + 0.5;
-      // the signal region (light band), the background regions (hatched outline)
-      ctx.fillStyle = 'rgba(31,157,85,.08)'; ctx.fillRect(X(v0), pad, X(v1) - X(v0), H - 2 * pad);
-      // what is counted: between the row means and the background (whole region; signed: below the background counts negative)
-      if (R.mode === 'box' && pts.every(p => !isNaN(p.bg))) { ctx.fillStyle = 'rgba(31,157,85,.35)'; ctx.beginPath(); pts.forEach((p, t) => { if (t) ctx.lineTo(X(p.v), Y(p.y)); else ctx.moveTo(X(p.v), Y(p.y)); }); for (let t = pts.length - 1; t >= 0; t--) ctx.lineTo(X(pts[t].v), Y(pts[t].bg)); ctx.closePath(); ctx.fill(); }
-      // background rows' means (dots), the background level used (dashed)
-      ctx.fillStyle = muted; bgp.forEach(p => { ctx.beginPath(); ctx.arc(X(p.v), Y(p.mean), 2 * dpr, 0, 7); ctx.fill(); });
-      ctx.strokeStyle = okc; ctx.lineWidth = 1.3 * dpr; ctx.setLineDash([4 * dpr, 3 * dpr]); ctx.beginPath(); pts.forEach((p, t) => { if (isNaN(p.bg)) return; if (t) ctx.lineTo(X(p.v), Y(p.bg)); else ctx.moveTo(X(p.v), Y(p.bg)); }); ctx.stroke();
-      if (R.mode === 'band') { ctx.strokeStyle = warn; ctx.setLineDash([1.5 * dpr, 2.5 * dpr]); ctx.beginPath(); pts.forEach((p, t) => { const y = p.bg + (p.cnt || 0); if (t) ctx.lineTo(X(p.v), Y(y)); else ctx.moveTo(X(p.v), Y(y)); }); ctx.stroke(); }
-      ctx.setLineDash([]);
-      ctx.strokeStyle = accent; ctx.lineWidth = 1.8 * dpr; ctx.beginPath(); pts.forEach((p, t) => { if (t) ctx.lineTo(X(p.v), Y(p.y)); else ctx.moveTo(X(p.v), Y(p.y)); }); ctx.stroke();
-      ctx.fillStyle = txt; ctx.font = `${11 * dpr}px sans-serif`; ctx.textAlign = 'left'; ctx.fillText('top', pad, H - 2 * dpr); ctx.textAlign = 'right'; ctx.fillText('bottom', W - pad, H - 2 * dpr);
-      $('qProfKey').textContent = `Rows of the region along the lane (top → bottom): line = mean signal of each row's pixels; dashed = the background the calculation used; dots = rows of the background regions; shaded = counted signal${R.mode === 'band' ? '; dotted = background plus the per-row counted mean (the pixel selection itself is not drawn)' : ''}. From the same original pixels as the number.`;
+      const vs = series.flat();
+      if (vs.length) {
+        let lo = Math.min(0, ...vs.map(p => p.y)), hi = Math.max(...vs.map(p => p.y)); const vmin = Math.min(...vs.map(p => p.v)), vmax = Math.max(...vs.map(p => p.v));
+        if (hi <= lo) hi = lo + 1e-6;
+        const X = v => pad + (v - vmin) / Math.max(1e-9, vmax - vmin) * (W - 2 * pad), Y = y => H - pad - (y - lo) / (hi - lo) * (H - 2 * pad);
+        ctx.strokeStyle = muted; ctx.lineWidth = 1 * dpr; ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
+        series.forEach((s2, jj) => { if (!s2.length) return; const me = R.lanes[jj] === lane; ctx.strokeStyle = me ? okc : muted; ctx.lineWidth = (me ? 2.2 : 1) * dpr; ctx.globalAlpha = me ? 1 : 0.7; ctx.beginPath(); s2.forEach((p, t) => { if (t) ctx.lineTo(X(p.v), Y(p.y)); else ctx.moveTo(X(p.v), Y(p.y)); }); ctx.stroke(); });
+        ctx.globalAlpha = 1;
+      }
+      $('qProfKey').textContent = 'Every measured lane: signal minus its background along the region, one scale (selected lane in green).';
+      $('qProfMode').textContent = 'Compare lanes: untick it to integrate one lane'; tools(false);
+      readout(R, k, j, c); return;
     }
+    const P = R.version === G.Quant.VERSION && row && row.lanes && row.lanes[lid] ? G.Quant.laneProfile(App, row, lid) : null;
+    if (!P || !P.rows.length) { $('qProfKey').textContent = ''; $('qProfMode').textContent = R.version === G.Quant.VERSION ? 'No region in this lane' : 'Earlier method: update the analysis to integrate by hand'; tools(false); readout(R, k, j, c); return; }
+    tools(true);
+    const rows = P.rows.filter(r => !isNaN(r.mean)), man = P.manual;
+    // a drag in progress is drawn instead of the stored baseline
+    const draft = pdrag && pdrag.lid === lid && pdrag.k === k ? pdrag : null;
+    const base = draft ? { a: Math.min(draft.y0, draft.y1), b: Math.max(draft.y0, draft.y1), la: draft.y0 <= draft.y1 ? draft.l0 : draft.l1, lb: draft.y0 <= draft.y1 ? draft.l1 : draft.l0 } : man;
+    const ys = rows.map(r => r.mean).concat(P.baseline.map(p => p.b).filter(isFinite), base ? [base.la, base.lb] : []);
+    let lo = Math.min(...ys), hi = Math.max(...ys); const span = (hi - lo) || 1e-3; lo -= span * 0.06; hi += span * 0.08;
+    const v0 = rows[0].y - 0.5, v1 = rows[rows.length - 1].y + 0.5, plotTop = pad + 4 * dpr, plotBot = H - pad - 12 * dpr;
+    const X = y => pad + (y - v0) / (v1 - v0) * (W - 2 * pad), Y = l => plotBot - (l - lo) / (hi - lo) * (plotBot - plotTop);
+    const Xi = x => v0 + (x - pad) / (W - 2 * pad) * (v1 - v0), Yi = yy => lo + (plotBot - yy) / (plotBot - plotTop) * (hi - lo);
+    const meanAt = y => { const r = rows.find(q => Math.abs(q.y - y) < 0.5); return r ? r.mean : NaN; };
+    // the rows the background came from (grey), the integration limits (light green)
+    ctx.fillStyle = 'rgba(120,130,140,.16)';
+    if (!base) P.bgRows.forEach(p => { ctx.fillRect(X(p.y - 0.5), plotTop, Math.max(1, X(p.y + 0.5) - X(p.y - 0.5)), plotBot - plotTop); });
+    const ra = base ? base.a : P.region[0], rb = base ? base.b : P.region[1];
+    ctx.fillStyle = 'rgba(31,157,85,.07)'; ctx.fillRect(X(ra - 0.5), plotTop, X(rb + 0.5) - X(ra - 0.5), plotBot - plotTop);
+    // the integrated area: between the curve and the baseline over the limits
+    const blAt = base ? (y => base.la + (base.lb - base.la) * (y - base.a) / Math.max(1, base.b - base.a)) : (y => { const p = P.baseline.find(q => Math.abs(q.y - y) < 0.5); return p ? p.b : NaN; });
+    const inR = rows.filter(r => r.y >= ra - 0.01 && r.y <= rb + 0.01 && isFinite(blAt(r.y)));
+    if (inR.length > 1 && R.mode === 'box') {
+      ctx.fillStyle = base ? 'rgba(180,83,9,.22)' : 'rgba(31,157,85,.32)'; ctx.beginPath();
+      inR.forEach((r, t) => { if (t) ctx.lineTo(X(r.y), Y(r.mean)); else ctx.moveTo(X(r.y), Y(r.mean)); });
+      for (let t = inR.length - 1; t >= 0; t--) ctx.lineTo(X(inR[t].y), Y(blAt(inR[t].y)));
+      ctx.closePath(); ctx.fill();
+    }
+    // the profile
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.6 * dpr; ctx.beginPath(); rows.forEach((r, t) => { if (t) ctx.lineTo(X(r.y), Y(r.mean)); else ctx.moveTo(X(r.y), Y(r.mean)); }); ctx.stroke();
+    // the baseline: dashed when automatic, solid with handles when drawn
+    if (base) {
+      ctx.strokeStyle = manc; ctx.lineWidth = 2 * dpr; ctx.beginPath(); ctx.moveTo(X(base.a), Y(base.la)); ctx.lineTo(X(base.b), Y(base.lb)); ctx.stroke();
+      ctx.fillStyle = '#fff'; [[base.a, base.la], [base.b, base.lb]].forEach(([y, l]) => { ctx.beginPath(); ctx.rect(X(y) - 5 * dpr, Y(l) - 5 * dpr, 10 * dpr, 10 * dpr); ctx.fill(); ctx.stroke(); });
+    } else {
+      ctx.strokeStyle = okc; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([5 * dpr, 4 * dpr]); ctx.beginPath();
+      P.baseline.forEach((p, t) => { if (!isFinite(p.b)) return; if (t) ctx.lineTo(X(p.y), Y(p.b)); else ctx.moveTo(X(p.y), Y(p.b)); }); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = txt; ctx.textAlign = 'left'; ctx.fillText('top of the lane', pad, H - 4 * dpr); ctx.textAlign = 'right'; ctx.fillText('bottom', W - pad, H - 4 * dpr);
+    pmap = { X, Y, Xi, Yi, meanAt, P, row, lid, k, dpr, v0, v1, base: man };
+    $('qProfKey').innerHTML = `<span class="pk pk-line"></span>signal of each row · ${man ? '<span class="pk pk-man"></span>baseline drawn by hand' : `<span class="pk pk-base"></span>background subtracted${P.bgRows.length ? ' · <span class="pk pk-bg"></span>background rows' : ''}`} · <span class="pk pk-area${man ? ' man' : ''}"></span>integrated`;
+    const mode = man ? 'Manual baseline · drag its ends to adjust' : `${G.Quant.BG_SHORT[P.method] || 'Automatic'} · drag on the profile to draw a baseline`;
+    $('qProfMode').textContent = mode; $('qProfMode').title = man ? 'Integrated between the two ends you drew, above the straight line joining them. "Automatic" goes back to the band\'s region and background.' : 'Drag from the start of the peak to its end: the line you draw is the baseline and its ends are the integration limits (they snap to the curve when near it; hold Alt to keep them free).';
     readout(R, k, j, c);
   }
-  // everything the number rests on, for the selected lane and band
+  // the result in one line (with its state), the reasons when there are any, and everything else under Calculation details
   function readout(R, k, j, c) {
     const st = S(), i = R.lanes[j], p = c.prov || {}, ln = st.lanes[i].name || `lane ${i + 1}`, nm = R.rows[k].name;
-    const f2 = v => (v == null || !isFinite(v) ? '–' : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(4));
     const corners = cs => cs.map(q => `(${q[0].toFixed(1)}, ${q[1].toFixed(1)})`).join(' ');
+    const pills = [c.flags && c.flags.clip ? `<span class="state-b review" title="${c.clip.n} pixels at the file's limit: the value is underestimated">⚠ clipped</span>` : '',
+      c.flags && c.flags.below ? `<span class="state-b det" title="below the estimated ${c.flags.below === 't3' ? '3' : '10'}σ noise threshold">† near noise</span>` : '',
+      c.review && c.review.length ? '<span class="state-b review">? needs review</span>' : '',
+      c.flags && c.flags.manual ? '<span class="state-b det">✎ manual</span>' : ''].filter(Boolean).join(' ');
+    const val = c.value == null ? `<span class="warn-t">not available — ${esc(c.unavailable || '')}</span>` : `<b>${f2(c.value)}</b> a.u.`;
+    const out = R.output !== 'corrected' ? (R.shown[k][j] != null ? ` · ${R.output === 'fold' ? 'fold change' : 'normalized'} <b>${fmtV(R.shown[k][j], R.output)}</b>` : ` · ${R.output === 'fold' ? 'fold change' : 'normalized'} n/a`) : '';
+    const why = [c.review && c.review.length ? c.review.join('; ') : '', R.output !== 'corrected' && R.shown[k][j] == null ? R.shownWhy[k][j] : '', R.shownCaveat && R.shownCaveat[k][j] ? R.shownCaveat[k][j] : ''].filter(Boolean).join('; ');
+    $('qProfSum').innerHTML = `<p><b>${esc(ln.replace(/\*/g, ''))} · ${esc(nm)}</b>: ${val}${out} ${pills}</p>${why ? `<p class="hint warn-t">${esc(why[0].toUpperCase() + why.slice(1))}.</p>` : ''}`;
     const lines = [];
-    lines.push(`<b>${esc(ln.replace(/\*/g, ''))} · ${esc(nm)}</b>: ${c.value == null ? `<span class="warn-t">not available — ${esc(c.unavailable || '')}</span>` : `corrected signal <b>${f2(c.value)}</b> a.u.`}${R.output !== 'corrected' && R.shown[k][j] != null ? ` · ${R.output === 'fold' ? 'fold change' : 'normalized'} <b>${fmtV(R.shown[k][j], R.output)}</b>` : R.output !== 'corrected' ? ` · ${esc(R.output)}: n/a (${esc(R.shownWhy[k][j] || '')})` : ''}`);
-    if (c.review && c.review.length) lines.push(`<span class="warn-t">? Needs review: ${esc(c.review.join('; '))}.</span>`);
-    if (c.flags && c.flags.clip) lines.push(`<span class="warn-t">⚠ ${c.clip.n} pixel${c.clip.n > 1 ? 's' : ''} of the region ${c.flags.clip === 'pileup' ? 'pile up at an extreme value (probably clipped)' : 'reach the file\'s digital limit (clipped)'}: the value is underestimated.</span>`);
-    if (c.flags && c.flags.below) lines.push(`† Below the estimated ${c.flags.below === 't3' ? '3' : '10'}σ noise threshold (${f2(c.flags.below === 't3' ? c.t3 : c.t10)}).`);
     if (R.version === G.Quant.VERSION && p.signal) {
       lines.push(`Uncorrected sum ${f2(c.U)} − background ${f2(c.B)} = <b>${f2(c.value)}</b> (${p.signal.px} px; ${esc(p.polarity)}).`);
       lines.push(`Signal region, original pixels: ${corners(p.signal.corners)}${p.signal.outsidePx ? `; ${p.signal.outsidePx} px off the image` : ''}.`);
-      if (p.background && p.background.length) lines.push(`Background (${esc(G.Quant.BG_SHORT[p.method] || p.method)}${p.method === 'local' ? `, ${esc(G.Quant.SIDES_TEXT[p.spec.sides])}, ${p.spec.gap} px gap, ${p.spec.size} px deep${p.spec.override ? ', set for this lane' : ''}` : ''}): ${p.background.map(b => `${b.side} ${b.px} px ${corners(b.corners)}`).join('; ')}.`);
+      if (p.manual) lines.push(`Baseline drawn by hand: from row ${p.manual.rows[0]} (level ${f2(p.manual.levels[0])}) to row ${p.manual.rows[1]} (level ${f2(p.manual.levels[1])}) of the band's frame; taken as exact.`);
+      else if (p.background && p.background.length) lines.push(`Background (${esc(G.Quant.BG_SHORT[p.method] || p.method)}${p.method === 'local' ? `, ${esc(G.Quant.SIDES_TEXT[p.spec.sides])}, ${p.spec.gap} px gap, ${p.spec.size} px deep${p.spec.override ? ', set for this lane' : ''}` : ''}): ${p.background.map(b => `${b.side} ${b.px} px ${corners(b.corners)}`).join('; ')}.`);
       else lines.push(`Background: ${esc(G.Quant.BG_TEXT[p.method] || p.method)}.`);
       lines.push(c.flags && c.flags.noise ? `Noise: not estimated here — the background regions are not flat (${esc(c.flags.noise)}), so their spread (${f2(c.sigmaPx)} per pixel) is not noise.`
         : `Noise: σ ${f2(c.sigmaPx)} per pixel${c.f > 1.05 ? ` (×${Math.sqrt(c.f).toFixed(2)} for correlated neighbours)` : ''}; thresholds 3σ ${f2(c.t3)}, 10σ ${f2(c.t10)} (estimated).`);
-      if (R.output !== 'corrected' && R.shownCaveat && R.shownCaveat[k][j]) lines.push(`<span class="warn-t">? The ${R.output === 'fold' ? 'fold change' : 'normalized value'} needs review: ${esc(R.shownCaveat[k][j])}.</span>`);
+      if (c.flags && c.flags.clip) lines.push(`${c.clip.n} pixel${c.clip.n > 1 ? 's' : ''} of the region ${c.flags.clip === 'pileup' ? 'pile up at an extreme value (probably clipped)' : 'reach the file\'s digital limit (clipped)'}: the value is underestimated.`);
       if (c.sens) lines.push(`Sensitivity: ${c.sens.tallerRows} rows taller at each end → ${f2(c.sens.taller)}${c.sens.away != null ? `; background ${c.sens.awayPx} px further away → ${f2(c.sens.away)}` : ''}.`);
       lines.push(`Image: ${esc(p.image || '')} (SHA-256 ${esc(String(p.sha256 || '').slice(0, 12))}…) · calculation version ${p.version} · placed ${p.placed}×${p.override && p.override.length ? ` · lane-specific: ${esc(p.override.join(', '))}` : ''}.`);
     } else lines.push(`Earlier method (version 1): ${esc(G.Quant.BG_TEXT[R.method] || R.method)}; uncorrected ${f2(c.U)}, background ${f2(c.B)}.`);
     if (R.normMode !== 'none') lines.push(`Normalization: ${esc(G.Quant.describe(App, R).normalization)}.`);
     if (R.output === 'fold') lines.push(R.ref != null ? `Reference lane: ${R.ref + 1}${st.lanes[R.ref] && st.lanes[R.ref].name ? ` (${esc(st.lanes[R.ref].name.replace(/\*/g, ''))})` : ''}.` : 'No reference lane chosen.');
     $('qProfRead').innerHTML = lines.map(l => `<p>${l}</p>`).join('');
-    // the lane's own adjustments (version 2): edges, shift, background
     const row = st.quant.rows[k], lid = App.laneId(i), L = row && row.lanes && row.lanes[lid];
     if (R.version === G.Quant.VERSION && L) {
-      $('qLaneAdj').classList.remove('hidden');
       $('qLaneBg').value = L.bg && L.bg.sides ? L.bg.sides : ''; $('qLaneGap').value = L.bg && L.bg.gap != null ? L.bg.gap : '';
+      $('qLaneBg').disabled = $('qLaneGap').disabled = !!L.manual;
       $('qLaneAdj').dataset.k = k; $('qLaneAdj').dataset.lid = lid;
     }
   }
   const laneRec = () => { const el = $('qLaneAdj'), row = S().quant.rows[+el.dataset.k]; return row && row.lanes ? row.lanes[el.dataset.lid] : null; };
-  document.querySelectorAll('#qLaneAdj [data-adj]').forEach(b => b.onclick = done(() => { const L = laneRec(); if (!L) return; const [key, d] = b.dataset.adj.split(':'); L[key] = (L[key] || 0) + +d; if (!L[key]) delete L[key]; }));
+  const laneRow = () => S().quant.rows[+$('qLaneAdj').dataset.k];
+  // the step buttons: the start and end rows (of a drawn baseline, or of the lane's region) and the column shift
+  document.querySelectorAll('#qLaneAdj [data-adj]').forEach(b => b.onclick = done(() => {
+    const L = laneRec(); if (!L) return; const [key, d] = b.dataset.adj.split(':');
+    if (L.manual && key !== 'dx') { const m = L.manual, e = key === 'dy0' ? 'a' : 'b', nv = m[e] + +d; if ((e === 'a' ? m.b - nv : nv - m.a) >= 2) m[e] = nv; return; }
+    L[key] = (L[key] || 0) + +d; if (!L[key]) delete L[key];
+  }));
   $('qLaneBg').addEventListener('change', done(e => { const L = laneRec(); if (!L) return; const v = e.target.value; if (v) L.bg = Object.assign({}, L.bg, { sides: v }); else if (L.bg) { delete L.bg.sides; if (!Object.keys(L.bg).length) delete L.bg; } }));
   $('qLaneGap').addEventListener('change', done(e => { const L = laneRec(); if (!L) return; const v = e.target.value; if (v !== '') L.bg = Object.assign({}, L.bg, { gap: Math.max(0, Math.round(+v)) }); else if (L.bg) { delete L.bg.gap; if (!Object.keys(L.bg).length) delete L.bg; } }));
-  $('btnLaneReset').onclick = done(() => { const L = laneRec(); if (!L) return; ['dx', 'dy0', 'dy1', 'bg'].forEach(k2 => delete L[k2]); });
+  $('btnLaneReset').onclick = done(() => { const row = laneRow(); if (row) G.Quant.resetLane(App, row, $('qLaneAdj').dataset.lid); });
+  // this lane's limits in every lane of the band (a drawn baseline's, or the region's own rows)
+  $('btnProfAll').onclick = done(() => {
+    const row = laneRow(), L = laneRec(); if (!row || !L) return;
+    const P = G.Quant.laneProfile(App, row, $('qLaneAdj').dataset.lid), a = L.manual ? L.manual.a : Math.round(P.region[0]), b = L.manual ? L.manual.b : Math.round(P.region[1]);
+    const n = G.Quant.manualAll(App, row, a, b);
+    G.UI.toast(`Rows ${a}–${b} integrated in ${n} lane${n === 1 ? '' : 's'}, each above a baseline between its own profile's ends`);
+  });
+  // drawing on the profile: a drag from the start of the peak to its end draws the baseline; a handle moves an end
+  const cvp = $('qProfile');
+  const evPt = e => { const r = cvp.getBoundingClientRect(), d = pmap ? pmap.dpr : 1; return { x: (e.clientX - r.left) * d, y: (e.clientY - r.top) * d, free: e.altKey }; };
+  const rowAt = x => Math.round(Math.max(pmap.v0 + 0.5, Math.min(pmap.v1 - 0.5, pmap.Xi(x))));
+  // the level at a pointer: on the curve when within 8 px of it (unless Alt), else where the pointer is
+  const levelAt = (y, py, free) => { const m = pmap.meanAt(y); return !free && isFinite(m) && Math.abs(pmap.Y(m) - py) <= 8 * pmap.dpr ? m : pmap.Yi(py); };
+  const handleAt = p => { const m = pmap && pmap.base; if (!m) return null; const near = (y, l) => Math.hypot(pmap.X(y) - p.x, pmap.Y(l) - p.y) <= 9 * pmap.dpr; return near(m.a, m.la) ? 'a' : near(m.b, m.lb) ? 'b' : null; };
+  cvp.addEventListener('pointerdown', e => {
+    if (!pmap || e.button !== 0 || $('qProfAll').checked) return;
+    const p = evPt(e), h = handleAt(p), m = pmap.base;
+    if (h) pdrag = { k: pmap.k, lid: pmap.lid, y0: h === 'a' ? m.b : m.a, l0: h === 'a' ? m.lb : m.la, y1: h === 'a' ? m.a : m.b, l1: h === 'a' ? m.la : m.lb, moved: true };
+    else { const y = rowAt(p.x), l = levelAt(y, p.y, p.free); pdrag = { k: pmap.k, lid: pmap.lid, y0: y, l0: l, y1: y, l1: l, moved: false }; }
+    try { cvp.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has nothing to capture */ }
+    e.preventDefault();
+  });
+  cvp.addEventListener('pointermove', e => {
+    if (!pmap) return;
+    const p = evPt(e);
+    if (!pdrag) { cvp.style.cursor = handleAt(p) ? 'grab' : 'crosshair'; return; }
+    const y = rowAt(p.x); pdrag.y1 = y; pdrag.l1 = levelAt(y, p.y, p.free); pdrag.moved = pdrag.moved || Math.abs(pdrag.y1 - pdrag.y0) >= 1;
+    drawProfile();
+  });
+  const endDrag = commit => {
+    const d = pdrag; pdrag = null;
+    if (!d || !commit || !d.moved || Math.abs(d.y1 - d.y0) < 2) { drawProfile(); return; }
+    const row = S().quant.rows[d.k];
+    const [a, la, b, lb] = d.y0 <= d.y1 ? [d.y0, d.l0, d.y1, d.l1] : [d.y1, d.l1, d.y0, d.l0];
+    if (row && G.Quant.setManual(App, row, d.lid, a, b, la, lb)) App.commit(); else drawProfile();
+  };
+  cvp.addEventListener('pointerup', () => endDrag(true));
+  cvp.addEventListener('pointercancel', () => endDrag(false));
+  cvp.addEventListener('keydown', e => { if (e.key === 'Escape' && pdrag) { e.preventDefault(); endDrag(false); } });
 
   // live: called while something is being dragged or typed; the band list (which may hold the input being typed
   // in) is left alone, only the numbers follow
+  // the chart fits the analysis window's height (its width is the window's): set on every render and resize
+  const fitChart = () => { const body = document.querySelector('#quantView .qv-body'); if (body && body.clientHeight) $('quantView').style.setProperty('--qv-h', Math.max(220, body.clientHeight - 64) + 'px'); };
+  window.addEventListener('resize', () => { fitChart(); if (S() && shown.quant && tab === 'prof') drawProfile(); });
   function render(live) {
     const st = S();
     if (!st) return;
+    fitChart();
     if (live) { if (shown.quant && tab !== 'size') results(); return; }
     const q = st.quant, lanes = G.Quant.quantLanes(App), v2 = q.version === G.Quant.VERSION;
     $('qLegacy').classList.toggle('hidden', v2 || !q.rows.length);

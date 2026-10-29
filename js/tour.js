@@ -221,8 +221,8 @@
             after: () => { G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); const st = strongWeak(); if (st) G.QuantUI.selectLane(st.strong); } }] },
         { title: 'Inspect the background', parts: [
           { el: '#qProfLane', watch: ['#quantProf', '#editorBox'],
-            text: () => { const sw = strongWeak(); return `The profile shows the strongest lane: shaded = counted, the dashed rows beside it = its background. Now choose ${sw ? `lane ${sw.weak + 1}, the weakest,` : 'the weakest lane'} in this list. In both, the background rows should be flat, not rising towards the band.`; },
-            why: 'A background that holds part of the band, or a region shorter than the band, lowers the value, most of all for broad strong bands; such lanes are marked "? Needs review". Make the region taller (Top / Bottom) or move the background further away (Gap). Never widen a region into the neighbouring lanes.',
+            text: () => { const sw = strongWeak(); return `The profile shows the strongest lane: shaded = counted, dashed line = the background subtracted, grey bands = the rows it came from. Now choose ${sw ? `lane ${sw.weak + 1}, the weakest,` : 'the weakest lane'} in this list. In both, the profile should be flat in the grey bands, not rising towards the band.`; },
+            why: 'A background that holds part of the band, or a region shorter than the band, lowers the value, most of all for broad strong bands; such lanes are marked "? Needs review". Make the band taller (its Height) or move the background further away (Background, Edit…), or drag on the profile from the start of the peak to its end to draw the baseline yourself. Never widen a region into the neighbouring lanes.',
             enter: () => { const sw = strongWeak(); return sw ? sw.weak : -1; }, done: w => +$('qProfLane').value === w || (w < 0 && G.QuantUI.tab() === 'prof') }] },
         { title: 'Output and normalization', parts: [
           { el: '#qNorm', panel: true, watch: ['#qNormSub', '#qOutput'], alt: 'Keep unnormalized',
@@ -260,7 +260,7 @@
         { title: 'A region as tall as the band', parts: [
           { el: '#boxList [data-qhgt="0"]', panel: true, watch: ['#quantView', '#editorBox'],
             text: 'Lane 4 is still marked: its band is taller than the region, so its edges are cut off and the background regions touch it. Type a larger Height for the band (about 57 px here) and press Enter, until lane 4 is no longer marked.',
-            why: 'Make the region taller (or drag its top and bottom edges on the image), never wider: wider regions take in the neighbouring lanes. Keep the background regions clear of the bands above and below; the profile shows where they are.',
+            why: 'Make the region taller (or drag its top and bottom edges on the image), never wider: wider regions take in the neighbouring lanes. Keep the background regions clear of the bands above and below; the profile shows where they are. For a single lane you can instead drag on its profile from the start of the peak to its end: that line becomes its baseline (marked ✎ manual).',
             done: () => { const c = broadCell(); return !!c && !c.flags.boundary && !c.flags.contaminated && !(c.review && c.review.length); } }] },
         { title: 'Check the result', parts: [
           { el: '#quantTabs [data-tab="int"]', watch: '#quantView',

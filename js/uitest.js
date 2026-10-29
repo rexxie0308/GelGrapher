@@ -1348,6 +1348,79 @@
       const checks = { legacyKept, declined, updated, undoBack, display, words, head: head === 'Lane|Name|Role|Show|Measure', named, why, areaCut, areaBack, height, bandMode, laneHint, hintGone, tools, inDlg, wraps, focusBack, lowest, highest, lessonOk };
       R.workspace = Object.assign({ ok: Object.values(checks).every(Boolean), log, ratio: +ratio.toFixed(3), headText: head }, checks);
     }
+    // 58. manual integration on the lane profile (as in chromatography software): a baseline drawn from the start of
+    // the peak to its end gives the area above it, exactly; it is marked and disclosed everywhere, "Automatic" and
+    // undo take it back, "Apply to all lanes" uses the same limits with each lane's own baseline; a pointer drag on
+    // the profile draws it and its handles move its ends; the profile's tools do not move when the readout changes;
+    // the chart fills the analysis window instead of a long method line
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      // a flat background 0.1 with three bands of known area (no noise): lane 2 broad, lane 3 with a neighbour
+      const W = 420, H = 300, Y = 150, hw = 18, xs = [60, 120, 180, 240, 300, 360];
+      const bands = [{ x: 60, a: 0.3, s: 3 }, { x: 120, a: 0.1, s: 9 }, { x: 180, a: 0.3, s: 3 }, { x: 240, a: 0.2, s: 4 }, { x: 300, a: 0.25, s: 5 }];
+      const data = new Float32Array(W * H), truth = new Float32Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let t = 0; bands.forEach(b => { if (Math.abs(x - b.x) <= hw) t += b.a * Math.exp(-0.5 * ((y - Y) / b.s) ** 2); }); truth[y * W + x] = t; data[y * W + x] = 0.1 + t; }
+      App.setPref('byType', {});
+      await App.load(new File([G.Demo.encodeTiff16({ width: W, height: H, data })], 'manual.tif'), 'western');
+      const S = App.S, q = S.quant;
+      S.rotation = 0; S.geom = null; S.flip = { h: false, v: false }; App.applyFlip(); App.rot = null; App.ensureRot();
+      S.lanes = xs.map((x, k) => ({ x, name: 'L' + (k + 1), hidden: false, id: 'L' + (k + 1) })); S.lanePitch = 60; S.laneHalfW = 18; S.markers = [];
+      S.crop = { x: 0, y: 0, w: W - 1, h: H - 1 };
+      Object.assign(q, { version: 2, region: { x: 0, y: 0, w: W - 1, h: H - 1 }, norm: 'none', normBand: null, mode: 'box', bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, wFrac: 0.7, frames: {}, output: 'corrected', ref: null });
+      q.rows = [G.Quant.placeRow(App, { name: 'target' }, Y - 8, Y + 8)]; App.commit();
+      const row = () => App.S.quant.rows[0], val = id => { const M = G.Quant.measure(App); return M.values.corrected[0][M.ids.indexOf(id)]; };
+      const hwPx = G.Quant.boxHalfWidth(App.S), truthIn = (lx, y0, y1) => { let t = 0; for (let y = y0; y <= y1; y++) for (let x = Math.round(lx - hwPx); x <= Math.round(lx + hwPx); x++) t += truth[y * W + x]; return t; };
+      const auto2 = val('L2');
+      // lane 2 (broad, cut by the short region): a baseline drawn at the background level from 30 rows above to 30 below
+      // the peak gives the area over those rows, exactly (the image has no noise)
+      G.Quant.setManual(App, row(), 'L2', Y - 30, Y + 30, 0.1, 0.1); App.commit();
+      const M1 = G.Quant.measure(App), j2 = M1.ids.indexOf('L2'), c2 = M1.cells[0][j2], t2 = truthIn(120, Y - 30, Y + 30);
+      const exact = Math.abs(c2.value / t2 - 1) < 0.002 && c2.flags.manual && c2.prov.manual.rows.join() === `${Y - 30},${Y + 30}` && !c2.review.length && auto2 < t2 * 0.9;
+      // a tilted baseline subtracts its trapezoid: (la + lb) / 2 x rows x pixels per row
+      G.Quant.setManual(App, row(), 'L2', Y - 30, Y + 30, 0.11, 0.09); App.commit();
+      const c2b = G.Quant.measure(App).cells[0][j2], tilt = Math.abs(c2b.value - c2.value) < 1e-6 * Math.abs(c2.value) + 1e-6;   // symmetric tilt about 0.1: same area
+      G.Quant.setManual(App, row(), 'L2', Y - 30, Y + 30, 0.12, 0.12); App.commit();
+      const c2c = G.Quant.measure(App).cells[0][j2], raised = Math.abs((c2.value - c2c.value) - 0.02 * c2c.n) < 1e-3;
+      // disclosed: the table mark, the CSV, the log, the methods and the legend
+      const M2 = G.Quant.measure(App), csv = G.Quant.quantCSV(App, M2), logD = G.Export.processingLog(App.S).densitometry;
+      const disclosed = /manual baseline \(drawn\)/.test(csv) && /manual baseline from row/.test(csv) && logD.manuallyIntegratedWells.join() === '2' && /drawn by hand on the lane profile/.test(G.Quant.methodsText(App, M2))
+        && G.Export.legendHints(App.S).some(h => /Lane 2 was integrated manually/.test(h));
+      // Automatic takes it back; undo brings it again
+      G.Quant.resetLane(App, row(), 'L2'); App.commit(); const back = Math.abs(val('L2') - auto2) < 1e-9;
+      App.undo(); const undone = !!row().lanes.L2.manual; App.redo();
+      // the same limits in every lane, each baseline on its own profile (flat 0.1 here): every lane's area over those rows
+      const n = G.Quant.manualAll(App, row(), Y - 30, Y + 30); App.commit();
+      const M3 = G.Quant.measure(App), allLanes = n === xs.length && M3.ids.every((id, j) => { const t = truthIn(xs[j], Y - 30, Y + 30); return Math.abs(M3.values.corrected[0][j] - t) <= 0.01 * Math.max(1, t) + 0.5; });
+      Object.keys(row().lanes).forEach(id => G.Quant.resetLane(App, row(), id)); App.commit();
+      // the profile: a pointer drag draws the baseline, a handle moves its end; the tools stay where they are
+      G.QuantUI.setView('quant'); G.QuantUI.show('figure', false); G.QuantUI.setTab('prof'); G.QuantUI.selectLane(1); await wait(150);
+      const cv = $('qProfile'); cv.scrollIntoView({ block: 'center' }); await wait(50);
+      const r = cv.getBoundingClientRect(), toolTop0 = $('qLaneAdj').getBoundingClientRect().top - r.top, canvasTop0 = r.top - $('quantProf').getBoundingClientRect().top;
+      const fire = (type, fx, fy, extra) => cv.dispatchEvent(new PointerEvent(type, Object.assign({ bubbles: true, pointerId: 7, button: 0, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy }, extra || {})));
+      fire('pointerdown', 0.12, 0.85); fire('pointermove', 0.5, 0.85); fire('pointermove', 0.88, 0.85); fire('pointerup', 0.88, 0.85); await wait(100);
+      const m1 = row().lanes.L2.manual, drew = !!m1 && m1.b - m1.a > 20 && App.S.quant.rows[0].lanes.L2.manual === m1;
+      // drag the end handle 6 % of the width to the left
+      const P = G.Quant.laneProfile(App, row(), 'L2'), pxOf = y => { const v0 = P.rows[0].y - 0.5, v1 = P.rows[P.rows.length - 1].y + 0.5, pad = 12; return (pad + (y - v0) / (v1 - v0) * (r.width - 2 * pad)) / r.width; };
+      const yOfLevel = l => { const vals = P.rows.map(q2 => q2.mean).concat([m1.la, m1.lb]); let lo = Math.min(...vals), hi = Math.max(...vals); const sp = (hi - lo) || 1e-3; lo -= sp * 0.06; hi += sp * 0.08; const top = 12 + 4, bot = r.height - 12 - 12; return (bot - (l - lo) / (hi - lo) * (bot - top)) / r.height; };
+      const hx = pxOf(m1.b), hy = yOfLevel(m1.lb);
+      fire('pointerdown', hx, hy); fire('pointermove', hx - 0.06, hy); fire('pointerup', hx - 0.06, hy); await wait(100);
+      const m2 = row().lanes.L2.manual, handle = !!m2 && m2.a === m1.a && m2.b < m1.b;
+      const pills = /manual/.test($('qProfSum').textContent) && /Manual baseline/.test($('qProfMode').textContent);
+      // another lane, another readout: the tools and the canvas stay put
+      G.QuantUI.selectLane(2); await wait(150);
+      const r2 = cv.getBoundingClientRect(), stays = Math.abs(($('qLaneAdj').getBoundingClientRect().top - r2.top) - toolTop0) < 1 && Math.abs((r2.top - $('quantProf').getBoundingClientRect().top) - canvasTop0) < 1;
+      const detailsClosed = !$('qProfMore').open && /Uncorrected sum/.test($('qProfRead').textContent);
+      $('btnLaneReset').click(); G.QuantUI.selectLane(1); await wait(50); $('btnLaneReset').click(); await wait(50);
+      const resetBtn = !row().lanes.L2.manual;
+      // the chart: as wide as the window, its width set by the plot (not by a long method line)
+      G.QuantUI.setTab('plot'); await wait(150);
+      const svg = $('quantChart').querySelector('svg'), vbW = +svg.getAttribute('viewBox').split(' ')[2], axisW = Math.max(0, ...[...svg.outerHTML.matchAll(/<line x1="0" y1="[-\d.]+" x2="([-\d.]+)"/g)].map(m => +m[1]));
+      const chartBig = vbW < Math.max(axisW, 45 * G.Render.MM) + 60 && svg.getBoundingClientRect().width > 300 && svg.getBoundingClientRect().height > 180;
+      G.QuantUI.show('figure', true); G.QuantUI.setTab('prof');
+      await G.UI.loadExample('western');
+      const checks = { exact, tilt, raised, disclosed, back, undone, allLanes, drew, handle, pills, stays, detailsClosed, resetBtn, chartBig };
+      R.manualInt = Object.assign({ ok: Object.values(checks).every(Boolean), auto2: +auto2.toFixed(2), manual2: +c2.value.toFixed(2), truth2: +t2.toFixed(2), m1, m2, vbW, axisW }, checks);
+    }
     // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
     // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to
     // the lines on the image lists only what is drawn and can be folded; the figure at its printed size; one filled

@@ -337,7 +337,7 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 #quantView { min-height: 0; display: flex; flex-direction: column; background: var(--stage); }
 .qv-head { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .qv-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 28px; }
-.qv-body .qchart { max-width: 620px; margin: 0 0 16px; padding: 10px; background: #fff; border-radius: var(--r); box-shadow: var(--shadow); }
+.qv-body .qchart { margin: 0 0 8px; padding: 12px; background: #fff; border-radius: var(--r); box-shadow: var(--shadow); }
 .qv-body .qchart:empty { display: none; }
 .qv-body .qtable { max-width: 980px; margin: 0; }
 .qv-body .qtable table { font-size: 12.3px; }
@@ -470,7 +470,7 @@ body.touring #app, body.touring .topbar { user-select: none; }
 #sizeTable td:last-child { text-align: left; white-space: normal; }
 .qchart { border-radius: var(--r-sm); overflow: hidden; }
 .qchart:empty { display: none; }
-#qProfile { width: 100%; height: 130px; display: block; border-radius: var(--r-sm); background: var(--panel-2); }
+#qProfile { width: 100%; height: 260px; display: block; border-radius: var(--r-sm); background: var(--panel-2); cursor: crosshair; touch-action: none; }
 .inline.wrap { flex-wrap: wrap; }
 .legend-wrap { margin: 12px 16px 20px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .legend-wrap .legend { width: 100%; }
@@ -571,7 +571,6 @@ body.touring #app, body.touring .topbar { user-select: none; }
 #laneList .lane-row .cb { justify-self: center; }
 .item .tag.warn { background: var(--warn-bg); color: var(--warn); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-#qProfile { height: 150px; }
 .prof-read { margin: 6px 0 4px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .save-note { font-size: 11.5px; color: var(--top-muted); white-space: nowrap; }
 .save-note.warn { color: var(--warn); font-weight: 600; }
@@ -630,12 +629,32 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .q-issue { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px; border-radius: 8px; background: var(--warn-bg); border: 1px solid var(--warn-line); font-size: 13px; }
 .qv-sum { padding: 6px 20px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line-2); }
 .qv-sum a, a.link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.plot-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 16px; align-items: start; }
+/* the plot takes the window's width (its settings beside it, or under it when the window is narrow); the
+ * chart scales with it, up to most of the window's height */
+#quantPlot { container-type: inline-size; }
+.plot-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 16px; align-items: start; }
+#quantChart svg { display: block; width: 100%; height: auto; max-height: var(--qv-h, 72vh); margin: 0 auto; }
 .plot-set { display: grid; gap: 8px; font-size: 13px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
 .plot-set .field { margin: 0; }
-@media (max-width: 1100px) { .plot-wrap { grid-template-columns: 1fr; } }
-.q-lane { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); display: grid; gap: 8px; }
-.q-lane .inline { gap: 6px; }
+@container (max-width: 640px) { .plot-wrap { grid-template-columns: 1fr; } }
+/* the profile: its tools in one fixed row above the canvas, the result under it, the parameters folded away */
+.prof-ctl { margin: 0 0 6px; }
+.prof-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 8px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
+.pt-mode { flex: 1 1 220px; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt-steps { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.pt-l { font-size: 12.5px; color: var(--muted); margin: 0 2px 0 6px; }
+.pt-steps .btn.sm { padding: 3px 7px; }
+.prof-key { margin: 4px 0 6px; }
+.pk { display: inline-block; width: 16px; height: 9px; margin-right: 4px; vertical-align: 0; border-radius: 2px; }
+.pk-line { height: 0; border-top: 2px solid var(--text); vertical-align: 3px; border-radius: 0; }
+.pk-base { height: 0; border-top: 2px dashed #1f9d55; vertical-align: 3px; border-radius: 0; }
+.pk-man { height: 0; border-top: 2px solid #b45309; vertical-align: 3px; border-radius: 0; }
+.pk-bg { background: rgba(120,130,140,.3); }
+.pk-area { background: rgba(31,157,85,.4); }
+.pk-area.man { background: rgba(180,83,9,.3); }
+.prof-sum p { margin: 2px 0; font-size: 14px; }
+.prof-sum .state-b { margin-left: 4px; vertical-align: 1px; }
+.prof-more { margin-top: 8px; }
 .prof-read p { margin: 3px 0; font-size: 13px; line-height: 1.5; }
 .qtable td .qm { display: inline-block; margin-left: 3px; font-weight: 700; font-size: 12px; }
 .qtable td .qm-clip, .qtable td .qm-rev { color: var(--warn); }

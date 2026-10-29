@@ -418,21 +418,25 @@
             <div><button class="btn primary" id="btnAddBox2">+ Add band</button></div>
           </div>
           <div id="quantProf" role="tabpanel" aria-labelledby="tabProf">
-            <div class="field inline wrap"><select id="qProfBox" style="width:auto" aria-label="Band"></select><select id="qProfLane" style="width:auto" aria-label="Lane"></select><label class="switch"><input type="checkbox" id="qProfAll"><span>Compare lanes (common scale)</span></label></div>
-            <canvas id="qProfile" height="170" role="img" aria-label="Lane profile of the band"></canvas>
-            <p class="hint" id="qProfKey"></p>
-            <div class="prof-read" id="qProfRead"></div>
-            <div class="q-lane hidden" id="qLaneAdj">
-              <div class="cl-head">Adjust this lane <span class="h3-note">recorded as a lane-specific region</span></div>
-              <div class="inline wrap">
-                <span class="inline-label">Top</span><button class="btn sm" data-adj="dy0:-1" aria-label="Move the top edge up one row">↑</button><button class="btn sm" data-adj="dy0:1" aria-label="Move the top edge down one row">↓</button>
-                <span class="inline-label">Bottom</span><button class="btn sm" data-adj="dy1:-1" aria-label="Move the bottom edge up one row">↑</button><button class="btn sm" data-adj="dy1:1" aria-label="Move the bottom edge down one row">↓</button>
-                <span class="inline-label">Shift</span><button class="btn sm" data-adj="dx:-1" aria-label="Shift the region left one pixel">←</button><button class="btn sm" data-adj="dx:1" aria-label="Shift the region right one pixel">→</button>
-              </div>
-              <div class="inline wrap"><label class="inline-label"><span>Background here</span> <select id="qLaneBg"><option value="">As for all lanes</option><option value="ab">Above and below</option><option value="above">Above only</option><option value="below">Below only</option><option value="beside">Beside</option></select></label>
-                <label class="inline-label"><span>Gap</span> <input type="number" id="qLaneGap" class="num" min="0" max="40" step="1" placeholder="as all"> px</label>
-                <button class="btn sm" id="btnLaneReset">Reset this lane</button></div>
+            <div class="field inline wrap prof-ctl"><select id="qProfBox" style="width:auto" aria-label="Band"></select><select id="qProfLane" style="width:auto" aria-label="Lane"></select><label class="switch"><input type="checkbox" id="qProfAll"><span>Compare lanes</span></label></div>
+            <!-- the integration tools: always here, above the profile, whatever the readout below says -->
+            <div class="prof-tools" id="qLaneAdj" role="toolbar" aria-label="Integration of this lane">
+              <span class="pt-mode" id="qProfMode" role="status"></span>
+              <button class="btn sm" id="btnProfAll" title="Use this lane's integration limits in every lane of the band; each lane's baseline ends sit on its own profile">Apply to all lanes</button>
+              <button class="btn sm" id="btnLaneReset" title="Back to the band's own region and background in this lane">Automatic</button>
+              <span class="pt-steps"><span class="pt-l">Start</span><button class="btn sm" data-adj="dy0:-1" aria-label="Move the start one row up">↑</button><button class="btn sm" data-adj="dy0:1" aria-label="Move the start one row down">↓</button>
+                <span class="pt-l">End</span><button class="btn sm" data-adj="dy1:-1" aria-label="Move the end one row up">↑</button><button class="btn sm" data-adj="dy1:1" aria-label="Move the end one row down">↓</button>
+                <span class="pt-l">Shift</span><button class="btn sm" data-adj="dx:-1" aria-label="Shift the region left one pixel">←</button><button class="btn sm" data-adj="dx:1" aria-label="Shift the region right one pixel">→</button></span>
             </div>
+            <canvas id="qProfile" height="260" role="img" aria-label="Lane profile of the band; drag on it to draw the integration baseline"></canvas>
+            <p class="hint prof-key" id="qProfKey"></p>
+            <div class="prof-sum" id="qProfSum"></div>
+            <details class="adv prof-more" id="qProfMore">
+              <summary><span>Calculation details</span></summary>
+              <div class="prof-read" id="qProfRead"></div>
+              <div class="inline wrap"><label class="inline-label"><span>Background in this lane</span> <select id="qLaneBg"><option value="">As for all lanes</option><option value="ab">Above and below</option><option value="above">Above only</option><option value="below">Below only</option><option value="beside">Beside</option></select></label>
+                <label class="inline-label"><span>Gap</span> <input type="number" id="qLaneGap" class="num" min="0" max="40" step="1" placeholder="as all"> px</label></div>
+            </details>
           </div>
           <div id="quantInt" class="hidden" role="tabpanel" aria-labelledby="tabInt">
             <div id="quantTable" class="qtable"></div>
