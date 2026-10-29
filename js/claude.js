@@ -34,9 +34,9 @@
       const R = G.Quant.measure(A);
       out.densitometry = {
         description: G.Quant.describe(A, R),
-        loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceLane: S.lanes[R.ref] ? (S.lanes[R.ref].name || `well ${R.ref + 1}`) : null,
-        relativeValues: R.rows.map((row, kk) => (kk === R.control ? null : { band: row.name, perLane: R.lanes.map((i, j) => ({ lane: R.names[j], value: R.rel[kk][j] == null ? null : +R.rel[kk][j].toFixed(2), flags: G.Quant.flagText(R.flags[kk][j]) || undefined })) })).filter(Boolean),
-        wellsWithSaturatedPixels: R.saturatedLanes.map(i => i + 1)
+        output: R.output, referenceBand: R.normBand >= 0 ? R.rows[R.normBand].name : null, referenceLane: R.ref != null && S.lanes[R.ref] ? (S.lanes[R.ref].name || `lane ${R.ref + 1}`) : null,
+        values: R.rows.map((row, kk) => ({ band: row.name, perLane: R.lanes.map((i, j) => ({ lane: R.names[j], value: R.shown[kk][j] == null ? null : +R.shown[kk][j].toPrecision(4), unavailable: R.shownWhy[kk][j] || undefined, flags: [G.Quant.flagText(R.cells[kk][j].flags, R.cells[kk][j]), R.shownCaveat ? R.shownCaveat[kk][j] : null].filter(Boolean).join('; ') || undefined })) })),
+        lanesWithClippedPixels: R.saturatedLanes.map(i => i + 1), lanesNeedingReview: (R.reviewLanes || []).map(i => i + 1)
       };
     }
     return out;
@@ -44,7 +44,7 @@
   function buildPrompt() {
     return [
       `You help a biologist write the figure legend and the methods text for a ${App.gelType().name()} figure prepared with GelGrapher.`,
-      'Use ONLY the facts in the JSON below. Where information is missing (sample amounts, antibodies and dilutions, gel percentage, imaging system, exposure), write a placeholder in square brackets such as [primary antibody, dilution]. Never invent results, conditions or numbers. Describe densitometry values only if they are present, without claiming statistical significance (there is one blot). Use densitometry.description word for word in substance: do not upgrade a lane-signal normalization to total-protein normalization, do not call a loading control validated, and mention values flagged below LOQ or with clipped pixels as such.',
+      'Use ONLY the facts in the JSON below. Where information is missing (sample amounts, antibodies and dilutions, gel percentage, imaging system, exposure), write a placeholder in square brackets such as [primary antibody, dilution]. Never invent results, conditions or numbers. Describe densitometry values only if they are present, without claiming statistical significance (there is one blot). Use densitometry.description word for word in substance: do not upgrade a lane-signal normalization to total-protein normalization, do not call a reference band validated, call the noise thresholds estimated (not assay limits), and mention values flagged below the 10σ threshold, needing review, or with clipped pixels as such; never present inverted grey values as optical density or amounts.',
       'Reply in plain text without Markdown, with exactly these two headings on their own lines:',
       'Figure legend',
       '(a one-sentence title, then 2 to 5 sentences: what the lanes show, the marker, arrows or strips, the normalization if any, and every disclosure in legendNotes)',

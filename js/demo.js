@@ -2,7 +2,10 @@
  *   dna      agarose gel, GeneRuler 1 kb Plus, PCR / digest products (the GelFigure test gel)
  *   sds      Coomassie-stained SDS-PAGE of a His-tag purification (dark bands on a light gel)
  *   western  chemiluminescence blot, p53 rising over a time course with a GAPDH loading control;
- *            the true band amounts are kept in .truth so densitometry can be checked */
+ *            the true band amounts are kept in .truth so densitometry can be checked
+ *   broad    a blot whose lane 4 band is broad (smeared over 3x the height of the others) and holds the most
+ *            protein, though its peak is no higher: a region and a background set on the narrow bands read it
+ *            low (the background lesson); .truth.amounts are the integrated amounts (peak x width) */
 (function (G) {
   'use strict';
 
@@ -29,6 +32,12 @@
       names: ['M', '0 h', '1 h', '2 h', '4 h', '8 h', '12 h', '24 h', '48 h'],
       target: { name: 'p53', size: 53, amounts: [0.10, 0.17, 0.30, 0.52, 0.78, 0.70, 0.46, 0.27] },
       control: { name: 'GAPDH', size: 37, amounts: [0.50, 0.53, 0.47, 0.51, 0.55, 0.49, 0.52, 0.50] }
+    },
+    broad: {
+      ladder: 'pr26619', range: [300, 8], gelType: 'western', lanes: 8, bandSigma: 4.5, ladderSigma: 3.4, wellAmp: 0, seed: 33, haze: 0.03,
+      names: ['M', 'Ctrl', 'A', 'B', 'C', 'D', 'E', 'F'],
+      // per sample lane: the band's peak height and its sigma (rows); lane 4 (sample index 2) is broad
+      target: { name: 'Protein X', size: 53, peaks: [0.30, 0.36, 0.30, 0.40, 0.33, 0.27, 0.37], sigmas: [4.5, 4.5, 13, 4.5, 4.5, 4.5, 4.5] }
     }
   };
 
@@ -61,6 +70,11 @@
     let samples = opts.samples;
     const truth = { pitch, x0, lanes: opts.lanes, yOf, gel: [gx0, gy0, gx1, gy1], gelType: opts.gelType, names: opts.names || null };
     if (kind === 'sds') samples = sdsSamples(rnd, opts.lysateBands || 30);
+    if (kind === 'broad') {
+      const T = opts.target;
+      samples = [null].concat(T.peaks.map((a, k) => [[T.size, a, T.sigmas[k]], [75, 0.05 + 0.02 * rnd()]]));
+      truth.target = T; truth.broadLane = 3; truth.amounts = T.peaks.map((a, k) => a * T.sigmas[k]);
+    }
     if (kind === 'western') {
       samples = [null].concat(opts.target.amounts.map((t, k) => [[opts.target.size, t], [opts.control.size, opts.control.amounts[k]], [75, 0.05 + 0.02 * rnd()]]));
       truth.target = opts.target; truth.control = opts.control;
@@ -70,7 +84,7 @@
     for (let Ln = 0; Ln < opts.lanes; Ln++) {
       const cx = x0 + Ln * pitch;
       if (Ln === 0) lad.sizes.forEach(s => bands.push({ cx, y: yOf(s), a: lad.ref.includes(s) ? 0.75 : 0.38, s: opts.ladderSigma }));
-      else (samples[Ln] || []).forEach(([s, a]) => bands.push({ cx, y: yOf(s), a, s: opts.bandSigma }));
+      else (samples[Ln] || []).forEach(([s, a, sg]) => bands.push({ cx, y: yOf(s), a, s: sg || opts.bandSigma }));
       if (opts.wellAmp) bands.push({ cx, y: wellY, a: opts.wellAmp, s: 5, well: true });
     }
     if (!opts.clean) (opts.extra || []).forEach(e => bands.push({ cx: x0 + e.lane * pitch, y: yOf(e.size), a: e.a, s: e.s }));   // clean: no saturating band (the tutorial's practice gel)

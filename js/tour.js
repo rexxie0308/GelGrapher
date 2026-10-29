@@ -52,15 +52,22 @@
   const nucleic = () => App.kind() === 'dna' || App.kind() === 'rna';
   const western = () => !!App.gelType().western;
   const lanesKey = () => S().lanes.map(l => Math.round(l.x)).join(',');
+  // the measured lanes with the strongest and the weakest corrected signal in the first band
+  const strongWeak = () => {
+    const R = S() && S().quant.rows.length && G.Quant ? G.Quant.measure(App) : null;
+    if (!R || !R.lanes.length) return null;
+    const v = R.values.corrected[0].map((x, j) => [x, R.lanes[j]]).filter(p => p[0] != null).sort((a, b) => b[0] - a[0]);
+    return v.length >= 2 ? { strong: v[0][1], weak: v[v.length - 1][1] } : null;
+  };
   const ANNO = '#sections .sec:nth-of-type(4)';
-  let laneFix = 0, exported = 0, resetRot = 0, resetLv = 0, origClicks = 0, polClicks = 0;
+  let laneFix = 0, exported = 0, resultsOut = 0, resetRot = 0, resetLv = 0, origClicks = 0, polClicks = 0;
   const count = (id, fn) => $(id).addEventListener('click', fn, true);
   ['btnEvenCrop', 'btnRedetectCrop'].forEach(id => count(id, () => { laneFix++; }));
   count('btnResetRot', () => { resetRot++; }); count('btnResetLv', () => { resetLv++; });
   count('btnOrig', () => { origClicks++; }); count('polSeg', () => { polClicks++; });
   // an export counts when its button is pressed; "Go back and fix" in the pre-flight window takes it back
-  ['btnPNGItem', 'btnPNG', 'btnArchive'].forEach(id => count(id, () => { exported++; setTimeout(check, 0); }));   // checked once the pre-flight window, if any, is up
-  count('pfBack', () => { exported = Math.max(0, exported - 1); });
+  // an export counts once the file was kept (the app announces it), never on the click alone
+  App.on(what => { if (what === 'exported' || what === 'exported-results') { exported++; if (what === 'exported-results') resultsOut++; setTimeout(check, 0); } });
 
   /* A lesson = cards (steps), each one task in one or a few parts. A part with `done` waits for the action
    * (the predicate gets the value `enter` returned when the part began), is never done while a text box, a
@@ -77,7 +84,7 @@
       next: 'labels',
       prepare: st => {
         st.lanes.forEach((l, k) => { if (!isMarker(k)) l.name = ''; });
-        st.groups = []; st.arrows = []; st.conditions = []; st.strips = []; st.quant.rows = []; st.quant.control = -1;
+        st.groups = []; st.arrows = []; st.conditions = []; st.strips = []; st.quant.rows = []; st.quant.normBand = null; st.quant.norm = 'none'; st.quant.output = 'corrected'; st.quant.ref = null;
         st.markers.forEach(m => { m.confirmed = false; });
       },
       end: 'Your first figure is done: checked, labelled and exported. Your own gels are kept in this browser\'s Library with everything you did.',
@@ -95,13 +102,18 @@
             text: () => `The card names the ladder whose pattern matches the yellow lines, and how many of its bands sit on peaks. Detection finds the closest pattern; only you know what was loaded. ${App.isExample ? 'Here it is right: tick' : 'If it is the product you loaded, tick'} [Confirm this is the ladder you loaded].`,
             why: 'Until it is confirmed, the legend and the log say the ladder was identified from the band pattern. "Check ladder and band assignments" on the card means few ladder bands sit on peaks: choose the product you loaded in the list, or drag a misplaced yellow line and the others re-fit.',
             done: () => S().markers.some(m => m.confirmed) }] },
+        { title: 'Ladder image', when: western, parts: [
+          { el: '#mkImageBox', panel: true, watch: '#editorBox', alt: 'Not applicable',
+            text: 'If the ladder was imaged separately (white light), click [Load ladder image…]: it is straightened with the blot and an offset between the two is measured. No separate image: click [Not applicable].',
+            why: 'The app checks for an offset; verify registration before estimating sizes. Slide the opacity to check that the membrane edges coincide: sizes read from a misaligned ladder image are off by the same shift.',
+            done: () => App.hasMarkerImage() }] },
         { title: 'Name a lane', parts: [
           { pane: 'figure', rect: () => firstUnnamed() && rectOf(firstUnnamed()), watch: '#previewBox', text: 'Click a grey lane number on the figure, type a name (for example WT) and press Enter: the next lane opens for typing. Name one lane; Escape stops.',
             why: 'Names are typed on the figure, so you see them in place. A row of names copied from a spreadsheet can also be pasted into the box under the lane list.',
             enter: () => named(), done: b => named() > b }] },
         { title: 'Read the notices', warnings: true, parts: [
           { el: '#warnings', text: 'These notices are what a reviewer would question: clipped contrast, labels that overlap, saturated pixels. Read them and fix what can be fixed here, then click [Next].',
-            why: 'Saturated bands cannot be repaired afterwards; only a shorter exposure helps. Contrast clipping is undone with Reset contrast under "Straighten and contrast".' }] },
+            why: 'Clipped pixels cannot be recovered afterwards. A shorter exposure helps when the detector saturated; an overloaded lane needs less sample. Contrast clipping is undone with Reset contrast under "Straighten and contrast".' }] },
         { title: 'Export the figure', warnings: true, parts: [
           { el: () => (vis('exportDlg') ? '#btnPNGItem' : '#btnExport'), text: 'Click [Export…], pick a format under Figure (PDF or TIFF for a journal, PNG or PowerPoint for slides) and click [Export figure]. A pre-flight window lists anything that still needs attention.',
             why: 'The resolution beside Export… applies to PNG and TIFF. Journals set their own minimum (often 300 dpi for photographs, more for images with text), so check the author guidelines. PDF and SVG keep text and lines sharp at any size.',
@@ -191,65 +203,88 @@
             why: 'Journals ask that removed lanes be marked; the gap and the legend notes do that. Leaving a lane out of the figure does not remove it from the measurements.',
             enter: () => hiddenCount(), done: b => hiddenCount() > b }] }
       ] },
-    { id: 'measure', goal: 'measure', title: 'Measure bands', desc: 'In order: acquisition and saturation, marker alignment, band boxes, lanes, background, normalization, values, export.',
+    { id: 'measure', goal: 'measure', title: 'Measure bands', desc: 'Five decisions: acquisition quality, the target band, the background in a strong and a weak lane, the output, the flags before export.',
       next: 'figure',
-      prepare: st => { st.quant.rows = []; st.quant.control = -1; st.quant.norm = 'none'; st.quant.region = null; st.lanes.forEach(l => { l.noMeasure = false; }); },
-      end: 'That is the order for your own blots: acquisition, alignment, boxes, lanes, background, normalization, values, export. The methods paragraph is under Methods text in the Densitometry step.',
+      prepare: st => { st.quant.rows = []; st.quant.normBand = null; st.quant.norm = 'none'; st.quant.output = 'corrected'; st.quant.ref = null; st.quant.region = null; st.quant.version = 2; st.lanes.forEach(l => { l.noMeasure = false; }); },
+      end: 'Those are the five decisions for your own blots: acquisition, target, background, output, flags. The methods paragraph is under Method details in the Densitometry step.',
       steps: [
-        { title: 'Acquisition and saturation', parts: [
+        { title: 'Acquisition quality', parts: [
           { el: '#showSat', up: 'label', panel: true, watch: ['#clipLine', '#editorBox'], alt: 'Already checked',
-            text: 'Values mean something only when the bands are within the detector\'s range. The line above reads the file for clipped or piled-up pixels. Tick [Show saturated pixels] to mark them on the image.',
-            why: 'A file cannot show saturation that the imager clipped before saving: check the imager\'s own saturation display too, and take a shorter exposure when a band of interest is saturated. Contrast settings never change the measured values.',
+            text: 'Values compare lanes only when the bands are within the detector\'s range. The line above reads the file for clipped pixels. Tick [Show saturated pixels] to mark them on the image.',
+            why: 'A file cannot show saturation the imager clipped before saving: check the imager\'s own display too. A shorter exposure helps when the detector saturated; it cannot fix an overloaded lane, which needs less sample. A colour or JPEG image is not a quantitative acquisition. Contrast settings never change the values.',
             done: () => $('showSat').checked }] },
-        { title: 'Ladder image', when: western, parts: [
-          { el: '#mkImageBox', panel: true, watch: '#editorBox', alt: 'Not applicable',
-            text: 'If the ladder was imaged separately (white light), click [Load ladder image…]. It is rotated and corrected with the blot and aligned to it; slide the opacity to check that the membrane edges coincide. No separate image: click [Not applicable].',
-            why: 'Sizes read from a misaligned marker image are off by the same shift. The alignment found is shown here and written to the log.',
-            done: () => App.hasMarkerImage() }] },
-        { title: 'Box the band', parts: [
+        { title: 'Select the target band', parts: [
           { pane: 'image', el: () => (App.mode === 'quant' ? null : '#btnAddBox'), rect: () => (App.mode === 'quant' ? cropRect() : null), panel: true, watch: () => (App.mode === 'quant' ? ['#editorBox', '#figCol'] : ['#quantSec', '#editorBox']), avoid: '#editorBox',
-            text: () => `Click [+ Band box], then click the ${western() ? 'target band' : 'band to measure'} on the image (or drag from just above it to just below). The box is measured in every lane of the analysis area; the results open under the figure.`,
-            why: 'A box stands for one band row: every lane is read inside it, at the same height, from the original pixels.',
-            enter: () => S().quant.rows.length, done: b => S().quant.rows.length > b, after: () => { G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); } }] },
-        { title: 'Lanes measured', parts: [
-          { el: '#qAreaBox', panel: true, watch: '#editorBox', alt: 'Already correct',
-            text: 'The lanes of the analysis area are measured, whatever the figure shows (the area is the red box when the first band box was drawn, and is drawn dashed green once they differ). Untick a lane under Lanes measured to leave it out (a torn or empty lane), or click [Already correct].',
-            why: 'Hiding a lane in the figure never removes it from the analysis, and the other way round, so a figure choice cannot change a number.',
-            enter: () => S().lanes.map(l => (l.noMeasure ? 1 : 0)).join(''), done: b => S().lanes.map(l => (l.noMeasure ? 1 : 0)).join('') !== b }] },
-        { title: 'Background and profile', parts: [
-          { el: '#qProfLane', watch: '#quantProf', text: 'The profile shows the box in one lane: the dashed line is the background it subtracts, the shaded area what is counted. Choose another lane in this list and check that the background runs under the band, not through it.',
-            why: 'A background line that cuts into the band, or a box narrower than the band, lowers the value. Widen the box or choose another Background in the Densitometry step; the values update at once.',
-            enter: () => $('qProfLane').value, done: b => $('qProfLane').value !== b }] },
-        { title: 'Normalization', parts: [
-          { el: '#qNorm', panel: true, watch: '#qNormHint', alt: 'Keep raw values',
+            text: () => `Click [+ Add band], then click the ${western() ? 'target band' : 'band to measure'} on the image, or drag from just above it to just below.`,
+            why: 'One band is measured in every lane of the analysis area, at the same height, from the original pixels. Its region should hold the whole band from top to bottom and nothing of the bands above or below.',
+            enter: () => S().quant.rows.length, done: b => S().quant.rows.length > b,
+            after: () => { G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); const st = strongWeak(); if (st) G.QuantUI.selectLane(st.strong); } }] },
+        { title: 'Inspect the background', parts: [
+          { el: '#qProfLane', watch: ['#quantProf', '#editorBox'],
+            text: () => { const sw = strongWeak(); return `The profile shows the strongest lane: shaded = counted, dashed line = the background subtracted, grey bands = the rows it came from. Now choose ${sw ? `lane ${sw.weak + 1}, the weakest,` : 'the weakest lane'} in this list. In both, the profile should be flat in the grey bands, not rising towards the band.`; },
+            why: 'A background that holds part of the band, or a region shorter than the band, lowers the value, most of all for broad strong bands; such lanes are marked "? Needs review". Make the band taller (its Height) or move the background further away (Background, Edit…), or drag on the profile from the start of the peak to its end to draw the baseline yourself. Never widen a region into the neighbouring lanes.',
+            enter: () => { const sw = strongWeak(); return sw ? sw.weak : -1; }, done: w => +$('qProfLane').value === w || (w < 0 && G.QuantUI.tab() === 'prof') }] },
+        { title: 'Output and normalization', parts: [
+          { el: '#qNorm', panel: true, watch: ['#qNormSub', '#qOutput'], alt: 'Keep unnormalized',
             text: () => (App.kind() === 'protein' || App.kind() === 'native'
-              ? 'Choose a normalization, or click [Keep raw values]. A loading-control box (GAPDH, actin, tubulin) assumes that band is in its linear range and unchanged by the treatment; lane signal counts as total-protein normalization only on a total-protein stain or stain-free image.'
-              : 'Choose a normalization, or click [Keep raw values]. Dividing by a reference band assumes it is in its linear range and unchanged by the conditions; lane signal assumes equal amounts give equal lane signal.'),
-            why: 'Raw values are always valid. A normalization is only as good as its assumption; the note under the list, the methods text and the legend say which one was used.',
+              ? 'Choose a normalization only if its assumption holds, or click [Keep unnormalized]. A reference band (GAPDH, actin, tubulin) must be in its linear range and unchanged by the treatment; total lane signal is total-protein normalization only on a total-protein stain or stain-free image.'
+              : 'Choose a normalization only if its assumption holds, or click [Keep unnormalized]. A reference band must be in its linear range and unchanged by the conditions; total lane signal assumes equal loading gives equal lane signal.'),
+            why: 'Unnormalized signal is useful when acquisition, region selection, and background correction are valid. Normalization is optional. The output (corrected signal, normalized, or fold change against a lane you choose) is set under it and stated with every value.',
             enter: () => S().quant.norm, done: b => S().quant.norm !== b }] },
-        { title: 'Read the values', parts: [
-          { el: '#quantTabs [data-tab="int"]', watch: '#quantView', text: 'Click [Table]. Values are relative to the reference lane (1.00). A value below its limit of quantification is greyed and marked, and clipped pixels are flagged.',
-            why: 'The limits come from the noise of each box\'s background (3 and 10 standard deviations of the summed signal). One blot is one replicate: compare conditions across repeated experiments.',
-            done: () => !$('quantInt').classList.contains('hidden') }] },
-        { title: 'Export results and provenance', warnings: true, parts: [
-          { el: () => (vis('exportDlg') ? '#btnPNG' : '#btnExport'), text: 'Click [Export…], then [Export results package]: one ZIP with the figure, the chart, the values with their limits and flags, the processing log and the methods text.',
-            why: 'Export complete archive adds the original image with its SHA-256 and the project file, so a reviewer can reopen the analysis and check it.',
-            enter: () => exported, done: b => exported > b }] }
+        { title: 'Review flags and export', warnings: true, parts: [
+          { el: () => (vis('exportDlg') ? '#btnPNG' : '#btnExport'),
+            text: 'Read the marks in the table (⚠ clipped, † below 10σ, ? needs review). Then click [Export…] and [Export results package]: the card is done once the file is saved.',
+            why: 'The package holds the values with their regions, flags and method; the complete archive adds the original image so a reviewer can re-open the analysis. Biological replication depends on independently obtained samples. Duplicate lanes or repeated imaging do not create independent biological replicates.',
+            enter: () => resultsOut, done: b => resultsOut > b }] }
+      ] },
+    { id: 'background', goal: 'measure', title: 'Broad bands and background', desc: 'Why a broad band can read lower than narrow ones, and how the background regions and the region height fix it.',
+      example: 'broad', next: 'measure', open: () => { G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); },
+      prepare: st => { st.quant.bg = 'edge'; st.quant.output = 'corrected'; st.quant.norm = 'none'; st.quant.ref = null; },
+      end: 'A broad band is compared fairly when its background comes from outside it and its region holds all of it. When a lane is marked ? Needs review, open its profile before trusting its value.',
+      steps: [
+        { title: 'A broad band', parts: [
+          { el: '#quantTabs [data-tab="int"]', watch: '#quantView',
+            text: 'In this practice blot lane 4 holds the most protein (2.9 × lane 2; the example knows the true amounts), but its band is broad. The region was fitted to a narrow band, with Background "Line between region ends" as in earlier versions. Click [Table]: lane 4 reads lowest and is marked ?.',
+            why: 'The table shows the background-corrected signal of every lane. A "?" means the region or its background should be checked before the value is used.',
+            done: () => G.QuantUI.tab() === 'int' }] },
+        { title: 'See why', parts: [
+          { el: () => (G.QuantUI.tab() === 'prof' ? '#qProfLane' : '#quantTabs [data-tab="prof"]'), watch: ['#quantView', '#editorBox'],
+            text: () => `Click [Profile] and choose lane ${(broadJ().i != null ? broadJ().i : 3) + 1}: the background is a line between the region's first and last rows, which lie on the band's flanks, so most of the band is subtracted from itself.`,
+            why: 'This background assumes the region\'s end rows hold no band. True for a narrow band in a tall region; false for a broad band, which then reads too low however much protein it holds.',
+            done: () => G.QuantUI.tab() === 'prof' && +$('qProfLane').value === broadJ().i }] },
+        { title: 'Background outside the band', parts: [
+          { el: '#qBg', panel: true, watch: ['#quantView', '#editorBox'],
+            text: 'Choose Background: [Local regions]. The background now comes from regions above and below the band region, outside it (dashed on the image).',
+            why: 'Background regions outside the signal region never contain the band they are subtracted from, provided the region holds the whole band.',
+            done: () => S().quant.bg === 'local' }] },
+        { title: 'A region as tall as the band', parts: [
+          { el: '#boxList [data-qhgt="0"]', panel: true, watch: ['#quantView', '#editorBox'],
+            text: 'Lane 4 is still marked: its band is taller than the region, so its edges are cut off and the background regions touch it. Type a larger Height for the band (about 57 px here) and press Enter, until lane 4 is no longer marked.',
+            why: 'Make the region taller (or drag its top and bottom edges on the image), never wider: wider regions take in the neighbouring lanes. Keep the background regions clear of the bands above and below; the profile shows where they are. For a single lane you can instead drag on its profile from the start of the peak to its end: that line becomes its baseline (marked ✎ manual).',
+            done: () => { const c = broadCell(); return !!c && !c.flags.boundary && !c.flags.contaminated && !(c.review && c.review.length); } }] },
+        { title: 'Check the result', parts: [
+          { el: '#quantTabs [data-tab="int"]', watch: '#quantView',
+            text: () => { const r = broadRatio(); return `Lane 4 now reads ${r != null ? r.toFixed(2) : '–'} × lane 2 (true: 2.89 ×), the highest, and the narrow lanes barely changed. Nothing was done to lane 4's number: the background and the region were corrected for every lane. The few per cent still missing are the band's faint tails; a taller region would reach the band above.`; },
+            why: 'The value of a region is the sum of signal minus background over its pixels; the profile and the table show the uncorrected sum, the background and the result for every lane, so the correction can be checked.' }] }
       ] }
   ];
   const GOALS = [['figure', 'Prepare a figure'], ['measure', 'Measure bands']];
+  // the broad-band lesson: the lane with the broad band, its cell and its value against lane 2
+  const broadJ = () => { const R = G.Quant.measure(App), i = (G.UI.figLanes() || [])[3]; return { R, j: R.lanes.indexOf(i), i }; };
+  const broadCell = () => { const { R, j } = broadJ(); return j >= 0 && R.cells[0] ? R.cells[0][j] : null; };
+  const broadRatio = () => { const { R, j } = broadJ(), v = R.values.corrected[0] || []; return j >= 0 && v[0] && v[j] != null ? v[j] / v[0] : null; };
   let lvBase = '', condBase = 0;   // baselines of the contrast and condition-row cards (set when they begin)
 
   const TOUR = [
     { title: 'A two-minute overview', text: 'Where everything is. Everything happens in your browser: images never leave your computer. Lessons in the top bar teach each part hands-on.' },
     { el: '#imgChip', title: 'Your image', text: 'The file that is open. Drop a new image anywhere in the window, or use Open / Save; the × closes it (it stays in the Library).' },
     { el: '#sections .sec:nth-of-type(1)', title: '1 · Image', text: 'The experiment (it chooses the ladder library and the unit) and how bands should look. Angle, gel shape and contrast were set automatically; open "Straighten and contrast" only when they need a hand.', panel: true },
-    { el: '#editorBox', title: 'Image editor', text: 'The working image with what was detected: red box = the figure area, blue = lanes, yellow = ladder bands, green = band boxes. Drag to correct; the switch above says whether a drag edits the figure or the measurement. Original shows the file as it was opened.' },
+    { el: '#editorBox', title: 'Image editor', text: 'The working image with what was detected: red box = the figure area, blue = lanes, yellow = ladder bands, green = measurement regions. Drag to correct; the Edit switch above says whether a drag edits figure elements or measurement regions. Original shows the file as it was opened.' },
     { el: '#sections .sec:nth-of-type(2)', title: '2 · Lanes', text: 'The wells shown in the figure, and one row per lane: its name, its role (sample, negative control, ladder), and whether it is in the figure and in the analysis.', panel: true },
-    { el: '#figCol', title: 'Figure', text: 'The finished figure. Click a grey lane number and type its name; Enter jumps to the next lane. Any label can be edited by clicking it. The analysis window opens under it once there are band boxes.' },
+    { el: '#figCol', title: 'Figure', text: 'The finished figure. Click a grey lane number and type its name; Enter jumps to the next lane. Any label can be edited by clicking it. The analysis window opens under it once a band is measured.' },
     { el: '#sections .sec:nth-of-type(3)', title: '3 · Size ladder', text: 'The ladder was identified by its band pattern: the card says how many ladder bands sit on peaks and the size range they calibrate. Confirm the product you loaded; drag a misplaced yellow line on the image.', panel: true },
     { el: ANNO, title: '4 · Annotations', text: 'Group lines over lane names, arrows at target bands (sized from the ladder), + / − condition rows, and strips to show only parts of a blot.', panel: true },
-    { el: '#quantSec', title: '6 · Densitometry', text: 'A band box per band row; every lane of the analysis area is measured from the original pixels, with its limits. Normalization is your choice, each with its assumption stated. The analysis window shows the profile, table, plot and band sizes.', panel: true },
+    { el: '#quantSec', title: '6 · Densitometry', text: 'Add a band: every lane of the analysis area is measured from the original pixels, with background regions beside the band and flags for anything to check. Normalization is optional and states its assumption. The analysis window shows the profile, table, plot and band sizes.', panel: true },
     { el: '#btnExport', title: 'Export', text: 'The figure alone (PNG, TIFF, PDF, SVG, PowerPoint), a results package (figure, chart, values, log, methods), a complete archive (that plus the original image and the project file) or the chart. A pre-flight check lists problems first.' },
     { el: '#btnLibrary', title: 'Library', text: 'Every gel you open is kept in this browser with your latest edits. For another computer or a backup, save a project file (Open / Save).' },
     { el: '#btnGuide', title: 'Lessons', text: 'Short hands-on lessons: a first figure, labels, strips, image corrections, lanes, and measuring bands. They run on an example, so your gels stay as they are.' },
@@ -521,15 +556,16 @@
     const at = opts.resume && pr.at != null && pr.gel === gelKey() ? pr.at : 0;
     const onThis = own && opts.where === 'this';
     if (!onThis && !at) {
-      const kind = exampleKind();
+      const kind = L.example || exampleKind();
       if (!S() || App.isExample !== kind) {
         if (own) await App.close();                              // the user's gel is saved and stays in the Library
         await G.UI.loadExample(kind, { clean: true });
         if (!S()) return;
       }
       if (L.prepare) { safe(() => L.prepare(S())); App.commit(); }
-      if (L.id !== 'measure') G.QuantUI.show('quant', false);
+      if (L.goal !== 'measure') G.QuantUI.show('quant', false);
     }
+    if (L.open) safe(() => L.open());   // the windows the lesson's first cards point at
     const keep = onThis ? App.snapshot() : null;
     start(id, at);
     snap = keep;

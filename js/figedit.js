@@ -14,16 +14,14 @@
   function setMode(m) {
     App.mode = m;
     $('modeBanner').classList.toggle('hidden', !m);
-    $('modeText').textContent = m === 'arrow' ? 'Click the target band (on either image); it snaps to the band and estimates the size'
-      : m === 'group' ? 'Drag from the first to the last lane name on the figure; release to create the group line'
-      : m === 'strip' ? 'On the image, drag down across the region to show (include the ladder ticks); release to add the strip'
-      : m === 'quant' ? 'Click a band on the image (the box fits itself), or drag across it'
-      : m === 'lane' ? 'Click on the image where the missing lane runs (the blue line follows the pointer). Shift+click adds several; Esc ends' : '';
-    $('btnAddArrow').classList.toggle('on', m === 'arrow');
-    $('btnAddGroup').classList.toggle('on', m === 'group');
-    $('btnAddStrip').classList.toggle('on', m === 'strip');
-    $('btnAddBox').classList.toggle('on', m === 'quant');
-    $('btnAddLane').classList.toggle('on', m === 'lane');
+    // one instruction for the active tool: what it is, what to do, how to leave it
+    $('modeText').textContent = m === 'arrow' ? 'Band arrow: click the band on either image · Esc cancels'
+      : m === 'group' ? 'Group bracket: drag across the lane names on the figure · Esc cancels'
+      : m === 'strip' ? 'Strip: drag down across the region on the image · Esc cancels'
+      : m === 'quant' ? 'Add band: click or drag on image · Esc cancels'
+      : m === 'lane' ? 'Add lane: click the lane centre on the image · Shift+click adds more · Esc ends' : '';
+    [['btnAddArrow', 'arrow'], ['btnAddGroup', 'group'], ['btnAddStrip', 'strip'], ['btnAddBox', 'quant'], ['btnAddLane', 'lane']].forEach(([id, k]) => { $(id).classList.toggle('on', m === k); $(id).setAttribute('aria-pressed', String(m === k)); });
+    $('addLaneHint').classList.toggle('hidden', m !== 'lane');
     prev.classList.toggle('arming', m === 'arrow');
     if (m !== 'arrow') guide.classList.add('hidden');
     // every tool opens the view it works in: a band box the Densitometry view, an arrow, group line or strip the figure
@@ -38,15 +36,26 @@
   $('btnAddBox').onclick = () => { if (S()) setMode(App.mode === 'quant' ? null : 'quant'); };
 
   /* a strip or band box drawn on the raw image: y0..y1, or (a click) only the point clicked */
-  App.finishRegion = function (mode, y0, y1, x, yClick) {
+  App.finishRegion = async function (mode, y0, y1, x, yClick) {
     const st = S(), c = st.crop;
     setMode(null);
     if (mode === 'quant') {
       const r = y0 != null ? { y0, y1 } : G.Quant.bandBox(App, x, yClick);
       if (!r) return;
-      st.quant.rows.push({ y0: r.y0, y1: r.y1, name: '' });
+      // one table never mixes two methods: an analysis measured with the earlier calculation is updated before a
+      // band is added, and only when the user agrees (its values change; Undo brings them back)
+      if (st.quant.version !== G.Quant.VERSION && st.quant.rows.length) {
+        const ok = await G.UI.confirm('This analysis was measured with the earlier method (version 1). Adding a band updates every band to the current method: local background outside each band, signed sums, regions fixed on the original pixels. The values will change; Undo brings the earlier ones back.', 'Update and add');
+        if (!ok || S() !== st) return;
+        G.Quant.updateToCurrent(App);
+      }
+      st.quant.version = G.Quant.VERSION;
       // the first box fixes the analysis area: from now on the figure box can change without changing a result
       if (!st.quant.region) st.quant.region = Object.assign({}, st.crop);
+      // the band's regions are placed now, in the frame shown, and stay on those original pixels
+      const row = { name: '' };
+      G.Quant.placeRow(App, row, r.y0, r.y1);
+      st.quant.rows.push(row);
       // no loading control is suggested: dividing by a box is a choice the user makes (and must justify)
       App.boxAdded = true;   // a box drawn by the user opens the Densitometry view (quantui.js)
       App.commit();

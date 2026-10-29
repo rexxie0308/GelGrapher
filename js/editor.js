@@ -114,7 +114,42 @@
     });
     const qhw = App.S.quant.rows.length ? G.Quant.boxHalfWidth(S) : 0;
     const qLanes = G.Quant.quantLanes(App);
+    const R = q && G.QuantUI && G.QuantUI.lastResults ? G.QuantUI.lastResults() : null;
+    // a band placed in the original pixels (version 2): each lane's region and its background regions are drawn
+    // where they lie now, from their stored outlines (they do not move with the image; the outlines do)
+    const poly = (pts, fill, stroke) => { ctx.beginPath(); pts.forEach(([x, y], i) => { const p = toScr(x, y); if (i) ctx.lineTo(p.x, p.y); else ctx.moveTo(p.x, p.y); }); ctx.closePath(); if (fill) ctx.fill(); if (stroke) ctx.stroke(); };
+    const drawRegions = (r, k) => {
+      const hov = q && hover && (hover.type === 'qedge' || hover.type === 'qbody') && hover.k === k, isRef = S.quant.norm === 'band' && r.id === S.quant.normBand;
+      const col = isRef ? '#7a8b00' : '#1f9d55';
+      ctx.globalAlpha = q ? 1 : 0.35;
+      let labelAt = null;
+      qLanes.forEach(i => {
+        const lid = App.laneId(i), o = G.Quant.outlines(App, r, lid);
+        if (!o) return;
+        const sel = q && App.selLanes.has(i), j = R ? R.lanes.indexOf(i) : -1, cell = R && R.cells[k] && j >= 0 ? R.cells[k][j] : null;
+        if (q) { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); o.background.forEach(b => poly(b.pts, null, true)); ctx.setLineDash([]); }
+        ctx.fillStyle = isRef ? 'rgba(122,139,0,.12)' : 'rgba(31,157,85,.12)'; ctx.strokeStyle = col; ctx.lineWidth = sel ? 2.4 : hov ? 2 : q ? 1.2 : 1;
+        if (!q) ctx.setLineDash([2, 4]);
+        poly(o.signal, q, true); ctx.setLineDash([]);
+        const top = o.signal.reduce((a, p) => (p[1] < a[1] ? p : a), o.signal[0]), right = o.signal.reduce((a, p) => (p[0] > a[0] ? p : a), o.signal[0]);
+        if (!labelAt || right[0] > labelAt[0]) labelAt = [right[0], (top[1] + o.signal.reduce((a, p) => Math.max(a, p[1]), -Infinity)) / 2];
+        // a lane that needs review (or has no value) is marked on the image, in words as well as colour
+        if (q && cell && ((cell.review && cell.review.length) || cell.value == null || cell.flags.clip)) {
+          const p = toScr(top[0], top[1]); ctx.font = '700 12px -apple-system, Segoe UI, Arial, sans-serif'; ctx.textAlign = 'center';
+          const t = cell.value == null ? 'n/a' : cell.flags.clip ? '⚠' : '?';
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, p.x, p.y - 4); ctx.fillStyle = '#9F4E0C'; ctx.fillText(t, p.x, p.y - 4);
+          ctx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
+        }
+      });
+      if (labelAt) {
+        const p = toScr(labelAt[0], labelAt[1]), t2 = (r.name || `Band ${k + 1}`) + (isRef ? ' (reference)' : '');
+        ctx.textAlign = 'left'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+        ctx.strokeText(t2, p.x + 8, p.y + 4); ctx.fillStyle = isRef ? '#5c6900' : '#14713a'; ctx.fillText(t2, p.x + 8, p.y + 4);
+      }
+      ctx.globalAlpha = 1;
+    };
     const drawBoxes = () => S.quant.rows.forEach((r, k) => {
+      if (r.frame) { drawRegions(r, k); return; }
       const ya = toScr(0, Math.min(r.y0, r.y1)).y, yb = toScr(0, Math.max(r.y0, r.y1)).y;
       const hov = q && hover && (hover.type === 'qedge' || hover.type === 'qbody') && hover.k === k, ctl = k === S.quant.control;
       ctx.globalAlpha = q ? 1 : 0.35;
@@ -296,10 +331,11 @@
     // responds: band boxes with the Densitometry view, strips with the figure
     if (inX) {
       const q = quantLayer();
-      if (q) for (let k = 0; k < S.quant.rows.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.quant.rows[k][e]) <= tol) return { type: 'qedge', k, e };
+      const spanOf = r => (r.frame ? G.Quant.rowSpan(App, r) : { y0: Math.min(r.y0, r.y1), y1: Math.max(r.y0, r.y1) });
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const sp = spanOf(S.quant.rows[k]); for (const e of ['y0', 'y1']) if (Math.abs(p.y - (S.quant.rows[k].frame ? (e === 'y0' ? sp.y0 - 0.5 : sp.y1 + 0.5) : S.quant.rows[k][e])) <= tol) return { type: 'qedge', k, e }; }
       if (!q) for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
       const ga = G.Quant.region(S);
-      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= ga.x && p.x <= ga.x + ga.w) return { type: 'qbody', k }; }
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const sp = spanOf(S.quant.rows[k]); if (p.y > sp.y0 && p.y < sp.y1 && p.x >= ga.x && p.x <= ga.x + ga.w) return { type: 'qbody', k }; }
     }
     if (inY) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
     if (inY && Math.abs(p.x - c.x) <= tol) return { type: 'crop', k: 'w' };
@@ -384,9 +420,9 @@
     }
     else if (h.type === 'arrow') { App.selArrow = h.i; App.selLane = -1; drag.y0 = App.S.arrows[h.i].y; App.emit('select'); }
     else if (h.type === 'band') { drag.y0 = App.S.markers[h.m].bands[h.i].y; }
-    else if (h.type === 'qedge') { drag.y0 = App.S.quant.rows[h.k][h.e]; }
+    else if (h.type === 'qedge') { const r = App.S.quant.rows[h.k]; if (r.frame) { const sp = G.Quant.rowSpan(App, r); drag.span = [sp.y0, sp.y1]; drag.y0 = h.e === 'y0' ? sp.y0 : sp.y1; drag.placed = r.placed || 1; } else drag.y0 = r[h.e]; }
     else if (h.type === 'sedge') { drag.y0 = App.S.strips[h.k][h.e]; }
-    else if (h.type === 'qbody') { const q = App.S.quant.rows[h.k]; drag.q0 = [q.y0, q.y1]; }
+    else if (h.type === 'qbody') { const q = App.S.quant.rows[h.k]; if (q.frame) { const sp = G.Quant.rowSpan(App, q); drag.q0 = [sp.y0, sp.y1]; drag.placed = q.placed || 1; } else drag.q0 = [q.y0, q.y1]; }
     if (h.type === 'inside' || h.type === 'qbody') {
       let best = -1, bd = Infinity;
       App.S.lanes.forEach((l, i) => { const d = Math.abs(l.x - p.x); if (d < bd) { bd = d; best = i; } });
@@ -467,12 +503,16 @@
     } else if (h.type === 'arrow') {
       S.arrows[h.i].y = Math.max(0, Math.min(rot.h, drag.y0 + dy));
     } else if (h.type === 'qedge') {
-      S.quant.rows[h.k][h.e] = Math.max(0, Math.min(rot.h, drag.y0 + dy));
+      const r = S.quant.rows[h.k], v = Math.max(0, Math.min(rot.h, drag.y0 + dy));
+      // editing a band places it again in the frame shown now: an explicit analysis change (one, however long the drag)
+      if (drag.span) { const ny = h.e === 'y0' ? [v, drag.span[1]] : [drag.span[0], v]; G.Quant.editRow(App, r, ny[0], ny[1]); r.placed = drag.placed + 1; }
+      else r[h.e] = v;
     } else if (h.type === 'sedge') {
       S.strips[h.k][h.e] = Math.max(0, Math.min(rot.h, drag.y0 + dy));
     } else if (h.type === 'qbody') {
       const q = S.quant.rows[h.k], d = E_clamp(dy, -Math.min(...drag.q0), rot.h - Math.max(...drag.q0));
-      q.y0 = drag.q0[0] + d; q.y1 = drag.q0[1] + d;
+      if (drag.placed != null) { G.Quant.editRow(App, q, drag.q0[0] + d, drag.q0[1] + d); q.placed = drag.placed + 1; }
+      else { q.y0 = drag.q0[0] + d; q.y1 = drag.q0[1] + d; }
     }
     draw(); App.refresh();
   });

@@ -39,7 +39,7 @@
     if (l !== 'quant') l = 'figure';
     if (layer === l) return;
     layer = l;
-    document.querySelectorAll('#editSeg button').forEach(b => b.classList.toggle('on', b.dataset.layer === layer));
+    document.querySelectorAll('#editSeg button').forEach(b => { b.classList.toggle('on', b.dataset.layer === layer); b.setAttribute('aria-checked', String(b.dataset.layer === layer)); });
     if (G.Editor) G.Editor.draw();
   }
   document.querySelectorAll('#editSeg button').forEach(b => b.onclick = () => { if (S()) setLayer(b.dataset.layer); });
@@ -103,43 +103,82 @@
   $('plotRef').addEventListener('change', done(e => { plot().refLine = e.target.checked; }));
   $('plotTitle').addEventListener('input', live(e => { plot().title = e.target.value; })); $('plotTitle').addEventListener('change', done());
   $('plotY').addEventListener('input', live(e => { plot().ylabel = e.target.value; })); $('plotY').addEventListener('change', done());
-  $('qNorm').addEventListener('change', done(e => { S().quant.norm = e.target.value; }));
-  $('qLaneTotal').addEventListener('change', done(e => { S().quant.laneTotal = e.target.checked; }));
-  // the analysis area back onto the figure box: a deliberate act, since results can change
-  $('btnAreaFromCrop').onclick = done(() => { S().quant.region = Object.assign({}, S().crop); G.UI.toast('Analysis area set to the figure box'); });
+  /* ---------- settings: name, current value, action; the explanation underneath only when it matters ---------- */
+  const Q = () => S().quant;
+  $('qMode').addEventListener('change', done(e => { Q().mode = e.target.value === 'band' ? 'band' : 'box'; }));
+  $('qBg').addEventListener('change', done(e => { Q().bg = e.target.value; }));
+  const toggle = (btn, box) => { const open = $(box).classList.toggle('hidden') === false; $(btn).setAttribute('aria-expanded', String(open)); };
+  $('btnBgEdit').onclick = () => toggle('btnBgEdit', 'qBgEdit');
+  $('btnLanesEdit').onclick = () => toggle('btnLanesEdit', 'qLaneBox');
+  $('btnAreaEdit').onclick = () => toggle('btnAreaEdit', 'qAreaBox');
+  // the analysis area by its four sides (an explicit, undoable change; the lanes measured can change)
+  ['qAreaL', 'qAreaR', 'qAreaT', 'qAreaB'].forEach(id => $(id).addEventListener('change', done(() => {
+    const st = S(), g = Object.assign({}, G.Quant.region(st)), W = App.rot ? App.rot.w : st.crop.x + st.crop.w, H = App.rot ? App.rot.h : st.crop.y + st.crop.h;
+    let l = +$('qAreaL').value, r = +$('qAreaR').value, t = +$('qAreaT').value, b = +$('qAreaB').value;
+    l = Math.max(0, Math.min(l, W - 2)); r = Math.max(l + 2, Math.min(r, W)); t = Math.max(0, Math.min(t, H - 2)); b = Math.max(t + 2, Math.min(b, H));
+    st.quant.region = { x: Math.round(l), y: Math.round(t), w: Math.round(r - l), h: Math.round(b - t) };
+    if (!g || g.x !== l) G.UI.toast('Analysis area changed: the lanes measured follow it');
+  })));
+  $('qBgSides').addEventListener('change', done(e => { Q().bgSides = e.target.value; }));
+  $('qBgGap').addEventListener('change', done(e => { Q().bgGap = Math.max(0, Math.round(+e.target.value || 0)); }));
+  $('qBgSize').addEventListener('change', done(e => { const v = Math.round(+e.target.value || 0); Q().bgSize = v > 0 ? Math.max(2, v) : 0; }));
+  $('qNorm').addEventListener('change', done(e => { const q = Q(); q.norm = e.target.value; if (q.norm === 'band' && !q.rows.some(r => r.id === q.normBand)) q.normBand = null; }));
+  $('qNormBand').addEventListener('change', done(e => { Q().normBand = e.target.value || null; }));
+  $('qLaneTotal').addEventListener('change', done(e => { Q().laneTotal = e.target.checked; }));
+  $('qOutput').addEventListener('change', done(e => { Q().output = e.target.value; }));
+  $('qRef').addEventListener('change', done(e => { Q().ref = e.target.value || null; }));
+  // the analysis area back onto the figure box: a deliberate act, since the lanes measured can change
+  $('btnAreaFromCrop').onclick = async () => {
+    if (!S() || !(await G.UI.confirm('Set the analysis area to the figure box? The lanes measured can change; the bands already placed keep their regions.', 'Reset from figure'))) return;
+    Q().region = Object.assign({}, S().crop); App.commit(); G.UI.toast('Analysis area set to the figure box');
+  };
   $('btnMethodsCopy').onclick = () => { if ($('methodsText').value) copyText($('methodsText').value); };
   $('btnAddBox2').onclick = () => $('btnAddBox').click();
+  // an analysis made with the earlier calculation is updated only when the user asks
+  $('btnQUpdate').onclick = async () => {
+    if (!S()) return;
+    const ok = await G.UI.confirm('Update this analysis to the current method? Every band is placed again on the lanes as shown, the background becomes local regions outside each band (unless you chose another), and sums are no longer cut at zero. The values will change; Undo brings the earlier ones back.', 'Update');
+    if (!ok) return;
+    G.Quant.updateToCurrent(App); App.commit(); G.UI.toast('Updated to the current method (version ' + G.Quant.VERSION + ')');
+  };
   function setTab(t) {
     tab = ['prof', 'int', 'plot', 'size'].includes(t) ? t : 'prof';
-    document.querySelectorAll('#quantTabs button').forEach(x => x.classList.toggle('on', x.dataset.tab === tab));
+    document.querySelectorAll('#quantTabs button').forEach(x => { const on = x.dataset.tab === tab; x.classList.toggle('on', on); x.setAttribute('aria-selected', String(on)); x.tabIndex = on ? 0 : -1; });
     const has = !!(S() && S().quant.rows.length);
     $('quantProf').classList.toggle('hidden', tab !== 'prof' || !has); $('quantInt').classList.toggle('hidden', tab !== 'int' || !has);
     $('quantPlot').classList.toggle('hidden', tab !== 'plot' || !has); $('quantSize').classList.toggle('hidden', tab !== 'size');
     $('quantActions').classList.toggle('hidden', tab === 'size'); $('sizeActions').classList.toggle('hidden', tab !== 'size');
   }
   document.querySelectorAll('#quantTabs button').forEach(b => b.onclick = () => { setTab(b.dataset.tab); render(); });
+  // arrow keys move between the tabs (tablist pattern)
+  $('quantTabs').addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const bs = [...document.querySelectorAll('#quantTabs button')], i = bs.findIndex(b => b.dataset.tab === tab), n = bs[(i + (e.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length];
+    e.preventDefault(); setTab(n.dataset.tab); render(); n.focus();
+  });
   $('qProfBox').addEventListener('change', e => { selBox = +e.target.value; drawProfile(); });
-  $('qBg').addEventListener('change', done(e => { S().quant.bg = e.target.value; }));
-  $('qMode').addEventListener('change', done(e => { S().quant.mode = e.target.value; }));
-  $('qW').addEventListener('input', live(e => { S().quant.wFrac = +e.target.value / 100; widthLabel(); }));
-  $('qW').addEventListener('change', done());
-  $('qRef').addEventListener('change', done(e => { S().quant.ref = +e.target.value; }));
-  $('qProfLane').addEventListener('change', () => drawProfile());
-  $('btnQCopy').onclick = () => { if (lastR) copyText(tsv(lastR)); };
+  $('qProfAll').addEventListener('change', () => drawProfile());
+  // the region width: every band is placed again with it (an analysis change)
+  $('qW').addEventListener('input', live(e => { Q().wFrac = +e.target.value / 100; widthLabel(); }));
+  $('qW').addEventListener('change', done(() => { const q = Q(); if (q.version === G.Quant.VERSION) q.rows.forEach(r => { const sp = G.Quant.rowSpan(App, r); G.Quant.editRow(App, r, sp.y0, sp.y1); }); }));
+  // selecting a lane anywhere (table row, chart mark, profile list, image) selects it everywhere
+  function selectLane(i) { if (!S() || i == null || i < 0) return; App.selLane = i; App.emit('select'); }
+  $('qProfLane').addEventListener('change', e => selectLane(+e.target.value));
+  $('btnQCopy').onclick = () => { if (lastR) copyText(G.Quant.quantTSV(App, lastR)); };
   $('btnQCSV').onclick = async () => {
     if (!S() || !lastR) return;
     const st = await G.Export.download(new Blob([G.Quant.quantCSV(App, lastR)], { type: 'text/csv' }), baseName() + '_densitometry.csv');
-    if (st === 'saved') G.UI.toast('Exported the densitometry CSV');
+    if (st === 'saved') { G.UI.toast('Exported the densitometry CSV'); App.emit('exported-results'); }
   };
   $('btnQChart').onclick = () => G.UI.openExport('chart');
   async function exportChart(fmt) {
     if (!S()) return;
     const R = measured(), ch = R ? G.Quant.chartSVG(App, R) : null;
-    if (!ch) { G.UI.toast('Add at least one band box that is not the divisor'); return; }
+    if (!ch) { G.UI.toast('Add at least one band to plot'); return; }
     App.busy(true, 'Exporting…');
     try {
       const st = await G.Export.exportChart(ch, fmt || 'png', baseName() + '_densitometry_chart', S().style.dpi, S());
-      if (st === 'saved') G.UI.toast('Exported the chart');
+      if (st === 'saved') { G.UI.toast('Exported the chart'); App.emit('exported-results'); }
     } catch (e) { G.UI.alert(e.message); } finally { App.busy(false); }
   }
   $('btnSCopy').onclick = () => { if (lastSizes) copyText(sizesTsv(lastSizes)); };
@@ -153,80 +192,94 @@
     const st = S(), px = G.Quant.boxHalfWidth(st) * 2;
     $('qWV').textContent = `${Math.round(st.quant.wFrac * 100)}% of lane spacing (${Math.round(px)} px)`;
   }
+  const laneList = is => { if (!is.length) return 'none'; const out = []; let a = is[0], b = a; for (let k = 1; k <= is.length; k++) { if (is[k] === b + 1) { b = is[k]; continue; } out.push(a === b ? `${a + 1}` : `${a + 1}–${b + 1}`); a = b = is[k]; } return out.join(', '); };
 
-  /* ---------- band boxes ---------- */
+  /* ---------- the bands: name, where, actions ---------- */
   function renderBoxes() {
-    const st = S(), q = st.quant;
-    $('boxList').innerHTML = q.rows.map((r, k) => `<div class="item">
-      <span class="swatch${k === q.control ? ' ctl' : ''}"></span>
-      <input type="text" data-q="${k}" value="${esc(r.name)}" placeholder="${`Band ${k + 1}, e.g. p53`}">
-      <label class="switch" title="${'Divide the other boxes of each lane by this one (a loading control). Use it only when this band does not change between your conditions and is within its linear range'}"><input type="checkbox" data-qc="${k}" ${k === q.control ? 'checked' : ''}>${'Divide by this box'}</label>
-      <button class="btn sm ghost" data-qprof="${k}" title="${'Show what this box measures: its lane profile, background and counted signal'}">Profile</button>
-      <button class="x" data-qdel="${k}" title="${'Delete'}">×</button></div>`).join('')
-      || `<p class="hint">${'No band boxes yet.'}</p>`;
-    $('boxList').querySelectorAll('[data-q]').forEach(inp => {
-      const r = q.rows[+inp.dataset.q];
-      inp.addEventListener('input', live(e => { r.name = e.target.value; }));
-      inp.addEventListener('change', done());
-    });
-    // ticking a box is the deliberate choice of a loading-control normalization; unticking ends it
-    $('boxList').querySelectorAll('[data-qc]').forEach(inp => inp.addEventListener('change', done(e => {
-      q.control = e.target.checked ? +inp.dataset.qc : -1;
-      if (e.target.checked) q.norm = 'control'; else if (q.norm === 'control') q.norm = 'none';
+    const st = S(), q = st.quant, lanes = G.Quant.quantLanes(App), isRef = r => q.norm === 'band' && r.id === q.normBand;
+    // one item per band: its name and actions, then its height and the lanes it covers
+    $('boxList').innerHTML = q.rows.length ? `<ul class="qb-list" aria-label="Bands">` + q.rows.map((r, k) => {
+      const placed = r.lanes ? lanes.filter(i => r.lanes[App.laneId(i)]).length : lanes.length, miss = lanes.length - placed;
+      const drift = r.frame ? lanes.filter(i => G.Quant.laneDrift(App, r, i) > Math.max(2, (r.hw || 4) * 0.3)) : [];
+      const sp = G.Quant.rowSpan(App, r), hgt = Math.round(sp.y1 - sp.y0 + 1);
+      return `<li class="qb${k === selBox ? ' sel' : ''}">
+        <div class="qb-1"><span class="swatch${isRef(r) ? ' ctl' : ''}" aria-hidden="true"></span><input type="text" data-q="${k}" value="${esc(r.name)}" placeholder="Band ${k + 1}" aria-label="Name of band ${k + 1}">${isRef(r) ? '<span class="badge">reference</span>' : ''}
+          <button class="btn sm" data-qprof="${k}">Inspect</button><div class="menu-wrap"><button class="btn sm" data-qmore="${k}" aria-label="More actions for band ${k + 1}" aria-haspopup="menu">⋯</button>
+          <div class="menu right hidden" data-qmenu="${k}" role="menu">${r.frame ? `<button role="menuitem" data-qrecentre="${k}"><span>Re-centre on lanes</span><small>Place this band again on the lanes as shown (an analysis change)</small></button>` : ''}${miss && r.frame ? `<button role="menuitem" data-qmiss="${k}"><span>Place missing lanes</span><small>Give the ${miss} lane${miss > 1 ? 's' : ''} without a region one, leaving the others as they are</small></button>` : ''}<button role="menuitem" data-qref="${k}"><span>${isRef(r) ? 'Stop using as reference band' : 'Use as reference band'}</span><small>Normalize every other band by this one in the same lane</small></button><button role="menuitem" class="danger" data-qdel="${k}"><span>Delete band</span></button></div></div></div>
+        <div class="qb-2"><label class="inline-label"><span>Height</span> <input type="number" class="num" data-qhgt="${k}" min="3" max="600" step="1" value="${hgt}" aria-label="Height of band ${k + 1} in pixels"> px</label><span>Lanes ${laneList(lanes)}</span>${miss ? `<span class="warn-t">${miss} without region</span>` : ''}${drift.length ? `<span class="warn-t">lane ${drift.map(i => i + 1).join(', ')} moved</span>` : ''}</div></li>`;
+    }).join('') + '</ul>' : `<p class="hint">No bands yet. <b>+ Add band</b>, then click a band on the image.</p>`;
+    $('boxList').querySelectorAll('[data-q]').forEach(inp => { const r = q.rows[+inp.dataset.q]; inp.addEventListener('input', live(e => { r.name = e.target.value; })); inp.addEventListener('change', done()); });
+    // the band's height about its middle, in every lane (an explicit edit: the band is placed again)
+    $('boxList').querySelectorAll('[data-qhgt]').forEach(inp => inp.addEventListener('change', done(e => {
+      const r = q.rows[+inp.dataset.qhgt], sp = G.Quant.rowSpan(App, r), c = (sp.y0 + sp.y1) / 2, h = Math.max(3, Math.min(600, Math.round(+e.target.value || 3)));
+      G.Quant.editRow(App, r, Math.round(c - (h - 1) / 2), Math.round(c - (h - 1) / 2) + h - 1);
     })));
     $('boxList').querySelectorAll('[data-qprof]').forEach(b => b.onclick = () => { selBox = +b.dataset.qprof; setView('quant'); setTab('prof'); render(); });
+    $('boxList').querySelectorAll('[data-qmore]').forEach(b => b.onclick = e => { e.stopPropagation(); const m = $('boxList').querySelector(`[data-qmenu="${b.dataset.qmore}"]`); document.querySelectorAll('.menu').forEach(x => { if (x !== m) x.classList.add('hidden'); }); m.classList.toggle('hidden'); });
+    $('boxList').querySelectorAll('[data-qrecentre]').forEach(b => b.onclick = done(() => { const r = q.rows[+b.dataset.qrecentre], sp = G.Quant.rowSpan(App, r); G.Quant.editRow(App, r, sp.y0, sp.y1); G.UI.toast('Band placed again on the lanes as shown'); }));
+    $('boxList').querySelectorAll('[data-qmiss]').forEach(b => b.onclick = done(() => { const r = q.rows[+b.dataset.qmiss]; G.Quant.quantLanes(App).forEach(i => { if (!r.lanes[App.laneId(i)]) G.Quant.placeLane(App, r, i); }); }));
+    $('boxList').querySelectorAll('[data-qref]').forEach(b => b.onclick = done(() => { const r = q.rows[+b.dataset.qref]; if (q.norm === 'band' && q.normBand === r.id) { q.norm = 'none'; q.normBand = null; } else { q.norm = 'band'; q.normBand = r.id; if (q.output === 'corrected') q.output = 'normalized'; } }));
     $('boxList').querySelectorAll('[data-qdel]').forEach(b => b.onclick = done(() => {
-      const k = +b.dataset.qdel;
+      const k = +b.dataset.qdel, r = q.rows[k];
       q.rows.splice(k, 1);
-      if (q.control === k) q.control = -1; else if (q.control > k) q.control--;
+      if (q.normBand === r.id) q.normBand = null;
+      if (q.control != null) { if (q.control === k) q.control = -1; else if (q.control > k) q.control--; }
+      G.Quant.pruneFrames(q);
     }));
   }
 
-  /* ---------- results ---------- */
-  function tsv(R) {
-    const head = ['Well', 'Lane'].concat(R.rows.map(r => r.name)).concat(R.rows.filter((r, k) => k !== R.control).map(r => r.name + ' rel.'));
-    const lines = [head.join('\t')];
-    R.lanes.forEach((i, j) => lines.push([i + 1, R.names[j]].concat(R.vol.map(v => sig(v[j]))).concat(R.rel.filter((r, k) => k !== R.control).map(v => rel(v[j]))).join('\t')));
-    return lines.join('\n');
-  }
-  function sizesTsv(T) {
-    return [['Well', 'Lane', `Bands (${App.baseUnit()})`].join('\t')]
-      .concat(T.filter(l => !l.marker).map(l => [l.lane + 1, l.name, l.bands.map(b => (b.extrap ? '≈' : '') + (b.size ? App.fmtSize(b.size) : '?')).join(', ')].join('\t'))).join('\n');
+  /* ---------- results: one measurement result feeds the table, the plot, the profile, the copy and the exports ---------- */
+  const fmtV = (v, out) => (v == null || !isFinite(v) ? 'n/a' : out === 'fold' || out === 'normalized' ? v.toFixed(out === 'fold' ? 2 : 3) : Math.abs(v) >= 100 ? String(Math.round(v)) : v.toPrecision(3));
+  // a cell's state in words and a symbol (never colour alone)
+  function cellMarks(c, caveat) {
+    const f = c.flags || {}, m = [];
+    if (c.value == null) m.push(['na', 'n/a', c.unavailable || 'not available']);
+    if (f.clip) m.push(['clip', '⚠', f.clip === 'pileup' ? 'probably clipped' : 'clipped']);
+    if (f.below) m.push(['low', '†', f.below === 't3' ? 'below 3σ noise' : 'below 10σ noise']);
+    if ((c.review && c.review.length) || caveat) m.push(['rev', '?', caveat && !(c.review && c.review.length) ? caveat : 'needs review']);
+    if (f.manual) m.push(['man', '✎', 'baseline drawn by hand']);
+    if (f.legacy) m.push(['old', 'v1', 'earlier method']);
+    return m;
   }
   function renderTable(R) {
-    const tg = R.rows.map((r, k) => k).filter(k => k !== R.control);
-    const ctlName = R.normLabel;
-    const flagMark = f => (f.sat ? ' ⚠' : '') + (f.below === 'lod' ? ' <small class="blq">&lt;LOD</small>' : f.below === 'loq' ? ' <small class="blq">&lt;LOQ</small>' : '');
-    const head = `<tr><th>${'Lane'}</th>${R.rows.map((r, k) => `<th title="${'Integrated density (a.u.)'}">${esc(r.name)}${k === R.control ? ' <span class="tag" title="the other boxes are divided by this one">divisor</span>' : ''}</th>`).join('')}` +
-      (R.totals ? `<th title="${'the lane signal over the analysis area: the divisor'}">${esc(R.normLabel)}</th>` : '') +
-      tg.map(k => `<th title="${esc(ctlName ? `${R.rows[k].name} / ${ctlName}, relative to the reference lane` : 'relative to the reference lane')}">${esc(R.rows[k].name)} ${ctlName ? '/ ' + esc(ctlName) + ', rel.' : 'rel.'}</th>`).join('') + '</tr>';
-    const body = R.lanes.map((i, j) => `<tr class="${i === R.ref ? 'ref' : ''}"><td>${esc(R.names[j].replace(/\*/g, ''))}</td>` +
-      R.rows.map((r, k) => { const c = R.cells[k][j], f = R.flags[k][j], t = G.Quant.flagText(f); return `<td class="${f.sat ? 'sat' : ''}${f.below ? ' low' : ''}" title="${esc(`LOQ ${sig(c.loq)}${t ? ' · ' + t : ''}`)}">${sig(c.vol)}${flagMark(f)}</td>`; }).join('') +
-      (R.totals ? `<td title="${esc(R.totalCells[j].sat ? 'clipped pixels' : '')}">${sig(R.totals[j])}${R.totalCells[j].sat ? ' ⚠' : ''}</td>` : '') +
-      tg.map(k => { const f = R.flags[k][j], v = R.rel[k][j]; return `<td class="relv${f.below ? ' low' : ''}" title="${esc(G.Quant.flagText(f))}">${rel(v)}${v != null && f.below ? '†' : ''}</td>`; }).join('') + '</tr>').join('');
+    const out = R.output, tg = R.rows.map((r, k) => k);
+    const outHead = k => (out === 'fold' ? `Fold vs lane ${R.ref != null ? R.ref + 1 : '?'}` : out === 'normalized' ? `÷ ${esc(R.normLabel || '…')}` : 'Corrected (a.u.)');
+    const head = `<tr><th scope="col">Lane</th>${tg.map(k => `<th scope="col">${esc(R.rows[k].name)}${R.rows[k].ref ? ' <span class="badge">reference band</span>' : ''}<br><small>${out === 'corrected' || R.rows[k].ref ? 'Corrected (a.u.)' : `${outHead(k)} · <span title="background-corrected signal">corr. (a.u.)</span>`}</small></th>`).join('')}<th scope="col">Flags</th></tr>`;
+    const body = R.lanes.map((i, j) => {
+      const sel = App.selLanes.has(i), flags = [];
+      const cells = tg.map(k => {
+        const c = R.cells[k][j], divisor = R.rows[k].ref && out !== 'corrected', cav = !divisor && R.shownCaveat ? R.shownCaveat[k][j] : null, marks = cellMarks(c, cav), v = divisor ? R.values.corrected[k][j] : R.shown[k][j], why = [divisor ? 'the reference band: its corrected signal (a.u.) divides the other bands' : R.shownWhy[k][j], cav].filter(Boolean).join('; ');
+        marks.forEach(m => flags.push(`${R.rows[k].name}: ${m[2]}`));
+        const cls = [c.flags && c.flags.below ? 'low' : '', c.flags && c.flags.clip ? 'sat' : '', v == null ? 'na' : ''].filter(Boolean).join(' ');
+        const main = `<span class="qv">${fmtV(v, divisor ? 'corrected' : out)}</span>${marks.filter(m => m[0] !== 'na').map(m => `<span class="qm qm-${m[0]}" aria-hidden="true">${m[1]}</span>`).join('')}`;
+        const sub = out !== 'corrected' && !divisor ? `<small class="qcorr">${fmtV(R.values.corrected[k][j], 'corrected')}</small>` : '';
+        return `<td class="${cls}" title="${esc([why, flagText(c)].filter(Boolean).join(' · '))}">${main}${sub}</td>`;
+      }).join('');
+      if (R.ref === i && out === 'fold') flags.unshift('reference lane');
+      return `<tr data-lane="${i}" class="${sel ? 'sel' : ''}${R.ref === i ? ' ref' : ''}" tabindex="0" aria-selected="${sel}"><th scope="row">${esc(R.names[j].replace(/\*/g, ''))}</th>${cells}<td class="qflags">${esc([...new Set(flags)].join('; '))}</td></tr>`;
+    }).join('');
     const notes = [];
-    const st = S(), D = G.Quant.describe(App, R);
-    if (R.saturatedLanes.length) notes.push(`<p class="hint warn-t">${`Boxes in well${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')} contain clipped pixels, so their values are underestimated; re-image with a shorter exposure.`}</p>`);
-    const nBelow = R.flags.flat().filter(f => f.below).length;
-    if (nBelow) notes.push(`<p class="hint">${`${nBelow} value${nBelow > 1 ? 's are' : ' is'} below the limit of quantification (‹LOQ, † on relative values): detected or not, too close to the background noise to compare.`}</p>`);
-    const nDen = R.flags.flat().filter(f => f.den).length;
-    if (nDen) notes.push(`<p class="hint warn-t">${`${nDen} normalized value${nDen > 1 ? 's are' : ' is'} not given: the divisor in that lane is clipped or below its limit of quantification.`}</p>`);
-    const noRef = tg.filter(k => !R.refOk[k]).map(k => R.rows[k].name);
-    if (noRef.length) notes.push(`<p class="hint warn-t">${`The reference lane (well ${R.ref + 1}) has no quantifiable band in ${noRef.join(', ')}, so no relative values are given for ${noRef.length > 1 ? 'these boxes' : 'this box'} and the chart shows the values themselves. Pick another reference lane.`}</p>`);
-    if (R.normMode === 'lane' && !R.laneTotal) notes.push(`<p class="hint warn-t">${'Divided by the lane signal of this image. That is total-protein normalization only on a total-protein stain or stain-free image; an antibody image\'s lane signal is not total protein.'}</p>`);
-    if (R.normMode === 'control' && R.control < 0) notes.push(`<p class="hint warn-t">${'Normalize is set to a loading-control box, but no box is ticked “Divide by this box”: the values are not normalized.'}</p>`);
+    const na = new Map(); R.shownWhy.forEach((r, k) => { if (R.rows[k].ref && out !== 'corrected') return; r.forEach(w => { if (w) na.set(w, (na.get(w) || 0) + 1); }); });
+    if (na.size) notes.push(`<p class="hint warn-t"><b>Not available:</b> ${[...na].map(([w, n]) => `${esc(w)} (${n})`).join('; ')}.</p>`);
+    if (R.saturatedLanes.length) notes.push(`<p class="hint warn-t">⚠ Clipped pixels in lane${R.saturatedLanes.length > 1 ? 's' : ''} ${R.saturatedLanes.map(i => i + 1).join(', ')}: those values are underestimated, and their ratios are not reliable fold changes.</p>`);
+    if (R.flags.flat().some(f => f && f.below)) notes.push(`<p class="hint">† Below the estimated 10σ noise threshold: too close to the background noise to compare; never used as a divisor or reference.</p>`);
+    const cavLanes = R.lanes.filter((i, j) => (R.shownCaveat || []).some(r => r[j])), revL = [...new Set((R.reviewLanes || []).concat(cavLanes))].sort((a, b) => a - b);
+    if (revL.length) notes.push(`<p class="hint warn-t">? Needs review: lane ${revL.map(i => i + 1).join(', ')} (open Profile for the reasons${cavLanes.length ? '; a ratio needs review when its divisor or reference lane does' : ''}).</p>`);
+    if (R.manualLanes && R.manualLanes.length) notes.push(`<p class="hint">✎ Integrated by hand (baseline drawn on the profile): lane ${R.manualLanes.map(i => i + 1).join(', ')}. The methods text and the log say so.</p>`);
+    if (R.normMode === 'lane' && !R.laneTotal) notes.push(`<p class="hint warn-t">Divided by the total lane signal of this image. That is total-protein normalization only on a total-protein stain or stain-free image.</p>`);
     $('quantTable').innerHTML = `<div class="tscroll"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>` + notes.join('');
-    $('quantNote').textContent = `Measured: ${D.measure}, with ${D.background}, from ${D.pixels}. ${D.limits[0].toUpperCase() + D.limits.slice(1)}. ${D.normalization[0].toUpperCase() + D.normalization.slice(1)}; ${D.reference}. Compare lanes of this image only.`;
+    $('quantTable').querySelectorAll('tr[data-lane]').forEach(tr => { tr.onclick = () => selectLane(+tr.dataset.lane); tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectLane(+tr.dataset.lane); } }; });
+    $('quantNote').textContent = 'Values are signal units of this image (a.u.), not optical density or amounts; compare lanes of this image only.';
     const ch = G.Quant.chartSVG(App, R);
     $('quantChart').innerHTML = ch ? ch.svg : '';
     const svg = $('quantChart').querySelector('svg');
     if (svg) { svg.removeAttribute('width'); svg.removeAttribute('height'); svg.style.width = '100%'; svg.style.height = 'auto'; }
-    void st;
   }
+  const flagText = c => G.Quant.flagText(c.flags, c);
   function renderSizes() {
     const T = G.Quant.bandSizes(App);
     lastSizes = T;
-    const rows = T.map(l => `<tr><td>${esc(l.name.replace(/\*/g, ''))}</td><td>${l.marker ? `<span class="muted">${'marker'}</span>`
+    const rows = T.map(l => `<tr><td>${esc(l.name.replace(/\*/g, ''))}</td><td>${l.marker ? `<span class="muted">${'ladder'}</span>`
       : l.bands.length ? l.bands.map(b => `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'outside the ladder range (extrapolated)' : ''}">${b.extrap ? '≈' : ''}${b.size ? App.fmtSize(b.size) : '?'}</span>`).join(', ')
       : `<span class="muted">${'no bands'}</span>`}</td></tr>`).join('');
     const kind = App.kind(), lads = S().markers.map(m => m.ladderId);
@@ -234,126 +287,297 @@
       kind === 'dna' && !lads.includes('nebscextend') ? 'Sized against a linear ladder: valid for linear DNA. Supercoiled, nicked or relaxed plasmids run differently.' : '',
       lads.includes('nebscextend') ? 'Sized against a supercoiled ladder: valid for supercoiled plasmids only.' : '',
       S().markers.length >= 2 ? 'Each lane is sized between the ladder lanes on either side of it.' : '',
-      S().markers.some(m => !m.confirmed) ? 'The ladder is not confirmed yet (step 3).' : ''].filter(Boolean);
-    $('sizeTable').innerHTML = S().markers.length ? `<div class="tscroll"><table><thead><tr><th>${'Lane'}</th><th>${kind === 'native' ? 'Apparent molecular weight' : G.Gels.sizeNoun(kind)}</th></tr></thead><tbody>${rows}</tbody></table></div>` + (qual.length ? `<p class="hint">${qual.join(' ')}</p>` : '')
+      S().markers.some(m => !m.confirmed) ? 'The ladder is not confirmed yet (Size ladder step).' : ''].filter(Boolean);
+    $('sizeTable').innerHTML = S().markers.length ? `<div class="tscroll"><table><thead><tr><th scope="col">${'Lane'}</th><th scope="col">${kind === 'native' ? 'Apparent molecular weight' : G.Gels.sizeNoun(kind)}</th></tr></thead><tbody>${rows}</tbody></table></div>` + (qual.length ? `<p class="hint">${qual.join(' ')}</p>` : '')
       : `<p class="hint">${'A ladder lane is needed to estimate sizes.'}</p>`;
   }
-
-  /* ---------- lane profile ---------- */
-  function cssVar(n, d) { const v = getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v || d; }
-  function drawProfile() {
-    const cv = $('qProfile'), st = S();
-    if (!st || !cv.clientWidth || tab !== 'prof') return;
-    const lane = +$('qProfLane').value, q = st.quant, k = Math.min(selBox, q.rows.length - 1);
-    if (!st.lanes[lane] || k < 0) { $('qProfRead').textContent = ''; return; }
-    const row = q.rows[k], dpr = window.devicePixelRatio || 1, W = cv.width = cv.clientWidth * dpr, H = cv.height = 150 * dpr;
-    const ctx = cv.getContext('2d'), img = App.ensureRot(), hw = G.Quant.boxHalfWidth(st), cx = st.lanes[lane].x;
-    const x0 = Math.max(0, Math.round(cx - hw)), x1 = Math.min(img.w - 1, Math.round(cx + hw)), w = x1 - x0 + 1;
-    // the box with some lane above and below it (within the analysis area)
-    const ga = G.Quant.region(st), b0 = Math.round(Math.min(row.y0, row.y1)), b1 = Math.round(Math.max(row.y0, row.y1)), bh = b1 - b0 + 1;
-    const ya = Math.max(0, Math.round(Math.max(ga.y, b0 - bh * 0.9))), yb = Math.min(img.h - 1, Math.round(Math.min(ga.y + ga.h - 1, b1 + bh * 0.9))), n = yb - ya + 1;
-    if (n < 3) return;
-    const prof = (y0, y1) => { const p = new Float32Array(y1 - y0 + 1); for (let y = y0; y <= y1; y++) { let t = 0; for (let x = x0; x <= x1; x++) { const v = img.data[y * img.w + x]; t += st.bright ? v : 1 - v; } p[y - y0] = t / w; } return p; };
-    const p = prof(ya, yb), ia = Math.max(0, b0 - ya), ib = Math.min(n - 1, b1 - ya);
-    // the background over the box rows, per pixel, as the box subtracts it
-    const c = G.Quant.measureBox(App, lane, row, q.bg, q.mode), bgAt = new Float32Array(n).fill(NaN);
-    if (q.bg === 'edge') { const e0 = (p[ia] + p[Math.min(n - 1, ia + 1)]) / 2, e1 = (p[ib] + p[Math.max(0, ib - 1)]) / 2; for (let i = ia; i <= ib; i++) bgAt[i] = e0 + (e1 - e0) * (i - ia) / Math.max(1, ib - ia); }
-    else if (q.bg === 'rolling') { const ra = Math.max(0, Math.round(ga.y)), rb = Math.min(img.h - 1, Math.round(ga.y + ga.h - 1)), full = prof(ra, rb), bl = G.Engine.baseline(full, Math.max(5, Math.round(1.5 * bh))); for (let i = ia; i <= ib; i++) { const j = ya + i - ra; bgAt[i] = j >= 0 && j < bl.length ? bl[j] : p[i]; } }
-    else if (q.bg === 'border') { const lvl = c.n ? c.bg / c.n : 0; for (let i = ia; i <= ib; i++) bgAt[i] = lvl; }
-    else for (let i = ia; i <= ib; i++) bgAt[i] = 0;
-    let lo = Infinity, hi = -Infinity; p.forEach(v => { lo = Math.min(lo, v); hi = Math.max(hi, v); }); bgAt.forEach(v => { if (!isNaN(v)) lo = Math.min(lo, v); });
-    const pad = 8 * dpr, X = i => pad + i / (n - 1) * (W - 2 * pad), Y = v => H - pad - (v - lo) / Math.max(1e-9, hi - lo) * (H - 2 * pad);
-    ctx.clearRect(0, 0, W, H);
-    const accent = cssVar('--accent', '#176d7c'), okc = cssVar('--q-box', '#1f9d55'), muted = cssVar('--faint', '#9aa2ad'), warn = cssVar('--warn', '#9F4E0C');
-    // the box rows
-    ctx.fillStyle = k === q.control ? 'rgba(122,139,0,.10)' : 'rgba(31,157,85,.08)'; ctx.fillRect(X(ia), pad, X(ib) - X(ia), H - 2 * pad);
-    // what is counted: above the background (whole box) or above the threshold (thresholded signal)
-    const thr = q.mode === 'band' ? c.floor : 0;
-    ctx.fillStyle = 'rgba(31,157,85,.35)'; ctx.beginPath();
-    for (let i = ia; i <= ib; i++) { const top = Math.max(p[i], bgAt[i] + thr); if (i === ia) ctx.moveTo(X(i), Y(top)); else ctx.lineTo(X(i), Y(top)); }
-    for (let i = ib; i >= ia; i--) ctx.lineTo(X(i), Y(bgAt[i] + thr));
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = okc; ctx.lineWidth = 1.3 * dpr; ctx.setLineDash([4 * dpr, 3 * dpr]); ctx.beginPath();
-    for (let i = ia; i <= ib; i++) { if (i === ia) ctx.moveTo(X(i), Y(bgAt[i])); else ctx.lineTo(X(i), Y(bgAt[i])); }
-    ctx.stroke();
-    if (q.mode === 'band') { ctx.strokeStyle = warn; ctx.setLineDash([1.5 * dpr, 2.5 * dpr]); ctx.beginPath(); for (let i = ia; i <= ib; i++) { if (i === ia) ctx.moveTo(X(i), Y(bgAt[i] + thr)); else ctx.lineTo(X(i), Y(bgAt[i] + thr)); } ctx.stroke(); }
-    ctx.setLineDash([]);
-    ctx.strokeStyle = muted; ctx.lineWidth = 1 * dpr; ctx.beginPath(); ctx.moveTo(pad, H - pad); ctx.lineTo(W - pad, H - pad); ctx.stroke();
-    ctx.strokeStyle = accent; ctx.lineWidth = 1.6 * dpr; ctx.beginPath();
-    for (let i = 0; i < n; i++) { if (i) ctx.lineTo(X(i), Y(p[i])); else ctx.moveTo(X(i), Y(p[i])); }
-    ctx.stroke();
-    // the cell's numbers, as the table has them
-    const R = lastR, j = R ? R.lanes.indexOf(lane) : -1, nm = row.name || `Band ${k + 1}`, ln = st.lanes[lane].name || `well ${lane + 1}`;
-    if (j < 0) { $('qProfRead').textContent = `${ln} · ${nm}: not measured (a ladder lane, outside the analysis area or left out of the analysis).`; return; }
-    const cell = R.cells[k][j], fl = G.Quant.flagText(R.flags[k][j]);
-    $('qProfRead').textContent = `${ln} · ${nm}: ${sig(cell.vol)} (LOD ${sig(cell.lod)}, LOQ ${sig(cell.loq)})${R.rel[k] && R.rel[k][j] != null ? ` · relative ${rel(R.rel[k][j])}` : ''}${fl ? ' · ' + fl : ''}${cell.sat ? ` · ${cell.sat} clipped pixels` : ''}.`;
-    $('qProfRead').classList.toggle('warn-t', !!(fl || cell.sat));
+  function sizesTsv(T) {
+    return [['Well', 'Lane', `Bands (${App.baseUnit()})`].join('\t')]
+      .concat(T.filter(l => !l.marker).map(l => [l.lane + 1, l.name, l.bands.map(b => (b.extrap ? '≈' : '') + (b.size ? App.fmtSize(b.size) : '?')).join(', ')].join('\t'))).join('\n');
   }
 
-  // live: called while something is being dragged or typed; the band-box list (which may hold the
-  // input being typed in) is left alone, only the numbers follow
+  /* ---------- the lane profile: what is integrated, drawn from the same pixels as the number ----------
+   * One lane: the mean signal of each row of the lane's region width over the region and as much again above and
+   * below (the line), the rows the background came from (grey bands), the baseline the calculation subtracts
+   * (dashed; solid with two handles when drawn by hand) and the integrated area (shaded). Dragging on the profile
+   * from the start of the peak to its end draws a baseline there (manual integration, as in chromatography
+   * software: the limits and the baseline's two levels; its ends snap to the curve when near it, Alt keeps them
+   * free); its handles move an end. "Compare lanes" draws every measured lane's corrected profile on one scale. */
+  function cssVar(n, d) { const v = getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v || d; }
+  let pmap = null, pdrag = null;
+  const f2 = v => (v == null || !isFinite(v) ? '–' : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(4));
+  function drawProfile() {
+    const cv = $('qProfile'), st = S(), R = lastR;
+    if (!st || !cv.clientWidth || tab !== 'prof') return;
+    const k = Math.min(selBox, st.quant.rows.length - 1), lane = App.selLane >= 0 && R && R.lanes.includes(App.selLane) ? App.selLane : R ? R.lanes[0] : -1;
+    const dpr = window.devicePixelRatio || 1, W = cv.width = cv.clientWidth * dpr, H = cv.height = cv.clientHeight * dpr, ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H); pmap = null;
+    const tools = on => { $('qLaneAdj').querySelectorAll('button').forEach(b => { b.disabled = !on; }); };
+    if (!R || k < 0 || lane < 0) { $('qProfRead').textContent = ''; $('qProfSum').textContent = ''; $('qProfMode').textContent = ''; tools(false); return; }
+    if (+$('qProfLane').value !== lane) $('qProfLane').value = String(lane);
+    const j = R.lanes.indexOf(lane), c = R.cells[k][j], row = st.quant.rows[k], lid = App.laneId(lane);
+    const ink = cssVar('--text', '#1d2a30'), okc = '#1f9d55', muted = cssVar('--faint', '#9aa2ad'), manc = '#b45309', txt = cssVar('--muted', '#555');
+    const pad = 12 * dpr, all = $('qProfAll').checked;
+    ctx.font = `${11 * dpr}px sans-serif`;
+    if (all) {
+      // every measured lane's corrected row profile (row mean minus its background), one scale
+      const series = R.lanes.map((i, jj) => { const cc = R.cells[k][jj]; return cc.prof ? cc.prof.map(p => ({ v: p.v, y: p.mean - (isNaN(p.bg) ? 0 : p.bg) })) : []; });
+      const vs = series.flat();
+      if (vs.length) {
+        let lo = Math.min(0, ...vs.map(p => p.y)), hi = Math.max(...vs.map(p => p.y)); const vmin = Math.min(...vs.map(p => p.v)), vmax = Math.max(...vs.map(p => p.v));
+        if (hi <= lo) hi = lo + 1e-6;
+        const X = v => pad + (v - vmin) / Math.max(1e-9, vmax - vmin) * (W - 2 * pad), Y = y => H - pad - (y - lo) / (hi - lo) * (H - 2 * pad);
+        ctx.strokeStyle = muted; ctx.lineWidth = 1 * dpr; ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
+        series.forEach((s2, jj) => { if (!s2.length) return; const me = R.lanes[jj] === lane; ctx.strokeStyle = me ? okc : muted; ctx.lineWidth = (me ? 2.2 : 1) * dpr; ctx.globalAlpha = me ? 1 : 0.7; ctx.beginPath(); s2.forEach((p, t) => { if (t) ctx.lineTo(X(p.v), Y(p.y)); else ctx.moveTo(X(p.v), Y(p.y)); }); ctx.stroke(); });
+        ctx.globalAlpha = 1;
+      }
+      $('qProfKey').textContent = 'Every measured lane: signal minus its background along the region, one scale (selected lane in green).';
+      $('qProfMode').textContent = 'Compare lanes: untick it to integrate one lane'; tools(false);
+      readout(R, k, j, c); return;
+    }
+    const P = R.version === G.Quant.VERSION && row && row.lanes && row.lanes[lid] ? G.Quant.laneProfile(App, row, lid) : null;
+    if (!P || !P.rows.length) { $('qProfKey').textContent = ''; $('qProfMode').textContent = R.version === G.Quant.VERSION ? 'No region in this lane' : 'Earlier method: update the analysis to integrate by hand'; tools(false); readout(R, k, j, c); return; }
+    tools(true);
+    const rows = P.rows.filter(r => !isNaN(r.mean)), man = P.manual;
+    // a drag in progress is drawn instead of the stored baseline
+    const draft = pdrag && pdrag.lid === lid && pdrag.k === k ? pdrag : null;
+    const base = draft ? { a: Math.min(draft.y0, draft.y1), b: Math.max(draft.y0, draft.y1), la: draft.y0 <= draft.y1 ? draft.l0 : draft.l1, lb: draft.y0 <= draft.y1 ? draft.l1 : draft.l0 } : man;
+    const ys = rows.map(r => r.mean).concat(P.baseline.map(p => p.b).filter(isFinite), base ? [base.la, base.lb] : []);
+    let lo = Math.min(...ys), hi = Math.max(...ys); const span = (hi - lo) || 1e-3; lo -= span * 0.06; hi += span * 0.08;
+    const v0 = rows[0].y - 0.5, v1 = rows[rows.length - 1].y + 0.5, plotTop = pad + 4 * dpr, plotBot = H - pad - 12 * dpr;
+    const X = y => pad + (y - v0) / (v1 - v0) * (W - 2 * pad), Y = l => plotBot - (l - lo) / (hi - lo) * (plotBot - plotTop);
+    const Xi = x => v0 + (x - pad) / (W - 2 * pad) * (v1 - v0), Yi = yy => lo + (plotBot - yy) / (plotBot - plotTop) * (hi - lo);
+    const meanAt = y => { const r = rows.find(q => Math.abs(q.y - y) < 0.5); return r ? r.mean : NaN; };
+    // the rows the background came from (grey), the integration limits (light green)
+    ctx.fillStyle = 'rgba(120,130,140,.16)';
+    if (!base) P.bgRows.forEach(p => { ctx.fillRect(X(p.y - 0.5), plotTop, Math.max(1, X(p.y + 0.5) - X(p.y - 0.5)), plotBot - plotTop); });
+    const ra = base ? base.a : P.region[0], rb = base ? base.b : P.region[1];
+    ctx.fillStyle = 'rgba(31,157,85,.07)'; ctx.fillRect(X(ra - 0.5), plotTop, X(rb + 0.5) - X(ra - 0.5), plotBot - plotTop);
+    // the integrated area: between the curve and the baseline over the limits
+    const blAt = base ? (y => base.la + (base.lb - base.la) * (y - base.a) / Math.max(1, base.b - base.a)) : (y => { const p = P.baseline.find(q => Math.abs(q.y - y) < 0.5); return p ? p.b : NaN; });
+    const inR = rows.filter(r => r.y >= ra - 0.01 && r.y <= rb + 0.01 && isFinite(blAt(r.y)));
+    if (inR.length > 1 && R.mode === 'box') {
+      ctx.fillStyle = base ? 'rgba(180,83,9,.22)' : 'rgba(31,157,85,.32)'; ctx.beginPath();
+      inR.forEach((r, t) => { if (t) ctx.lineTo(X(r.y), Y(r.mean)); else ctx.moveTo(X(r.y), Y(r.mean)); });
+      for (let t = inR.length - 1; t >= 0; t--) ctx.lineTo(X(inR[t].y), Y(blAt(inR[t].y)));
+      ctx.closePath(); ctx.fill();
+    }
+    // the profile
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.6 * dpr; ctx.beginPath(); rows.forEach((r, t) => { if (t) ctx.lineTo(X(r.y), Y(r.mean)); else ctx.moveTo(X(r.y), Y(r.mean)); }); ctx.stroke();
+    // the baseline: dashed when automatic, solid with handles when drawn
+    if (base) {
+      ctx.strokeStyle = manc; ctx.lineWidth = 2 * dpr; ctx.beginPath(); ctx.moveTo(X(base.a), Y(base.la)); ctx.lineTo(X(base.b), Y(base.lb)); ctx.stroke();
+      ctx.fillStyle = '#fff'; [[base.a, base.la], [base.b, base.lb]].forEach(([y, l]) => { ctx.beginPath(); ctx.rect(X(y) - 5 * dpr, Y(l) - 5 * dpr, 10 * dpr, 10 * dpr); ctx.fill(); ctx.stroke(); });
+    } else {
+      ctx.strokeStyle = okc; ctx.lineWidth = 1.5 * dpr; ctx.setLineDash([5 * dpr, 4 * dpr]); ctx.beginPath();
+      P.baseline.forEach((p, t) => { if (!isFinite(p.b)) return; if (t) ctx.lineTo(X(p.y), Y(p.b)); else ctx.moveTo(X(p.y), Y(p.b)); }); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.fillStyle = txt; ctx.textAlign = 'left'; ctx.fillText('top of the lane', pad, H - 4 * dpr); ctx.textAlign = 'right'; ctx.fillText('bottom', W - pad, H - 4 * dpr);
+    pmap = { X, Y, Xi, Yi, meanAt, P, row, lid, k, dpr, v0, v1, base: man };
+    $('qProfKey').innerHTML = `<span class="pk pk-line"></span>signal of each row · ${man ? '<span class="pk pk-man"></span>baseline drawn by hand' : `<span class="pk pk-base"></span>background subtracted${P.bgRows.length ? ' · <span class="pk pk-bg"></span>background rows' : ''}`} · <span class="pk pk-area${man ? ' man' : ''}"></span>integrated`;
+    const mode = man ? 'Manual baseline · drag its ends to adjust' : `${G.Quant.BG_SHORT[P.method] || 'Automatic'} · drag on the profile to draw a baseline`;
+    $('qProfMode').textContent = mode; $('qProfMode').title = man ? 'Integrated between the two ends you drew, above the straight line joining them. "Automatic" goes back to the band\'s region and background.' : 'Drag from the start of the peak to its end: the line you draw is the baseline and its ends are the integration limits (they snap to the curve when near it; hold Alt to keep them free).';
+    readout(R, k, j, c);
+  }
+  // the result in one line (with its state), the reasons when there are any, and everything else under Calculation details
+  function readout(R, k, j, c) {
+    const st = S(), i = R.lanes[j], p = c.prov || {}, ln = st.lanes[i].name || `lane ${i + 1}`, nm = R.rows[k].name;
+    const corners = cs => cs.map(q => `(${q[0].toFixed(1)}, ${q[1].toFixed(1)})`).join(' ');
+    const pills = [c.flags && c.flags.clip ? `<span class="state-b review" title="${c.clip.n} pixels at the file's limit: the value is underestimated">⚠ clipped</span>` : '',
+      c.flags && c.flags.below ? `<span class="state-b det" title="below the estimated ${c.flags.below === 't3' ? '3' : '10'}σ noise threshold">† near noise</span>` : '',
+      c.review && c.review.length ? '<span class="state-b review">? needs review</span>' : '',
+      c.flags && c.flags.manual ? '<span class="state-b det">✎ manual</span>' : ''].filter(Boolean).join(' ');
+    const val = c.value == null ? `<span class="warn-t">not available — ${esc(c.unavailable || '')}</span>` : `<b>${f2(c.value)}</b> a.u.`;
+    const out = R.output !== 'corrected' ? (R.shown[k][j] != null ? ` · ${R.output === 'fold' ? 'fold change' : 'normalized'} <b>${fmtV(R.shown[k][j], R.output)}</b>` : ` · ${R.output === 'fold' ? 'fold change' : 'normalized'} n/a`) : '';
+    const why = [c.review && c.review.length ? c.review.join('; ') : '', R.output !== 'corrected' && R.shown[k][j] == null ? R.shownWhy[k][j] : '', R.shownCaveat && R.shownCaveat[k][j] ? R.shownCaveat[k][j] : ''].filter(Boolean).join('; ');
+    $('qProfSum').innerHTML = `<p><b>${esc(ln.replace(/\*/g, ''))} · ${esc(nm)}</b>: ${val}${out} ${pills}</p>${why ? `<p class="hint warn-t">${esc(why[0].toUpperCase() + why.slice(1))}.</p>` : ''}`;
+    const lines = [];
+    if (R.version === G.Quant.VERSION && p.signal) {
+      lines.push(`Uncorrected sum ${f2(c.U)} − background ${f2(c.B)} = <b>${f2(c.value)}</b> (${p.signal.px} px; ${esc(p.polarity)}).`);
+      lines.push(`Signal region, original pixels: ${corners(p.signal.corners)}${p.signal.outsidePx ? `; ${p.signal.outsidePx} px off the image` : ''}.`);
+      if (p.manual) lines.push(`Baseline drawn by hand: from row ${p.manual.rows[0]} (level ${f2(p.manual.levels[0])}) to row ${p.manual.rows[1]} (level ${f2(p.manual.levels[1])}) of the band's frame; taken as exact.`);
+      else if (p.background && p.background.length) lines.push(`Background (${esc(G.Quant.BG_SHORT[p.method] || p.method)}${p.method === 'local' ? `, ${esc(G.Quant.SIDES_TEXT[p.spec.sides])}, ${p.spec.gap} px gap, ${p.spec.size} px deep${p.spec.override ? ', set for this lane' : ''}` : ''}): ${p.background.map(b => `${b.side} ${b.px} px ${corners(b.corners)}`).join('; ')}.`);
+      else lines.push(`Background: ${esc(G.Quant.BG_TEXT[p.method] || p.method)}.`);
+      lines.push(c.flags && c.flags.noise ? `Noise: not estimated here — the background regions are not flat (${esc(c.flags.noise)}), so their spread (${f2(c.sigmaPx)} per pixel) is not noise.`
+        : `Noise: σ ${f2(c.sigmaPx)} per pixel${c.f > 1.05 ? ` (×${Math.sqrt(c.f).toFixed(2)} for correlated neighbours)` : ''}; thresholds 3σ ${f2(c.t3)}, 10σ ${f2(c.t10)} (estimated).`);
+      if (c.flags && c.flags.clip) lines.push(`${c.clip.n} pixel${c.clip.n > 1 ? 's' : ''} of the region ${c.flags.clip === 'pileup' ? 'pile up at an extreme value (probably clipped)' : 'reach the file\'s digital limit (clipped)'}: the value is underestimated.`);
+      if (c.sens) lines.push(`Sensitivity: ${c.sens.tallerRows} rows taller at each end → ${f2(c.sens.taller)}${c.sens.away != null ? `; background ${c.sens.awayPx} px further away → ${f2(c.sens.away)}` : ''}.`);
+      lines.push(`Image: ${esc(p.image || '')} (SHA-256 ${esc(String(p.sha256 || '').slice(0, 12))}…) · calculation version ${p.version} · placed ${p.placed}×${p.override && p.override.length ? ` · lane-specific: ${esc(p.override.join(', '))}` : ''}.`);
+    } else lines.push(`Earlier method (version 1): ${esc(G.Quant.BG_TEXT[R.method] || R.method)}; uncorrected ${f2(c.U)}, background ${f2(c.B)}.`);
+    if (R.normMode !== 'none') lines.push(`Normalization: ${esc(G.Quant.describe(App, R).normalization)}.`);
+    if (R.output === 'fold') lines.push(R.ref != null ? `Reference lane: ${R.ref + 1}${st.lanes[R.ref] && st.lanes[R.ref].name ? ` (${esc(st.lanes[R.ref].name.replace(/\*/g, ''))})` : ''}.` : 'No reference lane chosen.');
+    $('qProfRead').innerHTML = lines.map(l => `<p>${l}</p>`).join('');
+    const row = st.quant.rows[k], lid = App.laneId(i), L = row && row.lanes && row.lanes[lid];
+    if (R.version === G.Quant.VERSION && L) {
+      $('qLaneBg').value = L.bg && L.bg.sides ? L.bg.sides : ''; $('qLaneGap').value = L.bg && L.bg.gap != null ? L.bg.gap : '';
+      $('qLaneBg').disabled = $('qLaneGap').disabled = !!L.manual;
+      $('qLaneAdj').dataset.k = k; $('qLaneAdj').dataset.lid = lid;
+    }
+  }
+  const laneRec = () => { const el = $('qLaneAdj'), row = S().quant.rows[+el.dataset.k]; return row && row.lanes ? row.lanes[el.dataset.lid] : null; };
+  const laneRow = () => S().quant.rows[+$('qLaneAdj').dataset.k];
+  // the step buttons: the start and end rows (of a drawn baseline, or of the lane's region) and the column shift
+  document.querySelectorAll('#qLaneAdj [data-adj]').forEach(b => b.onclick = done(() => {
+    const L = laneRec(); if (!L) return; const [key, d] = b.dataset.adj.split(':');
+    if (L.manual && key !== 'dx') { const m = L.manual, e = key === 'dy0' ? 'a' : 'b', nv = m[e] + +d; if ((e === 'a' ? m.b - nv : nv - m.a) >= 2) m[e] = nv; return; }
+    L[key] = (L[key] || 0) + +d; if (!L[key]) delete L[key];
+  }));
+  $('qLaneBg').addEventListener('change', done(e => { const L = laneRec(); if (!L) return; const v = e.target.value; if (v) L.bg = Object.assign({}, L.bg, { sides: v }); else if (L.bg) { delete L.bg.sides; if (!Object.keys(L.bg).length) delete L.bg; } }));
+  $('qLaneGap').addEventListener('change', done(e => { const L = laneRec(); if (!L) return; const v = e.target.value; if (v !== '') L.bg = Object.assign({}, L.bg, { gap: Math.max(0, Math.round(+v)) }); else if (L.bg) { delete L.bg.gap; if (!Object.keys(L.bg).length) delete L.bg; } }));
+  $('btnLaneReset').onclick = done(() => { const row = laneRow(); if (row) G.Quant.resetLane(App, row, $('qLaneAdj').dataset.lid); });
+  // this lane's limits in every lane of the band (a drawn baseline's, or the region's own rows)
+  $('btnProfAll').onclick = done(() => {
+    const row = laneRow(), L = laneRec(); if (!row || !L) return;
+    const P = G.Quant.laneProfile(App, row, $('qLaneAdj').dataset.lid), a = L.manual ? L.manual.a : Math.round(P.region[0]), b = L.manual ? L.manual.b : Math.round(P.region[1]);
+    const n = G.Quant.manualAll(App, row, a, b);
+    G.UI.toast(`Rows ${a}–${b} integrated in ${n} lane${n === 1 ? '' : 's'}, each above a baseline between its own profile's ends`);
+  });
+  // drawing on the profile: a drag from the start of the peak to its end draws the baseline; a handle moves an end
+  const cvp = $('qProfile');
+  const evPt = e => { const r = cvp.getBoundingClientRect(), d = pmap ? pmap.dpr : 1; return { x: (e.clientX - r.left) * d, y: (e.clientY - r.top) * d, free: e.altKey }; };
+  const rowAt = x => Math.round(Math.max(pmap.v0 + 0.5, Math.min(pmap.v1 - 0.5, pmap.Xi(x))));
+  // the level at a pointer: on the curve when within 8 px of it (unless Alt), else where the pointer is
+  const levelAt = (y, py, free) => { const m = pmap.meanAt(y); return !free && isFinite(m) && Math.abs(pmap.Y(m) - py) <= 8 * pmap.dpr ? m : pmap.Yi(py); };
+  const handleAt = p => { const m = pmap && pmap.base; if (!m) return null; const near = (y, l) => Math.hypot(pmap.X(y) - p.x, pmap.Y(l) - p.y) <= 9 * pmap.dpr; return near(m.a, m.la) ? 'a' : near(m.b, m.lb) ? 'b' : null; };
+  cvp.addEventListener('pointerdown', e => {
+    if (!pmap || e.button !== 0 || $('qProfAll').checked) return;
+    const p = evPt(e), h = handleAt(p), m = pmap.base;
+    if (h) pdrag = { k: pmap.k, lid: pmap.lid, y0: h === 'a' ? m.b : m.a, l0: h === 'a' ? m.lb : m.la, y1: h === 'a' ? m.a : m.b, l1: h === 'a' ? m.la : m.lb, moved: true };
+    else { const y = rowAt(p.x), l = levelAt(y, p.y, p.free); pdrag = { k: pmap.k, lid: pmap.lid, y0: y, l0: l, y1: y, l1: l, moved: false }; }
+    try { cvp.setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has nothing to capture */ }
+    e.preventDefault();
+  });
+  cvp.addEventListener('pointermove', e => {
+    if (!pmap) return;
+    const p = evPt(e);
+    if (!pdrag) { cvp.style.cursor = handleAt(p) ? 'grab' : 'crosshair'; return; }
+    const y = rowAt(p.x); pdrag.y1 = y; pdrag.l1 = levelAt(y, p.y, p.free); pdrag.moved = pdrag.moved || Math.abs(pdrag.y1 - pdrag.y0) >= 1;
+    drawProfile();
+  });
+  const endDrag = commit => {
+    const d = pdrag; pdrag = null;
+    if (!d || !commit || !d.moved || Math.abs(d.y1 - d.y0) < 2) { drawProfile(); return; }
+    const row = S().quant.rows[d.k];
+    const [a, la, b, lb] = d.y0 <= d.y1 ? [d.y0, d.l0, d.y1, d.l1] : [d.y1, d.l1, d.y0, d.l0];
+    if (row && G.Quant.setManual(App, row, d.lid, a, b, la, lb)) App.commit(); else drawProfile();
+  };
+  cvp.addEventListener('pointerup', () => endDrag(true));
+  cvp.addEventListener('pointercancel', () => endDrag(false));
+  cvp.addEventListener('keydown', e => { if (e.key === 'Escape' && pdrag) { e.preventDefault(); endDrag(false); } });
+
+  // live: called while something is being dragged or typed; the band list (which may hold the input being typed
+  // in) is left alone, only the numbers follow
+  // the chart fits the analysis window's height (its width is the window's): set on every render and resize
+  const fitChart = () => { const body = document.querySelector('#quantView .qv-body'); if (body && body.clientHeight) $('quantView').style.setProperty('--qv-h', Math.max(220, body.clientHeight - 64) + 'px'); };
+  window.addEventListener('resize', () => { fitChart(); if (S() && shown.quant && tab === 'prof') drawProfile(); });
   function render(live) {
     const st = S();
     if (!st) return;
+    fitChart();
     if (live) { if (shown.quant && tab !== 'size') results(); return; }
-    const q = st.quant, lanes = G.Quant.quantLanes(App);
-    $('qBg').value = q.bg; $('qMode').value = q.mode === 'band' ? 'band' : 'box'; $('qW').value = Math.round(q.wFrac * 100); widthLabel();
-    $('qModeWarn').classList.toggle('hidden', q.mode !== 'band');
-    const nm = q.norm === 'lane' || q.norm === 'control' ? q.norm : 'none';
-    $('qNorm').value = nm;
+    const q = st.quant, lanes = G.Quant.quantLanes(App), v2 = q.version === G.Quant.VERSION;
+    $('qLegacy').classList.toggle('hidden', v2 || !q.rows.length);
+    if (!v2) $('qLegacyText').textContent = 'These values come from the calculation of an earlier version (background from the box\'s own edge rows; negative rows set to zero; boxes follow the image when it is rotated). They are kept as saved.';
+    $('qMode').value = q.mode === 'band' ? 'band' : 'box';
+    $('qModeHelp').textContent = q.mode === 'band' ? 'Exploratory: only pixels above a noise threshold count, so faint bands read too low. Not for comparing amounts.' : 'Sum signal after background correction.';
+    $('qModeHelp').classList.toggle('warn-t', q.mode === 'band');
+    $('qBg').value = q.bg; $('qBg').querySelector('option[value="border"]').hidden = q.bg !== 'border';
+    $('qBgSides').value = q.bgSides || 'ab'; $('qBgGap').value = q.bgGap != null ? q.bgGap : 2; $('qBgSize').value = q.bgSize || '';
+    $('btnBgEdit').disabled = q.bg !== 'local';
+    $('btnBgEdit').title = q.bg === 'local' ? 'Sides, gap and depth of the background regions' : 'Only Local regions has regions to set';
+    $('qBgHelp').textContent = q.bg === 'local' ? 'Background regions lie outside the band, this far from it; the dashed outlines on the image show them. A lane can have its own (Profile → Adjust this lane).'
+      : q.bg === 'edge' ? 'Assumes the first and last rows inside the region hold no band; a broad band that reaches them is subtracted from itself.' : '';
+    if (q.bg !== 'local') { $('qBgEdit').classList.add('hidden'); $('btnBgEdit').setAttribute('aria-expanded', 'false'); }
+    if (q.bg === 'edge' && !$('qBgHelp').textContent) $('qBgHelp').textContent = '';
+    // normalization: one control; the reference band by name
+    const nm = q.norm === 'band' || q.norm === 'lane' ? q.norm : (q.norm === 'control' && !v2 ? 'band' : 'none');
+    $('qNorm').value = nm; $('qNorm').disabled = !v2;
+    $('qNormBand').classList.toggle('hidden', nm !== 'band');
+    $('qNormBand').innerHTML = `<option value="">Choose the band…</option>` + q.rows.map((r, k) => `<option value="${esc(r.id || '')}"${r.id && r.id === q.normBand ? ' selected' : ''}>${esc(r.name || `Band ${k + 1}`)}</option>`).join('');
+    $('qNormSub').classList.toggle('hidden', nm === 'none');
     $('qLaneTotalWrap').classList.toggle('hidden', nm !== 'lane'); $('qLaneTotal').checked = !!q.laneTotal;
-    $('qNormHint').textContent = nm === 'control'
-      ? (q.control >= 0 ? `Each box is divided by “${q.rows[q.control].name || `Band ${q.control + 1}`}” in the same lane. That corrects for loading only if this band does not change between your conditions and is within its linear range: check its values in the table.` : 'Tick “Divide by this box” on the loading-control box.')
-      : nm === 'lane' ? (q.laneTotal ? 'Each box is divided by its lane\'s total signal over the analysis area of this total-protein image.' : 'Each box is divided by its lane\'s signal over the analysis area. On an antibody image this is not total protein: use a total-protein stain or stain-free image of the same membrane for that.')
-      : 'The values are the background-subtracted box totals. Choose a normalization only when it suits the experiment.';
+    $('qNormHint').textContent = nm === 'band' ? 'Every other band is divided by this band in the same lane. Valid only if this band does not change between your conditions and is within its linear range: check its values in the table.'
+      : nm === 'lane' ? (q.laneTotal ? 'Each band is divided by its lane\'s total signal over the analysis area of this total-protein image.' : 'Each band is divided by its lane\'s total signal over the analysis area. On an antibody image this is not total protein; tick below only for a total-protein stain or stain-free image of this gel or membrane.') : '';
+    // output, and the reference lane only when fold changes need it (never chosen for you)
+    $('qOutput').value = ['corrected', 'normalized', 'fold'].includes(q.output) ? q.output : 'corrected'; $('qOutput').disabled = !v2;
+    $('qRef').classList.toggle('hidden', q.output !== 'fold' || !v2);
+    $('qRef').innerHTML = `<option value="">Choose the reference lane…</option>` + lanes.map(i => { const id = App.laneId(i); return `<option value="${id}"${id === q.ref ? ' selected' : ''}>Lane ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 14) : ''}</option>`; }).join('');
+    $('qW').value = Math.round(q.wFrac * 100); widthLabel();
     // the analysis area and the lanes measured in it
-    const ga = G.Quant.region(st), fixed = !!q.region, cr = st.crop;
-    const same = fixed && ga.x === cr.x && ga.y === cr.y && ga.w === cr.w && ga.h === cr.h;
-    $('qAreaNote').textContent = !fixed ? 'the figure box, until the first band box fixes it' : same ? 'fixed; the same as the figure box' : 'fixed; differs from the figure box (dashed green on the image)';
+    const ga = G.Quant.region(st), fixed = !!q.region, cr = st.crop, same = fixed && ga.x === cr.x && ga.y === cr.y && ga.w === cr.w && ga.h === cr.h;
+    $('qAreaNote').textContent = !fixed ? 'Figure box (saved with the first band)' : same ? 'Saved' : 'Saved · differs from the figure box';
+    [['qAreaL', ga.x], ['qAreaR', ga.x + ga.w], ['qAreaT', ga.y], ['qAreaB', ga.y + ga.h]].forEach(([id, v]) => { if (document.activeElement !== $(id)) $(id).value = Math.round(v); });
     $('btnAreaFromCrop').disabled = !fixed || same;
+    $('btnAreaFromCrop').title = !fixed || same ? 'The analysis area is already the figure box' : 'Set the analysis area to the current figure box; lanes measured can change';
+    $('qLanesSum').textContent = lanes.length ? laneList(lanes) : 'None';
     const mk = new Set(st.markers.map(m => m.lane)), inArea = st.lanes.map((l, i) => i).filter(i => st.lanes[i].x >= ga.x && st.lanes[i].x <= ga.x + ga.w);
+    // the lanes not measured, each with its reason
+    const notM = st.lanes.map((l, i) => i).filter(i => !lanes.includes(i)), reason = i => (mk.has(i) ? 'ladder' : !inArea.includes(i) ? 'outside the analysis area' : 'left out');
+    const byWhy = new Map(); notM.forEach(i => { const w = reason(i); byWhy.set(w, (byWhy.get(w) || []).concat(i)); });
+    $('qLaneWhy').textContent = notM.length ? `Not measured: ${[...byWhy].map(([w, l]) => `${laneList(l)} (${w})`).join('; ')}.` : 'Every lane is measured.';
+    $('qLanesSum').title = $('qLaneWhy').textContent;
     $('qLaneList').innerHTML = inArea.map(i => mk.has(i)
-      ? `<label class="chip-c off" title="${'ladder lane: never measured'}"><input type="checkbox" disabled>${i + 1} M</label>`
-      : `<label class="chip-c${st.lanes[i].noMeasure ? ' off' : ''}" title="${esc(st.lanes[i].name || 'well ' + (i + 1))}"><input type="checkbox" data-qm="${i}" ${st.lanes[i].noMeasure ? '' : 'checked'}>${i + 1}</label>`).join('');
+      ? `<label class="chip-c off" title="ladder lane: never measured"><input type="checkbox" disabled aria-label="Lane ${i + 1}: ladder, not measured">${i + 1} ladder</label>`
+      : `<label class="chip-c${st.lanes[i].noMeasure ? ' off' : ''}" title="${esc(st.lanes[i].name || 'lane ' + (i + 1))}${st.lanes[i].role === 'neg' ? ' (negative control)' : ''}"><input type="checkbox" data-qm="${i}" ${st.lanes[i].noMeasure ? '' : 'checked'} aria-label="Measure lane ${i + 1}${st.lanes[i].name ? ' ' + esc(st.lanes[i].name) : ''}">${i + 1}${st.lanes[i].role === 'neg' ? ' neg.' : ''}</label>`).join('');
     $('qLaneList').querySelectorAll('[data-qm]').forEach(inp => inp.addEventListener('change', done(e => { const l = st.lanes[+inp.dataset.qm]; if (e.target.checked) delete l.noMeasure; else l.noMeasure = true; })));
     const P = plot();
-    $('plotType').value = P.type === 'point' ? 'point' : 'bar'; $('plotValues').checked = !!P.values; $('plotRef').checked = P.refLine !== false;
+    $('plotType').value = P.type === 'point' ? 'point' : 'bar'; $('plotValues').checked = !!P.values; $('plotRef').checked = P.refLine !== false; $('plotRef').disabled = q.output !== 'fold';
     if (document.activeElement !== $('plotTitle')) $('plotTitle').value = P.title || '';
     if (document.activeElement !== $('plotY')) $('plotY').value = P.ylabel || '';
-    const refNow = lanes.includes(q.ref) ? q.ref : lanes[0];
-    $('qRef').innerHTML = lanes.map(i => `<option value="${i}"${i === refNow ? ' selected' : ''}>${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
-    const pl = +$('qProfLane').value, plSel = lanes.includes(pl) ? pl : (App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0]);
-    $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === plSel ? ' selected' : ''}>${'Well'} ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
+    const pl = App.selLane >= 0 && lanes.includes(App.selLane) ? App.selLane : lanes[0];
+    $('qProfLane').innerHTML = lanes.map(i => `<option value="${i}"${i === pl ? ' selected' : ''}>Lane ${i + 1}${st.lanes[i].name ? ' · ' + esc(st.lanes[i].name.replace(/\*/g, '')).slice(0, 12) : ''}</option>`).join('');
     if (selBox >= q.rows.length) selBox = Math.max(0, q.rows.length - 1);
     $('qProfBox').innerHTML = q.rows.map((r, k) => `<option value="${k}"${k === selBox ? ' selected' : ''}>${esc(r.name || `Band ${k + 1}`)}</option>`).join('');
-    $('stQuant').textContent = q.rows.length ? `${q.rows.length} band box${q.rows.length > 1 ? 'es' : ''}` : 'band intensities, band sizes';
-    $('btnShowQuant').classList.toggle('hidden', shown.quant);
+    $('stQuant').textContent = q.rows.length ? `${q.rows.length} band${q.rows.length > 1 ? 's' : ''}` : 'band intensities, band sizes';
+    $('btnShowQuant').classList.toggle('hidden', shown.quant || !q.rows.length);
     renderBoxes();
-    if (!shown.quant) return;
+    if (!shown.quant) { results(true); return; }
     setTab(tab);
     if (tab === 'size') { renderSizes(); return; }
     results();
   }
-  function results() {
+  // the issues that affect interpretation, next to the settings (one line each, with the way to them)
+  function renderIssues(R) {
+    const box = $('qIssues');
+    if (!R) { box.innerHTML = ''; return; }
+    const items = [];
+    R.cells.forEach((r, k) => r.forEach((c, j) => {
+      const i = R.lanes[j], what = c.value == null ? 'not available' : c.flags.clip ? 'clipped' : c.review && c.review.length ? (c.flags.contaminated || c.flags.boundary ? 'background needs review' : 'region needs review') : null;
+      if (what) items.push(`<div class="q-issue"><span>${c.value == null ? 'n/a' : c.flags.clip ? '⚠' : '?'} Lane ${i + 1} · ${esc(R.rows[k].name)}: ${what}</span><button class="btn sm" data-qinsp="${k}:${i}">Inspect</button></div>`);
+    }));
+    box.innerHTML = items.slice(0, 6).join('') + (items.length > 6 ? `<p class="hint">and ${items.length - 6} more (Table)</p>` : '');
+    box.querySelectorAll('[data-qinsp]').forEach(b => b.onclick = () => { const [k, i] = b.dataset.qinsp.split(':').map(Number); selBox = k; App.selLane = i; setView('quant'); setTab('prof'); App.emit('select'); render(); });
+  }
+  function results(quiet) {
     const st = S();
-    if (st.quant.rows.length && G.Quant.quantLanes(App).length) { lastR = G.Quant.measure(App); renderTable(lastR); }
-    else { lastR = null; $('quantTable').innerHTML = ''; $('quantChart').innerHTML = ''; }
+    if (st.quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App);
+    else lastR = null;
+    renderIssues(lastR);
+    const D = lastR ? G.Quant.describe(App, lastR) : null;
+    $('qSummary').innerHTML = D ? `${esc(D.summary)}${lastR.legacy ? ' · <span class="warn-t">earlier method (version 1)</span>' : ''} · <a href="#" id="qMethodLink">Method details</a>` : '';
+    const ml = $('qMethodLink'); if (ml) ml.onclick = e => { e.preventDefault(); $('quantDetails').open = true; $('methodsAdv').open = true; $('methodsAdv').scrollIntoView({ block: 'nearest' }); };
+    $('qMethodNote').textContent = D ? `${D.summary}. Signal: ${D.signal}. Region: ${D.measure}. Background: ${D.background}. ${D.limits[0].toUpperCase() + D.limits.slice(1)}. ${D.version[0].toUpperCase() + D.version.slice(1)}.` : '';
     $('methodsText').value = lastR ? G.Quant.methodsText(App, lastR) : '';
+    if (quiet) return;
+    if (lastR) renderTable(lastR); else { $('quantTable').innerHTML = ''; $('quantChart').innerHTML = ''; }
     $('quantEmpty').classList.toggle('hidden', !!st.quant.rows.length);
     ['btnQCopy', 'btnQCSV', 'btnQChart'].forEach(id => { $(id).disabled = !lastR; });
     drawProfile();
   }
+  // a chart mark selects its lane
+  $('quantChart').addEventListener('click', e => { const t = e.target.closest('[data-lane]'); if (t) selectLane(+t.dataset.lane); });
 
   App.on(what => {
-    if (!S() || what === 'select' && !shown.quant) return;
-    // a band box drawn by the user opens the results: that is what adding one is for
+    if (!S() || what === 'select' && !shown.quant) { if (S() && what === 'select') renderBoxes(); return; }
+    // a band drawn by the user opens the results: that is what adding one is for
     if (what === 'change' && App.boxAdded) { App.boxAdded = false; selBox = Math.max(0, S().quant.rows.length - 1); tab = 'prof'; if (!shown.quant || view !== 'quant') { setView('quant'); return; } }
+    if (what === 'select') { if (lastR) { renderTable(lastR); drawProfile(); } return; }
     render(what === 'refresh');
   });
-  // a loaded gel (example, project, library) opens on its figure, with the analysis window too when it has band boxes
+  // a loaded gel (example, project, library) opens on its figure, with the analysis window too when it has bands
   App.on(what => { if (what === 'loaded' && S()) { App.boxAdded = false; shown.figure = true; shown.quant = S().quant.rows.length > 0; view = 'figure'; layer = 'quant'; setLayer('figure'); refreshChrome(); if (shown.quant) { render(); $('quantDetails').open = true; } } });
   // the current results and chart (measured on demand), for the export routes
-  function measured() { if (!lastR && S() && S().quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App); return lastR; }
+  function measured() { if (S() && S().quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App); else lastR = null; return lastR; }
   function chart() { const R = measured(); return R ? G.Quant.chartSVG(App, R) : null; }
-  G.QuantUI = { render, setView, setTab: t => { setTab(t); render(); }, show, follow, view: () => view, isShown: p => !!shown[p], results: measured, chart, layer: () => layer, setLayer, exportChart };
+  G.QuantUI = { render, setView, setTab: t => { setTab(t); render(); }, show, follow, view: () => view, isShown: p => !!shown[p], results: measured, lastResults: () => lastR, chart, layer: () => layer, setLayer, exportChart, selectLane, tab: () => tab };
 })(window);

@@ -115,7 +115,7 @@
   $('imgChip').onclick = () => $('fileInput').click();
   const demoFile = () => new File([G.Demo.encodeTiff16(G.Demo.makeGel())], 'demo_gel.tif', { type: 'image/tiff' });
   /* ---------- examples: synthetic gels, filled in the way a finished figure would be ---------- */
-  const EXAMPLE_NAMES = { dna: 'example_DNA_agarose.tif', sds: 'example_SDS-PAGE_Coomassie.tif', western: 'example_Western_p53.tif' };
+  const EXAMPLE_NAMES = { dna: 'example_DNA_agarose.tif', sds: 'example_SDS-PAGE_Coomassie.tif', western: 'example_Western_p53.tif', broad: 'example_Western_broad_band.tif' };
   // opts.clean: a lesson's practice gel has no saturated band, so the figure made in it passes the pre-flight check
   async function loadExample(kind, opts) {
     App.busy(true, 'Building the example…');
@@ -134,7 +134,15 @@
     } else {
       fl.forEach((li, k) => { if (g.truth.names[k] != null) st.lanes[li].name = g.truth.names[k]; });
       const yOf = g.truth.yOf;
-      if (kind === 'sds') {
+      if (kind === 'broad') {
+        // the band region fitted to a narrow band (lane 2), measured as earlier versions did: background from the
+        // region's own end rows. The background lesson starts here
+        const b2 = G.Quant.bandBox(App, st.lanes[fl[1]].x, yOf(g.truth.target.size));
+        st.quant.region = Object.assign({}, st.crop);
+        st.quant.rows = [G.Quant.placeRow(App, { name: g.truth.target.name }, b2.y0, b2.y1)];
+        st.quant.bg = 'edge'; st.quant.output = 'corrected';
+        $('quantDetails').open = true;
+      } else if (kind === 'sds') {
         st.groups = [{ from: fl[4], to: fl[8], text: 'Ni-NTA' }];
         const y = App.snapBandY(st.lanes[fl[6]].x, yOf(45));
         st.arrows = y != null ? [{ y, text: 'His-MBP', size: true, side: '' }] : [];
@@ -142,9 +150,11 @@
         st.groups = [{ from: fl[1], to: fl[fl.length - 1], text: 'Doxorubicin' }];
         const mid = st.lanes[fl[Math.floor(fl.length / 2)]].x;
         const t = G.Quant.bandBox(App, mid, yOf(g.truth.target.size)), c = G.Quant.bandBox(App, mid, yOf(g.truth.control.size));
-        st.quant.rows = [{ y0: t.y0, y1: t.y1, name: g.truth.target.name }, { y0: c.y0, y1: c.y1, name: g.truth.control.name }];
-        // the worked example divides by its known loading control (a choice, stated as such in the methods)
-        st.quant.control = 1; st.quant.norm = 'control'; st.quant.ref = fl[1]; st.quant.region = Object.assign({}, st.crop);
+        // the worked example divides by its known loading control and compares with 0 h: choices, stated as such
+        st.quant.region = Object.assign({}, st.crop);
+        const tr = G.Quant.placeRow(App, { name: g.truth.target.name }, t.y0, t.y1), cr = G.Quant.placeRow(App, { name: g.truth.control.name }, c.y0, c.y1);
+        st.quant.rows = [tr, cr];
+        st.quant.norm = 'band'; st.quant.normBand = cr.id; st.quant.ref = App.laneId(fl[1]); st.quant.output = 'fold';
         const ty = (t.y0 + t.y1) / 2, cy = (c.y0 + c.y1) / 2;
         st.strips = [{ y0: ty - 58, y1: ty + 26, label: g.truth.target.name }, { y0: cy - 24, y1: cy + 24, label: g.truth.control.name }];
         st.markers.forEach(m => App.thinMarkerLabels(m, false));
@@ -271,6 +281,35 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p' && S()) { e.preventDefault(); printFigure(); }
     if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); $('exportDlg').classList.add('hidden'); }
   });
+  /* ---------- dialogs: focus moves in when one opens, Tab stays inside, Escape closes it, and focus returns to
+   * the control that opened it ---------- */
+  const dlgFrom = new Map();
+  const focusables = d => [...d.querySelectorAll('button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])')].filter(e => !e.disabled && !e.closest('.hidden') && e.getClientRects().length);
+  document.querySelectorAll('.dlg').forEach(d => {
+    d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true');
+    if (!d.hasAttribute('aria-labelledby') && !d.hasAttribute('aria-label')) { const h = d.querySelector('h2, h3'); if (h) { h.id = h.id || d.id + 'H'; d.setAttribute('aria-labelledby', h.id); } }
+    new MutationObserver(() => {
+      const open = !d.classList.contains('hidden');
+      if (open && !dlgFrom.has(d)) {
+        dlgFrom.set(d, document.activeElement);
+        setTimeout(() => { if (!d.contains(document.activeElement)) { const f = focusables(d); (f.find(e => !e.classList.contains('dlg-x')) || f[0] || d).focus(); } }, 0);
+      } else if (!open && dlgFrom.has(d)) {
+        const back = dlgFrom.get(d); dlgFrom.delete(d);
+        if (back && back.focus && document.contains(back) && !document.querySelector('.dlg:not(.hidden)')) back.focus();
+      }
+    }).observe(d, { attributes: true, attributeFilter: ['class'] });
+    d.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && d.id !== 'askDlg') {
+        const x = d.querySelector('.dlg-x') || (d.id === 'preflightDlg' ? $('pfBack') : null);
+        if (x) { e.preventDefault(); e.stopPropagation(); x.click(); }
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const f = focusables(d); if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    });
+  });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
   // the resolution is set in the top bar and in the export window (the top bar's is hidden on a phone)
   ['dpiTop', 'dpiExp'].forEach(id => $(id).addEventListener('change', done(e => { S().style.dpi = +e.target.value; })));
@@ -300,8 +339,9 @@
       $('pfGo').onclick = () => close(true);
     });
   }
-  // toast only for files the viewer actually kept
-  const saved = (status, msg) => { if (status === 'saved') toast(msg); };
+  // toast only for files the viewer actually kept; a kept figure or results file is announced ('exported',
+  // 'exported-results': a lesson's export card is done only then, never on the click alone)
+  const saved = (status, msg, what) => { if (status === 'saved') { toast(msg); if (what) App.emit(what); } };
   async function exportFigure(kind) {
     if (needImage()) return;
     if (!(await preflight())) return;
@@ -311,18 +351,18 @@
       if (kind === 'pdf') {
         const r = await G.Export.exportPDF(f.svg, `${baseName()}_figure.pdf`, S());
         if (r.missing.length) alertDlg(`The PDF uses the standard PDF fonts, which cannot show these characters (written as "?"): ${r.missing.join(' ')}. Use SVG or PNG for them.`);
-        saved(r.status, 'Exported vector PDF');
+        saved(r.status, 'Exported vector PDF', 'exported');
         return;
       }
       if (kind === 'pptx') {
-        saved(await G.Export.exportPPTX(f.svg, `${baseName()}_figure.pptx`, S(), { crop: App._lastCrop, gel: App._lastGel }), 'Exported an editable PowerPoint slide');
+        saved(await G.Export.exportPPTX(f.svg, `${baseName()}_figure.pptx`, S(), { crop: App._lastCrop, gel: App._lastGel }), 'Exported an editable PowerPoint slide', 'exported');
         return;
       }
-      if (kind === 'svg') { saved(await G.Export.exportSVG(f.svg, baseName() + '_figure.svg'), 'Exported SVG'); return; }
+      if (kind === 'svg') { saved(await G.Export.exportSVG(f.svg, baseName() + '_figure.svg'), 'Exported SVG', 'exported'); return; }
       const fmt = kind === 'tiff' ? 'TIFF' : 'PNG';
       const st = kind === 'tiff' ? await G.Export.exportTIFF(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.tif`, S())
         : await G.Export.exportPNG(f.svg, f.w, f.h, dpi, `${baseName()}_figure_${dpi}dpi.png`, S());
-      saved(st, `Exported ${dpi} dpi ${fmt}` + (eff < dpi ? ` (the gel itself is ${eff} dpi)` : ''));
+      saved(st, `Exported ${dpi} dpi ${fmt}` + (eff < dpi ? ` (the gel itself is ${eff} dpi)` : ''), 'exported');
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
   /* ---------- the export dialog: one decision with four scoped answers ---------- */
@@ -389,7 +429,7 @@
         marker: App.hasMarkerImage() ? { name: st.markerImage.name, buffer: App.markerBuffer, sha256: st.markerImage.sha256 } : null,
         project: await App.projectBlob() } } : undefined;
       const r = await G.Export.packageBlob(st, baseName(), f, ch, st.style.dpi, opts);
-      saved(await G.Export.download(r.blob, baseName() + (archive === true ? '_archive.zip' : '_results.zip')), archive === true ? `Exported the complete archive (${r.files.length} files, with the original image and the project)` : `Exported the results package (${r.files.length} files)`);
+      saved(await G.Export.download(r.blob, baseName() + (archive === true ? '_archive.zip' : '_results.zip')), archive === true ? `Exported the complete archive (${r.files.length} files, with the original image and the project)` : `Exported the results package (${r.files.length} files)`, 'exported-results');
     } catch (e) { alertDlg(e.message); } finally { App.busy(false); }
   }
   $('btnPNG').onclick = () => exportPackage(false);
@@ -476,13 +516,15 @@
   }));
 
   /* ---------- 1 image ---------- */
-  document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { App.setDarkBands(b.dataset.dark === '1'); App.invertInherited = false; }));
-  // detection polarity by hand (the auto-detected one can be wrong on a dark tray or a white frame)
-  $('btnPolDetect').onclick = () => {
-    if (needImage()) return;
+  // Display: the figure as the file is (Original) or inverted; a look only, never a measured value
+  document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { S().levels.invert = b.dataset.inv === '1'; App.invertInherited = false; }));
+  // Measure bands as: the detection and measurement polarity, by hand (the auto-detected one can be wrong on a
+  // dark tray or a white frame); everything is detected again
+  document.querySelectorAll('#brightSeg button').forEach(b => b.onclick = () => {
+    if (needImage() || (b.dataset.bright === '1') === !!S().bright) return;
     App.busy(true, 'Detecting again…');
-    setTimeout(async () => { try { await App.setBright(!S().bright); await App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Detection reads ${S().bright ? 'bright bands on a dark background' : 'dark bands on a light background'}; lanes, ladders and geometry found again`); }, 20);
-  };
+    setTimeout(async () => { try { await App.setBright(!S().bright); await App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Bands are measured as ${S().bright ? 'bright on a dark background' : 'dark on a light background'}; lanes, ladders and geometry found again`); }, 20);
+  });
   $('lvBlack').addEventListener('input', live(e => { S().levels.black = Math.min(fromSlider(+e.target.value), S().levels.white - 0.0005); $('lvBlackV').textContent = pct(S().levels.black); drawHisto(); updateClipLine(); }));
   $('lvWhite').addEventListener('input', live(e => { S().levels.white = Math.max(fromSlider(+e.target.value), S().levels.black + 0.0005); $('lvWhiteV').textContent = pct(S().levels.white); drawHisto(); updateClipLine(); }));
   $('lvBlack').addEventListener('change', done()); $('lvWhite').addEventListener('change', done());
@@ -794,8 +836,10 @@
       // what the calibration rests on, instead of a fit percentage that reads like a confidence
       const sm = out ? null : App.markerSummary(m), low = m.score != null && m.score < 0.6;
       const fmt = v => App.fmtSize(v);
+      // the state in an icon and a word: detected (not confirmed), needs review, confirmed
+      const state = out ? '' : low ? '<span class="state-b review"><span aria-hidden="true">!</span>Needs review</span>' : m.confirmed ? '<span class="state-b ok"><span aria-hidden="true">✓</span>Confirmed</span>' : '<span class="state-b det"><span aria-hidden="true">○</span>Detected</span>';
       const status = out ? `<span class="h3-note">${'outside the figure'}</span>`
-        : `<span class="mk-score${low ? ' low' : ''}" title="${esc(`The ladder's bands that sit on peaks of this lane, and the size range they span (sizes outside it are extrapolated, marked ≈)${m.score != null ? `; fit score ${Math.round(m.score * 100)} %` : ''}`)}">${low ? 'Check ladder and band assignments' : `${sm.matched}/${sm.total} bands${sm.range ? ` · ${fmt(sm.range[0])}–${fmt(sm.range[1])}` : ''}`}</span>`;
+        : state + `<span class="mk-score${low ? ' low' : ''}" title="${esc(`The ladder's bands that sit on peaks of this lane, and the size range they span (sizes outside it are extrapolated, marked ≈)${m.score != null ? `; fit score ${Math.round(m.score * 100)} %` : ''}`)}">${low ? 'Check ladder and band assignments' : `${sm.matched}/${sm.total} bands${sm.range ? ` · ${fmt(sm.range[0])}–${fmt(sm.range[1])}` : ''}`}</span>`;
       const notes = sm ? [sm.extra ? `${sm.extra} clear peak${sm.extra > 1 ? 's' : ''} of this lane ${sm.extra > 1 ? 'are' : 'is'} not on a ladder band` : '',
         sm.alts.length ? `Also fits about as well: ${sm.alts.map(a => esc(G.Ladders.get(a.id).name.replace(/\s*\([^()]*\)\s*$/, ''))).join('; ')}` : ''].filter(Boolean) : [];
       return `<div class="mk-card${out ? ' out' : ''}${m.confirmed ? ' confirmed' : ''}" data-mi="${mi}">
@@ -846,17 +890,19 @@
     // the lane table: name, role, in the figure, in the analysis, side by side (a figure choice never
     // changes the analysis, and the other way round)
     const measuring = st.quant.rows.length > 0, ga = G.Quant.region(st);
-    $('laneList').innerHTML = `<div class="pick">${'Figure:'} <a href="#" data-pick="all">${'show all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the low-signal wells'}</a>` : ''}<span class="lane-cols">${'Role'}<span>${'Fig.'}</span>${measuring ? `<span>${'Meas.'}</span>` : ''}</span></div>` + st.lanes.map((l, i) => {
+    const head = `<div class="lane-row lane-head" aria-hidden="true"><span>Lane</span><span>Name</span><span>Role</span><span>Show</span><span>${measuring ? 'Measure' : ''}</span><span></span></div>`;
+    $('laneList').innerHTML = `<div class="pick">${'Figure:'} <a href="#" data-pick="all">${'show all'}</a>${emptyShown ? ` · <a href="#" data-pick="hideEmpty">${'hide the low-signal wells'}</a>` : ''}</div>` + head + st.lanes.map((l, i) => {
       const out = !r || i < r[0] || i > r[1], mk = isMarkerLane(i), inArea = l.x >= ga.x && l.x <= ga.x + ga.w;
-      const role = mk ? 'ladder' : l.role === 'neg' ? 'neg' : 'sample';
-      return `<div class="item${App.selLanes.has(i) ? ' sel' : ''}${out ? ' out' : ''}">
-        <span class="idx">${i + 1}</span>
-        <input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${mk ? 'M' : 'Name'}">
-        ${empty.has(i) && !mk && role !== 'neg' ? `<span class="tag warn" title="${'very little signal: an empty lane, or a negative control (set its role)'}">${'low signal'}</span>` : ''}${i === st.quant.ref && measuring ? `<span class="tag" title="${'the reference lane of the analysis (= 1.00)'}">ref</span>` : ''}
-        <select class="role" data-role="${i}" title="${'The lane\'s role: a sample, a negative control (kept and measured even with no signal), or the size ladder'}"><option value="sample"${role === 'sample' ? ' selected' : ''}>${'Sample'}</option><option value="neg"${role === 'neg' ? ' selected' : ''}>${'Neg. control'}</option><option value="ladder"${role === 'ladder' ? ' selected' : ''}>${'Ladder'}</option></select>
-        <label class="switch" title="${'In the figure. Untick = leave out of the figure (splice gap added; the analysis is not affected); or select the lane and press H'}"><input type="checkbox" data-h="${i}" ${l.hidden ? '' : 'checked'}><span class="sr">${'Show'}</span></label>
-        ${measuring ? `<label class="switch" title="${mk ? 'ladder lanes are never measured' : !inArea ? 'outside the analysis area' : 'In the analysis. Untick = leave out of the measurements (the figure is not affected)'}"><input type="checkbox" data-m="${i}" ${!mk && inArea && !l.noMeasure ? 'checked' : ''} ${mk || !inArea ? 'disabled' : ''}><span class="sr">${'Measure'}</span></label>` : ''}
-        <button class="x" data-del="${i}" title="${'Delete this lane (if it was detected by mistake)'}">×</button></div>`;
+      const role = mk ? 'ladder' : l.role === 'neg' ? 'neg' : 'sample', n = i + 1;
+      // why a lane is not measured, in words (the tooltip, and the Measured lanes line of step 6)
+      const why = mk ? 'Not measured: a ladder lane' : !inArea ? 'Not measured: outside the analysis area' : l.noMeasure ? 'Not measured: left out by you (tick to measure)' : 'Measured. Untick to leave it out of the measurements (the figure is not affected)';
+      return `<div class="item lane-row${App.selLanes.has(i) ? ' sel' : ''}${out ? ' out' : ''}">
+        <span class="idx">${n}</span>
+        <span class="nm"><input type="text" data-i="${i}" value="${esc(l.name)}" placeholder="${mk ? 'M' : 'Name'}" aria-label="Name of lane ${n}">${empty.has(i) && !mk && role !== 'neg' ? `<span class="tag warn" title="${'very little signal: an empty lane, or a negative control (set its role)'}">${'low signal'}</span>` : ''}${(st.quant.ref === l.id || i === st.quant.ref) && measuring ? `<span class="tag" title="${'the reference lane of the analysis (fold change 1)'}">ref</span>` : ''}</span>
+        <select class="role" data-role="${i}" aria-label="Role of lane ${n}" title="${'The lane\'s role: a sample, a negative control (kept and measured even with no signal), or the size ladder'}"><option value="sample"${role === 'sample' ? ' selected' : ''}>${'Sample'}</option><option value="neg"${role === 'neg' ? ' selected' : ''}>${'Neg. control'}</option><option value="ladder"${role === 'ladder' ? ' selected' : ''}>${'Ladder'}</option></select>
+        <label class="switch cb" title="${'In the figure. Untick = leave out of the figure (splice gap added; the analysis is not affected); or select the lane and press H'}"><input type="checkbox" data-h="${i}" ${l.hidden ? '' : 'checked'} aria-label="Show lane ${n} in the figure"></label>
+        ${measuring ? `<label class="switch cb" title="${why}"><input type="checkbox" data-m="${i}" ${!mk && inArea && !l.noMeasure ? 'checked' : ''} ${mk || !inArea ? 'disabled' : ''} aria-label="Measure lane ${n}" aria-describedby="lm${i}"><span class="sr" id="lm${i}">${why}</span></label>` : '<span></span>'}
+        <button class="x" data-del="${i}" aria-label="Delete lane ${n}" title="${'Delete this lane (if it was detected by mistake)'}">×</button></div>`;
     }).join('');
     $('laneList').querySelectorAll('input[type=text]').forEach(inp => {
       const i = +inp.dataset.i;
@@ -978,7 +1024,7 @@
     $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.geom ? ' · geometry' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
     set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `lanes ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     const unconf = visMk.filter(m => !m.confirmed);
-    set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : unconf.length ? 'detected · not confirmed' : 'confirmed') : 'none', lowMk.length || unconf.length || !visMk.length ? 'warn' : '');
+    set('stMarker', visMk.length ? (lowMk.length ? 'Needs review' : unconf.length ? 'Detected · not confirmed' : 'Confirmed') : 'none', lowMk.length || unconf.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
     // 'done' = fine, 'review' = detected but needs a look, false = to do
     const state = [imgReview ? 'review' : 'done', !!r && named >= fl.length && fl.length > 0 ? 'done' : false,
@@ -1006,10 +1052,9 @@
   function syncControls() {
     const st = S(), y = st.style;
     const dark = App.darkBands();
-    document.querySelectorAll('#polSeg button').forEach(b => b.classList.toggle('on', (b.dataset.dark === '1') === dark));
-    // which of the two looks is the image as it came from the imager
-    document.querySelectorAll('#polSeg .pol-note').forEach(n => { n.textContent = (n.dataset.k === '1') === !st.bright ? 'as imaged' : 'inverted'; });
-    $('btnPolDetect').textContent = `Detection: ${st.bright ? 'bright bands on dark' : 'dark bands on light'} · change`;
+    const segOn = (sel, on) => document.querySelectorAll(sel).forEach(b => { const v = on(b); b.classList.toggle('on', v); b.setAttribute('aria-checked', String(v)); });
+    segOn('#polSeg button', b => (b.dataset.inv === '1') === !!st.levels.invert);
+    segOn('#brightSeg button', b => (b.dataset.bright === '1') === !!st.bright);
     $('lvBlack').value = toSlider(st.levels.black); $('lvWhite').value = toSlider(st.levels.white);
     $('lvBlackV').textContent = pct(st.levels.black); $('lvWhiteV').textContent = pct(st.levels.white);
     $('rot').value = st.rotation; $('rotNum').value = st.rotation; $('rotV').textContent = st.rotation + '°';
@@ -1023,11 +1068,14 @@
       (k.rows || k.mode === 'manual') && Math.abs(k.bandsPct) >= 0.5 ? `bands ${Math.abs(k.bandsPct)} % ${k.bandsPct > 0 ? 'wider' : 'narrower'} at the right, levelled` : '',
       k.bendPx >= 0.5 ? `bent lanes straightened (up to ${k.bendPx.toFixed(1)} px)` : '',
       st.geom && st.geom.residualPct != null ? `${st.geom.residualPct} % left` : ''].filter(Boolean).join(' · ');
-    $('ksNote').textContent = plain;
+    // the state in two words; the details (what was measured and changed) behind Details…
+    $('ksNote').textContent = !k ? (st.geomChecked ? 'Checked · none needed' : 'Off') : [Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 || k.mode === 'manual' ? 'Perspective corrected' : '', k.bendPx >= 0.5 ? 'bent lanes straightened' : ''].filter(Boolean).join(' · ').replace(/^b/, 'B') || 'Checked · none needed';
+    $('ksDetails').textContent = plain ? `${plain[0].toUpperCase()}${plain.slice(1)}.` : '';
+    $('btnKsDetails').classList.toggle('hidden', !k);
+    if (!k) { $('ksDetails').classList.add('hidden'); $('btnKsDetails').setAttribute('aria-expanded', 'false'); }
     $('ksNote').title = k ? `lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % (spacing at the bottom of the figure area over the top, minus 1)${k.rows || k.mode === 'manual' ? `; bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % (right over left)` : ''}${k.bendPx >= 0.5 ? `; bend ${k.bendPx.toFixed(1)} px` : ''}. "Original" above the image shows it uncorrected.` : '';
     geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
-    $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;
     syncTypeHints();
     const hasMk = App.hasMarkerImage();

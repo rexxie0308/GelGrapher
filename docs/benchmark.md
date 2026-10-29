@@ -60,13 +60,31 @@ A labelled set of real gels is what the lane and ladder detection can be tuned a
 
 ## Densitometry on synthetic gels
 
-`node tools/quant-bench.mjs` measures a two-fold dilution series of one band (eight lanes, peak 0.0025 to 0.32 of full scale) at three noise levels, with and without an uneven haze, for both measures and the three background methods. It reports the log-log slope over the lanes at or above their limit of quantification (1 = linear), the ratio of the two faintest lanes (2 = linear), how many lanes reach their LOQ, and how much the value moves when a box that contains the band is made wider (70 to 100 % of the lane spacing) or taller (up to 1.5 times). Results on 2026-11-01:
+`node tools/quant-bench.mjs` measures a two-fold dilution series of one band (eight lanes, peak 0.0025 to 0.32 of full scale) at three noise levels, with and without an uneven haze, for the whole-region measure with local, end-row (edge) and rolling backgrounds and for the thresholded measure. It reports the log-log slope over the lanes at or above their 10σ noise threshold (1 = linear), the ratio of the two faintest lanes (2 = linear), how many lanes reach 10σ, how much the value moves when a region that holds the band is made wider (70 to 100 % of the lane spacing) or taller (up to 1.5 times), the mid-series value's own 3σ, the blank lane's mean, and the broad-band blot of the background lesson. The default (whole region, local background above and below) has pass / fail limits and the bench exits with 1 when one fails. Results on 2026-10-29 (calculation version 2):
 
-| measure, background | slope | faintest pair | wider box | taller box |
+| measure, background | slope | faintest pair | wider region | taller region |
 | --- | --- | --- | --- | --- |
-| whole box, edge line | 0.98 | 1.8–2.0 | 1–5 % | 5–13 % |
-| whole box, border median | 0.93–0.98 | 2.1–4.1 | 1–5 % | 0–15 % |
-| whole box, rolling ball | 0.92–0.97 | 1.6–2.2 | 1–3 % | 1–9 % |
-| thresholded, any background | 1.08–1.31 | lane 1 reads 0 | 1–10 % | 0–26 % |
+| whole region, local regions (default) | 0.95–1.00 | 2.1–2.7 | 0.5–1.6 % | 1.0–3.4 % (its 3σ: 2–11 %) |
+| whole region, line between region ends | 0.99–1.00 | 2.0–2.3 | 1–4 % | 5–13 % |
+| whole region, rolling baseline | 0.94–0.99 | 1.6–2.2 | 1–4 % | 1–9 % |
+| thresholded (exploratory), local | 1.10–1.27 | lane 1 reads 0 | 0–4 % | 1–6 % |
 
-The thresholded measure is not linear: it drops the faint part of every band, so a faint band reads disproportionately low and the faintest lanes read zero. That is why the whole box is the default. Taller boxes move the value most at high noise, where the edge rows that set the background are themselves noisy: draw boxes that hold the band with a little background above and below, and keep the same box height across a comparison (one box spans every lane, so lanes of one image are always measured alike).
+Blank lanes, whole region and local background: mean −0.09, sd 0.26 over the six images (signed: about half below zero, as a blank should be).
+
+**The broad band.** The broad-band example (`G.Demo.makeGel({ preset: 'broad' })`) has, in lane 4, a band three times as tall as the others that holds 2.89 × lane 2's protein at the same peak height. Lane 4 / lane 2:
+
+| region and background | lane 4 / lane 2 | flagged |
+| --- | --- | --- |
+| region fitted to a narrow band, background from its end rows (the default before version 2) | 0.74 × (the lowest lane) | yes (version 2); no flag before |
+| the same region, local background regions | 1.67 × | yes: the band reaches the region's edges, the background regions rise towards it |
+| local background regions, a region as tall as the band (57 px) | 2.68 × (the highest lane) | no |
+
+The few per cent still missing are the band's faint tails beyond the region and in the background regions; a taller region reaches the band above (61 px away) and is flagged for it.
+
+**Before and after (2026-10-29, the same synthetic images, the previous release against version 2).**
+
+- Five lanes, regions fitted to a narrow band: a broad band holding 5.4 × the narrow band's protein read 1.2 × with the earlier end-row background (lower than a band with 37 % of its protein), unflagged. Version 2: 3.2 × with the same short region, flagged (the region holds 76 % of the band); 5.4 × (all five lanes equal to their true sums to 0.01 %) once the regions hold the bands.
+- Blank lanes: +0.60 on average, none below zero (rows cut at zero), before; −0.08, 16 of 30 below zero, after.
+- A 3° rotation of the Western example: one lane's value went from 172 to 10 before (the box moved with the working frame); identical to the last digit after, through rotation, flips and back.
+
+What these show: the arithmetic, the background model and the bookkeeping do what they say on images whose truth is known. They are not an experimental validation. On your own imager, measure blank lanes (their values should scatter around zero), a two-fold dilution series of your target and your loading control (the slope over the lanes above 10σ should be near 1, and the range where it is tells you the linear range of your detection), and the same blot at two exposures (unclipped bands should keep their ratios). `tools/real-bench.mjs` takes a `dilution` label for the series.
