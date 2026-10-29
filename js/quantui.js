@@ -218,7 +218,7 @@
     return !lost.length || G.UI.confirm(`The image is shown in another frame than the one these bands were placed in, so their drawn baselines cannot be kept: ${lost.join('; ')}. Place the bands again and remove those baselines? Undo brings them back.`, 'Place again');
   }
   const laneNum = id => { const i = S().lanes.findIndex(l => l.id === id); return i >= 0 ? i + 1 : id; };
-  function keptNote(rows) { const kept = []; rows.forEach(r => Object.keys(r.lanes || {}).forEach(id => { if (r.lanes[id].manual) kept.push(laneNum(id)); })); if (kept.length) G.UI.toast(`Lane${kept.length > 1 ? 's' : ''} ${[...new Set(kept)].join(', ')} keep their drawn baseline (its own start and end)`, 4200); }
+  function keptNote(rows) { const kept = []; rows.forEach(r => Object.keys(r.lanes || {}).forEach(id => { if (r.lanes[id].manual) kept.push(laneNum(id)); })); if (kept.length) { const k = [...new Set(kept)]; G.UI.toast(k.length > 1 ? `Lanes ${k.join(', ')} keep their drawn baselines (their own start and end)` : `Lane ${k[0]} keeps its drawn baseline (its own start and end)`, 4200); } }
 
   /* ---------- the bands: name, where, actions ---------- */
   function renderBoxes() {
@@ -599,7 +599,7 @@
     const q = c2 => (!c2 ? '–' : c2.value == null ? `n/a` : f2(c2.value));
     $('bulkPreview').innerHTML = `<table class="bulk-table"><thead><tr><th scope="col">Lane</th><th scope="col">Now</th><th scope="col">After</th><th scope="col">Quality after</th></tr></thead><tbody>`
       + t.map(id => { const a = pv.after[id], b = pv.before[id], k2 = kept.includes(id); return `<tr><th scope="row">${laneNum(id)}</th><td>${q(b)}</td><td>${k2 ? 'unchanged (keeps its drawn baseline)' : q(a)}</td><td class="${a && a.review.length && !k2 ? 'warn-t' : ''}">${k2 ? '–' : a && a.review.length ? esc(a.review[0]) + (a.review.length > 1 ? ` (+${a.review.length - 1})` : '') : 'no issues found'}</td></tr>`; }).join('')
-      + '</tbody></table>' + (withManual.length && !$('bulkReplace').checked ? `<p class="hint">Lane${withManual.length > 1 ? 's' : ''} ${withManual.map(laneNum).join(', ')} keep their drawn baseline unless you tick Replace.</p>` : '');
+      + '</tbody></table>' + (withManual.length && !$('bulkReplace').checked ? `<p class="hint">${withManual.length > 1 ? `Lanes ${withManual.map(laneNum).join(', ')} keep their drawn baselines` : `Lane ${laneNum(withManual[0])} keeps its drawn baseline`} unless you tick Replace.</p>` : '');
   }
   const closeBulk = () => { bulk = null; $('bulkDlg').classList.add('hidden'); };
   $('btnBulkClose').onclick = closeBulk; $('btnBulkCancel').onclick = closeBulk;
