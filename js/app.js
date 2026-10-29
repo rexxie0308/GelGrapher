@@ -2192,6 +2192,8 @@
     if (App.S && App.isExample) { if (App.saveState.status !== 'example') setSave('example'); return; }
     if (!App.S || !App.srcBuffer || App._libSkip === App.S.file.sha256) return;
     const gen = libGen, S = App.S, sha = S.file.sha256, mk = App.hasMarkerImage() ? S.markerImage : null;
+    // the save state belongs to the gel on screen: a save of the previous gel that ends after another opened says nothing
+    const mine = () => gen === libGen && App.S && !App.isExample && App.S.file.sha256 === sha;
     const meta = { sha256: sha, name: S.file.name, gelType: S.gelType, lanes: S.lanes.length, w: App.src0.w, h: App.src0.h, bits: S.file.bits,
       size: App.srcBuffer.byteLength + (mk && App.markerBuffer ? App.markerBuffer.byteLength : 0),
       state: App.snapshot(), initial: App.initial, autoRotation: App.autoRotation, savedAt: Date.now(),
@@ -2211,8 +2213,8 @@
       });
       if (navigator.storage && navigator.storage.persist && !App._persistAsked) { App._persistAsked = true; navigator.storage.persist().catch(() => {}); }
       App.emit('library');
-      if (gen === libGen) setSave('saved');
-    } catch (e) { setSave('failed', { error: String(e && e.message || e) }); /* private mode etc.: the library is best-effort, and says so */ }
+      if (mine()) setSave('saved');
+    } catch (e) { if (mine()) setSave('failed', { error: String(e && e.message || e) }); /* private mode etc.: the library is best-effort, and says so */ }
   };
   App.library = {
     // newest first

@@ -330,6 +330,13 @@
       // only the narrow layout, whose page scrolls, keeps that
       if (getComputedStyle(document.body).overflowY === 'hidden') { const se = document.scrollingElement; se.scrollTop = 0; se.scrollLeft = 0; }
     }
+    // a control in the settings panel is brought into the panel's upper part: the card sits at the panel's bottom
+    // and needs the room (a card with its reason open is tall)
+    const pn = el.closest('#panel');
+    if (pn && !(G.UI.phone && G.UI.phone())) {
+      const pr = pn.getBoundingClientRect(), er = el.getBoundingClientRect();
+      if (er.top < pr.top || er.top > pr.top + pr.height * 0.45) pn.scrollTop += er.top - (pr.top + pr.height * 0.3);
+    }
   }
   // which column of the screen a rectangle sits in: the settings panel, the image editor, or the figure
   function columnOf(r) {
