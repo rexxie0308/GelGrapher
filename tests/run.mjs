@@ -95,7 +95,8 @@ const UI_CHECKS = [
   ['a remembered ladder with one band more than the gel\'s does not stick: the library is checked and the ladder fitting every band wins; a perfect usual ladder stays', r => r.ladderRecheck.ok, ['ladderRecheck']],
   ['the ladder library is well formed: unique ids, sizes largest first, reference bands among the sizes, catalogue numbers, earlier ids still open; one ladder\'s loading formats count once in the search, a starred one stands for them; legends keep a standard\'s range', r => r.ladderLibrary.ok, ['ladderLibrary']],
   ['geometry correction: Auto at load corrects a keystoned gel (lanes parallel within 2 %) with every lane and the red box framed beside the outer lanes, seg / legend / log show it, rotation and undo carry it, Off restores, Manual box maps a trapezoid, a hand-placed lane survives a box change, the detection polarity can be overridden', r => r.keystone.ok, ['keystone']],
-  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
+  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']],
+  ['less text, larger type: Size ladder and Lanes shown, finished steps folded to a summary (a lesson unfolds what it needs), a key to the lines on the image, the figure at printed size, one filled button in the export window with its resolution, the More menu', r => r.compact.ok, ['compact']]
 ];
 
 // Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in
@@ -194,6 +195,33 @@ async function runIn(name, base) {
       await page.waitForTimeout(2000);
       outside.hits.length ? fail('no request leaves the page', outside.hits.join(', ')) : pass('no request leaves the page');
       await page.close();
+    }
+    // a phone (390 × 844): one workspace at a time with a bar at the bottom, a two-row top bar, nothing wider than the screen;
+    // a lesson shows the workspace its card needs and keeps its card above the bar
+    {
+      const mctx = await browser.newContext({ viewport: { width: 390, height: 844 } }), page = await mctx.newPage();
+      try {
+        await page.goto(`${base}/index.html?example=dna`);
+        await page.waitForFunction(() => window.App && window.App.S && document.body.classList.contains('has-gel'), null, { timeout: 60000 });
+        await page.waitForTimeout(500);
+        const r = await page.evaluate(async () => {
+          const $ = id => document.getElementById(id), shown = el => !!(el && el.offsetParent !== null && el.getBoundingClientRect().height > 0), wait = ms => new Promise(f => setTimeout(f, ms));
+          const nav = $('mobileNav').getBoundingClientRect(), top = document.querySelector('.topbar').getBoundingClientRect();
+          const first = document.body.dataset.pane === 'figure' && shown($('figPane')) && !shown($('panel')) && !shown($('rawCol'));
+          const narrow = document.documentElement.scrollWidth <= innerWidth + 1 && top.height <= 110 && nav.bottom <= innerHeight + 1 && nav.height >= 44;
+          document.querySelector('#mobileNav [data-pane="image"]').click(); await wait(200);
+          const image = shown($('rawCol')) && !shown($('figCol')) && $('editor').getBoundingClientRect().width > 300;
+          document.querySelector('#mobileNav [data-pane="steps"]').click(); await wait(100);
+          const steps = shown($('panel')) && !shown($('stage'));
+          await window.Tour.practice('figure'); await wait(400);
+          const card = $('tourCard').getBoundingClientRect();
+          const lesson = document.body.dataset.pane === 'image' && $('tourTitle').textContent === 'Working image and original' && card.bottom <= nav.top + 1 && card.top > 0;
+          return { first, narrow, image, steps, lesson };
+        });
+        Object.values(r).every(Boolean) ? pass('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs')
+          : fail('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs', JSON.stringify(r));
+      } catch (e) { fail('phone layout', e.message.split('\n')[0]); }
+      finally { await mctx.close(); }
     }
     // a first visit: nothing starts by itself; "Practice with an example" opens the example and its lesson
     {

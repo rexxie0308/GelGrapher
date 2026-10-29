@@ -16,7 +16,7 @@
     $('modeBanner').classList.toggle('hidden', !m);
     $('modeText').textContent = m === 'arrow' ? 'Click the target band (on either image); it snaps to the band and estimates the size'
       : m === 'group' ? 'Drag from the first to the last lane name on the figure; release to create the group line'
-      : m === 'strip' ? 'On the image, drag down across the region to show (include the marker ticks); release to add the strip'
+      : m === 'strip' ? 'On the image, drag down across the region to show (include the ladder ticks); release to add the strip'
       : m === 'quant' ? 'Click a band on the image (the box fits itself), or drag across it'
       : m === 'lane' ? 'Click on the image where the missing lane runs (the blue line follows the pointer). Shift+click adds several; Esc ends' : '';
     $('btnAddArrow').classList.toggle('on', m === 'arrow');
@@ -147,7 +147,7 @@
     if (info) {
       const v = `<b>${info.extrap || info.disagree ? '≈' : ''}${App.fmtSize(est)}</b>`;
       estHtml = `Estimated from marker: ${v} (${App.fmtExact(est)})`;
-      if (info.extrap) estHtml += '<br><span class="warn-t">' + 'Outside the marker range: extrapolated, shown with ≈' + '</span>';
+      if (info.extrap) estHtml += '<br><span class="warn-t">' + 'Outside the ladder range: extrapolated, shown with ≈' + '</span>';
       if (info.perMarker.length > 1) estHtml += '<br>' + info.perMarker.map(p => `well ${p.lane + 1}: ` + App.fmtSize(p.bp) + (p.extrap ? ' (extrapolated)' : '')).join('; ')
         + (info.disagree ? ' <span class="warn-t">' + 'differ by &gt;10%' + '</span>' : '');
     }
@@ -178,7 +178,7 @@
       // bilateral: a typed size moves the arrow to where the markers put that size (the magenta line on the image follows)
       if (a.sizeText && App.arrowToSize(k, a.sizeText)) {
         const i2 = App.estimateInfo(a.y, a.x);
-        pop.querySelector('.est').innerHTML = i2 ? `Moved to ${App.fmtSize(i2.bp)} on the marker scale${i2.extrap ? ' <span class="warn-t">(outside the marker range)</span>' : ''}` : estHtml;
+        pop.querySelector('.est').innerHTML = i2 ? `Moved to ${App.fmtSize(i2.bp)} on the ladder scale${i2.extrap ? ' <span class="warn-t">(outside the ladder range)</span>' : ''}` : estHtml;
       }
       upd();
     });

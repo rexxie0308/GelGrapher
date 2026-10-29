@@ -123,7 +123,7 @@
     const g = G.Demo.makeGel({ preset: kind, clean: !!(opts && opts.clean) });
     await App.load({ name: EXAMPLE_NAMES[kind], buffer: G.Demo.encodeTiff16(g) }, g.truth.gelType);
     if (!S()) return;
-    App.isExample = kind;
+    App.isExample = kind; App.saveDraft();   // says "Example: not saved" at once, not "Saving…"
     const st = S(), fl = figLanes();
     if (kind === 'dna') {
       const names = ['M', 'WT', 'WT', 'KO-1', 'NTC', '*lacZ*-1', '*lacZ*-2', 'pUC19', 'pUC19', 'Clone A', 'Clone B'];
@@ -258,7 +258,10 @@
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
   }
-  menu('btnTplMenu', 'tplMenu');
+  menu('btnTplMenu', 'tplMenu'); menu('btnMore', 'moreMenu');
+  // the More menu holds what a narrow window leaves out of the top bar
+  $('mLessons').onclick = () => G.Tour.menu(); $('mLibrary').onclick = () => $('btnLibrary').click();
+  $('mHelp').onclick = () => $('btnHelp').click(); $('mPrint').onclick = () => $('btnPrint').click();
   document.addEventListener('click', () => document.querySelectorAll('.menu').forEach(x => x.classList.add('hidden')));
   window.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
@@ -269,7 +272,8 @@
     if (e.key === 'Escape') { $('helpDlg').classList.add('hidden'); $('libDlg').classList.add('hidden'); $('exportDlg').classList.add('hidden'); }
   });
   const baseName = () => (S() ? S().file.name.replace(/\.[^.]+$/, '') : 'gel');
-  $('dpiTop').addEventListener('change', done(e => { S().style.dpi = +e.target.value; }));
+  // the resolution is set in the top bar and in the export window (the top bar's is hidden on a phone)
+  ['dpiTop', 'dpiExp'].forEach(id => $(id).addEventListener('change', done(e => { S().style.dpi = +e.target.value; })));
   const needImage = () => { if (S()) return false; toast('Open a gel image first'); return true; };
 
   /* ---------- export (with pre-flight) ---------- */
@@ -326,8 +330,13 @@
     if (needImage()) return;
     const has = !!(S().quant.rows.length && G.QuantUI && G.QuantUI.chart());
     $('expChartCard').classList.toggle('off', !has); $('btnExpChart').disabled = !has; $('qChartFmt').disabled = !has;
-    $('expDpiNote').textContent = `Raster exports at ${S().style.dpi} dpi (the resolution menu in the top bar)`;
+    $('dpiExp').value = String(S().style.dpi);
+    const eff = Math.round(App.effectiveDpi());
+    $('expDpiNote').textContent = eff < S().style.dpi ? `the gel itself is ${eff} dpi` : '';
+    // one filled button: the action of the card the window was opened for (the figure's, or the results package once there are band boxes)
+    const main = card || (S().quant.rows.length ? 'package' : 'figure');
     document.querySelectorAll('#exportDlg .exp-card').forEach(c => c.classList.toggle('focus', c.dataset.card === card));
+    [['figure', 'btnPNGItem'], ['package', 'btnPNG'], ['archive', 'btnArchive'], ['chart', 'btnExpChart']].forEach(([k, id]) => $(id).classList.toggle('primary', k === main));
     $('exportDlg').classList.remove('hidden');
   }
   const closeExport = () => $('exportDlg').classList.add('hidden');
@@ -428,6 +437,7 @@
   });
   // close: back to the start screen (the library, or the empty workspace)
   async function closeWorkspace() {
+    document.body.classList.remove('has-gel'); showPane('steps'); $('overlayKey').classList.add('hidden');
     $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden'); $('viewSeg').classList.add('hidden');
     $('imgChipName').textContent = 'Open image'; $('coachText').textContent = 'Drop a gel image into the window to start';
     $('preview').innerHTML = ''; showWarnings([]); dismissed.clear();
@@ -659,7 +669,7 @@
   }
   // cutting a marker lane removes the size reference: always ask. Resolves true when changed.
   async function toggleLaneHidden(i, hidden) {
-    if (hidden && isMarkerLane(i) && !(await confirmDlg(`Well ${i + 1} is a marker lane; removing it leaves the figure without a size reference.`, 'Remove', true))) return false;
+    if (hidden && isMarkerLane(i) && !(await confirmDlg(`Well ${i + 1} is a ladder lane; removing it leaves the figure without a size reference.`, 'Remove', true))) return false;
     App.setLaneHidden(i, hidden, 'manual');
     return true;
   }
@@ -695,7 +705,7 @@
   $('btnAutoMarkers').onclick = done(() => {
     App.autoMarkers();
     const n = S().markers.length;
-    toast(n ? `Found ${n} marker lane${n > 1 ? 's' : ''}` : 'No clear marker lane in the figure range');
+    toast(n ? `Found ${n} ladder lane${n > 1 ? 's' : ''}` : 'No clear ladder lane in the figure range');
   });
   $('btnAddMarker').onclick = done(() => {
     const used = new Set(S().markers.map(m => m.lane));
@@ -712,7 +722,7 @@
   $('markerInput').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
     if (!f || !S()) return;
-    App.busy(true, 'Reading the marker image…');
+    App.busy(true, 'Reading the ladder image…');
     await new Promise(r => setTimeout(r, 30));
     try {
       const input = await App.readInput(f);
@@ -722,11 +732,11 @@
       if (!S().markers.length && prev.length) { S().markers = prev.map(m => App.newMarker(m.lane, m.ladderId)); App.matchMarkers(true); }
       App.commit();
       const n = S().markers.length;
-      toast(n ? `Found ${n} marker lane${n > 1 ? 's' : ''} on the marker image`
-        : 'No clear ladder lane on the marker image; add the marker lane in step 3', 4200);
+      toast(n ? `Found ${n} ladder lane${n > 1 ? 's' : ''} on the ladder image`
+        : 'No clear ladder lane on the ladder image; add the ladder lane under Size ladder', 4200);
     } catch (err) { alertDlg(err.message); } finally { App.busy(false); }
   });
-  $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Marker image removed; marker bands are read from the blot itself again'); });
+  $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Ladder image removed; the ladder bands are read from the blot itself again'); });
   $('mkOverlay').addEventListener('change', () => G.Editor.draw());
   // the Original view: the file as decoded, to compare with the working image
   $('btnOrig').onclick = () => { if (needImage()) return; const on = !G.Editor.original(); G.Editor.setOriginal(on); $('btnOrig').classList.toggle('on', on); $('btnOrig').setAttribute('aria-pressed', String(on)); $('btnOrig').textContent = on ? 'Back to working image' : 'Original'; };
@@ -760,7 +770,7 @@
     $('customList').innerHTML = custom.map(l => `<div class="item"><span style="flex:1">${esc(l.name)} <span class="h3-note">${`${l.sizes.length} bands`}</span></span><button class="x" data-cdel="${l.id}" title="${'Delete'}">×</button></div>`).join('');
     $('customList').querySelectorAll('[data-cdel]').forEach(b => b.onclick = async () => {
       const used = S() && S().markers.some(m => m.ladderId === b.dataset.cdel);
-      if (used) { toast('This ladder is in use; choose another ladder for the marker first'); return; }
+      if (used) { toast('This ladder is in use; choose another ladder for the ladder lane first'); return; }
       if (!(await confirmDlg('Delete this custom ladder?', 'Delete', true))) return;
       G.Ladders.removeCustom(b.dataset.cdel); renderFavs(); if (S()) renderMarkers();
     });
@@ -809,8 +819,8 @@
         </details>
       </div>`;
     }).join('') || `<p class="hint">${App.gelType().western
-      ? 'No marker in the figure range. If the ladder does not show on the chemiluminescence image, load the white-light marker image below, or mark a lane as the marker and drag its yellow lines onto the bands.'
-      : 'No marker in the figure range. Use the button below to mark a lane as the marker.'}</p>`;
+      ? 'No size ladder in the lanes shown. If the ladder does not show on the chemiluminescence image, load the white-light ladder image below, or mark a lane as the ladder and drag its yellow lines onto the bands.'
+      : 'No size ladder in the lanes shown. Use the button below to mark a lane as the ladder.'}</p>`;
     $('markerList').querySelectorAll('.mk-card').forEach(card => {
       const m = st.markers[+card.dataset.mi], q = f => card.querySelector(`[data-f="${f}"]`);
       q('side').value = m.side; q('unit').value = m.unit;
@@ -966,7 +976,7 @@
       + (App.acq && App.acq.colour ? ' · colour' : ''), imgReview ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
     $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.geom ? ' · geometry' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
-    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
+    set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `lanes ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     const unconf = visMk.filter(m => !m.confirmed);
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : unconf.length ? 'detected · not confirmed' : 'confirmed') : 'none', lowMk.length || unconf.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
@@ -978,13 +988,13 @@
     if (firstTodo >= 0 && secs[firstTodo]) secs[firstTodo].classList.add('todo');
     // coach: the single most useful next step
     let msg, ok = false;
-    if (!r) msg = 'Drag the red box on the image, or choose wells under "Lanes in figure"';
+    if (!r) msg = 'Drag the red box on the image, or choose the lanes shown under Lanes';
     else if (named < fl.length) msg = `Next: <b>click a grey lane number</b> on the figure and type its name; Enter moves on (${fl.length - named} to go)`;
     else if (!visMk.length) msg = App.gelType().western
-      ? 'No marker in the figure: add the marker lane in step 3, or load the white-light marker image'
-      : 'No marker in the figure: add the marker lane in step 3 on the left';
-    else if (lowMk.length) msg = `The marker in well ${lowMk[0].lane + 1}: <b>check the ladder and its band assignments</b> (step 3)`;
-    else if (unconf.length) msg = `Step 3: <b>confirm the ladder</b> you loaded (${esc(G.Ladders.get(unconf[0].ladderId) ? G.Ladders.get(unconf[0].ladderId).name.replace(/\s*\([^()]*\)\s*$/, '') : 'unknown')}), or pick the right one`;
+      ? 'No size ladder in the figure: add the ladder lane under Size ladder, or load the white-light ladder image'
+      : 'No size ladder in the figure: add the ladder lane under Size ladder on the left';
+    else if (lowMk.length) msg = `The ladder in well ${lowMk[0].lane + 1}: <b>check the ladder and its band assignments</b> (Size ladder)`;
+    else if (unconf.length) msg = `Size ladder: <b>confirm the ladder</b> you loaded (${esc(G.Ladders.get(unconf[0].ladderId) ? G.Ladders.get(unconf[0].ladderId).name.replace(/\s*\([^()]*\)\s*$/, '') : 'unknown')}), or pick the right one`;
     else if (App.isExample) { msg = 'This is a synthetic example — <b>drop your own image</b> to start'; ok = true; }
     else { msg = 'Ready — <b>Export…</b> at the top right: the figure, a results package or a complete archive'; ok = true; }
     $('coachText').innerHTML = msg;
@@ -1022,14 +1032,16 @@
     syncTypeHints();
     const hasMk = App.hasMarkerImage();
     $('btnMarkerImgDel').classList.toggle('hidden', !hasMk); $('mkOverlayWrap').classList.toggle('hidden', !hasMk);
-    $('btnMarkerImg').textContent = hasMk ? 'Replace marker image…' : 'Load marker image…';
-    $('mkImageText').textContent = hasMk ? `Marker bands are read from: ${st.markerImage.name}. ${App.alignText(App.markerAlign, 'blot and marker images')} It goes through the same rotation and geometry correction as the blot.`
-      : 'Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.';
+    $('btnMarkerImg').textContent = hasMk ? 'Replace ladder image…' : 'Load ladder image…';
+    $('mkImageText').textContent = hasMk ? `Ladder bands are read from: ${st.markerImage.name}. ${App.alignText(App.markerAlign, 'blot and ladder images')} It goes through the same rotation and geometry correction as the blot.`
+      : 'Ladder not on the blot image? Load the white-light image of the membrane.';
     $('mkImageText').classList.toggle('warn-t', hasMk && App.markerAligned() === false);
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
     updateClipLine(); updateDpiLine(); updateEmptyBar();
     $('workNote').textContent = App.workingText(); $('workNote').title = App.workingText();
+    // where the note has no room (narrow windows), the Original button says it
+    if (!G.Editor.original()) $('btnOrig').title = App.workingText() + ' Original shows the file as decoded, without flip, rotation, geometry correction or overlays.';
     $('gamma').value = st.levels.gamma; $('gammaUnlock').checked = st.levels.gamma !== 1; $('gamma').disabled = st.levels.gamma === 1 && !$('gammaUnlock').checked;
     $('autoWidth').checked = !!y.autoWidth; $('gelW').value = App.gelWidthMm(); $('gelW').disabled = !!y.autoWidth;
     $('fontPt').value = y.fontPt; $('lineW').value = y.lineWidthPt; $('groupFit').value = y.groupFit || 'wrap'; $('font').value = G.Render.fontName(y.font);
@@ -1038,7 +1050,7 @@
     $('labelAngleNum').value = la === 'auto' ? '' : la; $('labelAngleNum').disabled = la === 'auto';
     ['unitHeader', 'laneNumbers', 'frame', 'groupTicks', 'groupSplit'].forEach(id => { $(id).checked = !!y[id]; });
     $('spliceStyle').value = y.spliceStyle; $('panelLetter').value = y.panelLetter || '';
-    $('dpiTop').value = String(y.dpi);
+    $('dpiTop').value = String(y.dpi); $('dpiExp').value = String(y.dpi);
     $('stLayout').textContent = `${App.gelWidthMm()} mm · ${y.fontPt} pt`;
     $('imgChipName').textContent = App.isExample ? 'Example: ' + App.gelType().name() : st.file.name;
     $('imgChip').title = `${App.src.w} × ${App.src.h} px · ${st.file.bits}-bit${st.file.dpi ? ' · ' + Math.round(st.file.dpi) + ' dpi' : ''}` + ' (click to replace)';
@@ -1089,7 +1101,8 @@
     lastFig = f;
     $('preview').innerHTML = f.svg;
     const svg = $('preview').querySelector('svg'), box = $('previewBox').getBoundingClientRect();
-    const k = Math.max(0.5, Math.min((box.width - 48) / f.w, (box.height - 48) / f.h, 4));
+    // fitted to the window, or at its printed size (1 pt = 1/72 in, a CSS pixel 1/96 in; approximate on a real screen)
+    const k = actualSize ? 96 / 72 : Math.max(0.5, Math.min((box.width - 48) / f.w, (box.height - 48) / f.h, 4));
     svg.removeAttribute('width'); svg.removeAttribute('height');
     svg.style.width = (f.w * k) + 'px'; svg.style.height = (f.h * k) + 'px';
     $('figSize').textContent = `${(f.w / G.Render.MM).toFixed(1)} × ${(f.h / G.Render.MM).toFixed(1)} mm`;
@@ -1106,19 +1119,76 @@
 
   function renderPanel() { renderRows(); renderLanes(); renderMarkers(); renderAnno(); }
 
+  /* ---------- steps 1 to 4 fold to their heading and its one-line summary; a gel opens with its finished steps folded ---------- */
+  const foldSecs = () => [...document.querySelectorAll('#sections > .sec')].slice(0, 4);
+  function setFold(sec, closed) { sec.classList.toggle('collapsed', !!closed); sec.querySelector('.sec-head').setAttribute('aria-expanded', String(!closed)); }
+  foldSecs().forEach(sec => {
+    const h = sec.querySelector('.sec-head');
+    sec.classList.add('foldable');
+    h.insertAdjacentHTML('afterbegin', '<span class="sec-chev" aria-hidden="true">▾</span>');
+    h.setAttribute('role', 'button'); h.tabIndex = 0; h.setAttribute('aria-expanded', 'true');
+    h.title = 'Fold or unfold this step';
+    h.addEventListener('click', e => { if (!e.target.closest('a, button, input, select, label')) setFold(sec, !sec.classList.contains('collapsed')); });
+    h.addEventListener('keydown', e => { if (e.target === h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setFold(sec, !sec.classList.contains('collapsed')); } });
+  });
+  const foldDone = () => foldSecs().forEach(sec => setFold(sec, sec.classList.contains('done')));
+  // a control that is asked for (a lesson, a notice) opens its step
+  const unfold = el => { const sec = el && el.closest('.sec.collapsed'); if (sec) setFold(sec, false); };
+
+  /* ---------- the key to the lines on the image (only what is drawn now) ---------- */
+  function updateKey() {
+    const st = S(), k = $('overlayKey');
+    k.classList.toggle('hidden', !st || G.Editor.original());
+    if (!st) return;
+    const kc = App.prefs().okeyClosed, closed = kc == null ? phone() : !!kc;   // folded by default on a phone, where it covers more
+    k.classList.toggle('closed', closed); $('okeyToggle').setAttribute('aria-expanded', String(!closed));
+    const q = G.QuantUI.layer() === 'quant', ga = st.quant.region, c = st.crop;
+    const on = { crop: true, lane: true, ladder: st.markers.length > 0, hidden: st.lanes.some(l => l.hidden), strip: st.strips.length > 0, box: st.quant.rows.length > 0,
+      area: q && !!ga && st.quant.rows.length > 0 && (ga.x !== c.x || ga.y !== c.y || ga.w !== c.w || ga.h !== c.h), arrow: st.arrows.length > 0 };
+    k.querySelectorAll('li').forEach(li => li.classList.toggle('off', !on[li.dataset.k]));
+  }
+  $('editSeg').addEventListener('click', () => setTimeout(updateKey, 0));
+  $('okeyToggle').onclick = () => { App.setPref('okeyClosed', !$('overlayKey').classList.contains('closed')); updateKey(); };
+  $('btnOrig').addEventListener('click', () => setTimeout(updateKey, 0));
+
+  /* ---------- the figure at its printed size ---------- */
+  let actualSize = false;
+  $('btnActual').onclick = () => {
+    actualSize = !actualSize; $('btnActual').setAttribute('aria-pressed', String(actualSize));
+    $('figSub').textContent = actualSize ? 'At printed size (approximate on screen)' : 'Click any text to edit it';
+    if (S()) updatePreview();
+  };
+
+  /* ---------- phones: one workspace at a time, switched with the bar at the bottom ---------- */
+  const phone = () => window.matchMedia('(max-width: 860px)').matches;
+  function showPane(p) {
+    document.body.dataset.pane = p;
+    document.querySelectorAll('#mobileNav button').forEach(b => b.classList.toggle('on', b.dataset.pane === p));
+    // the canvas and the figure fit their new room; the image is fitted to the figure area, the analysis drawn again
+    if (phone()) requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'));
+      if (S() && p === 'image') { G.Editor.resize(); G.Editor.fitCrop(); }
+      // the bar decides what a phone shows: the window it switches to counts as open (its content is drawn)
+      if (S() && (p === 'analysis' || p === 'figure') && G.QuantUI) { const w = p === 'analysis' ? 'quant' : 'figure'; if (G.QuantUI.isShown(w)) G.QuantUI.render(); else G.QuantUI.show(w, true); }
+    });
+  }
+  document.querySelectorAll('#mobileNav button').forEach(b => { b.onclick = () => showPane(b.dataset.pane); });
+  showPane('steps');
+
   App.on(what => {
     if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { document.body.classList.add('has-gel'); if (phone()) showPane('figure'); $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
-    syncControls(); renderPanel(); updateStatus(); updatePreview();
+    syncControls(); renderPanel(); updateStatus(); updatePreview(); updateKey();
+    if (what === 'loaded') foldDone();
   });
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage, openExport });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage, openExport, unfold, showPane, phone, foldDone });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

@@ -227,7 +227,7 @@
     const T = G.Quant.bandSizes(App);
     lastSizes = T;
     const rows = T.map(l => `<tr><td>${esc(l.name.replace(/\*/g, ''))}</td><td>${l.marker ? `<span class="muted">${'marker'}</span>`
-      : l.bands.length ? l.bands.map(b => `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'outside the marker range (extrapolated)' : ''}">${b.extrap ? '≈' : ''}${b.size ? App.fmtSize(b.size) : '?'}</span>`).join(', ')
+      : l.bands.length ? l.bands.map(b => `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'outside the ladder range (extrapolated)' : ''}">${b.extrap ? '≈' : ''}${b.size ? App.fmtSize(b.size) : '?'}</span>`).join(', ')
       : `<span class="muted">${'no bands'}</span>`}</td></tr>`).join('');
     const kind = App.kind(), lads = S().markers.map(m => m.ladderId);
     const qual = [kind === 'native' ? 'Native gel: these are apparent sizes; mobility depends on shape and charge as well as mass.' : '',
@@ -236,7 +236,7 @@
       S().markers.length >= 2 ? 'Each lane is sized between the ladder lanes on either side of it.' : '',
       S().markers.some(m => !m.confirmed) ? 'The ladder is not confirmed yet (step 3).' : ''].filter(Boolean);
     $('sizeTable').innerHTML = S().markers.length ? `<div class="tscroll"><table><thead><tr><th>${'Lane'}</th><th>${kind === 'native' ? 'Apparent molecular weight' : G.Gels.sizeNoun(kind)}</th></tr></thead><tbody>${rows}</tbody></table></div>` + (qual.length ? `<p class="hint">${qual.join(' ')}</p>` : '')
-      : `<p class="hint">${'A marker lane is needed to estimate sizes.'}</p>`;
+      : `<p class="hint">${'A ladder lane is needed to estimate sizes.'}</p>`;
   }
 
   /* ---------- lane profile ---------- */

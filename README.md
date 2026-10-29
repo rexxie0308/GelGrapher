@@ -71,7 +71,7 @@ Added in GelGrapher:
 - **Flip** a gel imaged with the wells at the bottom or mirrored; annotations follow and the change is recorded.
 - **Several rows of wells** on one gel (two combs): each row gets its own crop, lanes and ladder; switch rows under *Lanes in figure*, with every row's names and annotations kept.
 - **Claude artifact**: install it in Claude, export through Claude's save prompt, and draft the figure legend and methods text with Claude.
-- **Worked examples** (synthetic DNA gel, Coomassie SDS-PAGE, Western blot), dark theme, phone layout, touch and pen input with pinch zoom.
+- **Worked examples** (synthetic DNA gel, Coomassie SDS-PAGE, Western blot), dark theme, a phone layout with one workspace at a time (Steps, Image, Figure, Analysis), touch and pen input with pinch zoom.
 
 ## Quick start
 

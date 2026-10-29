@@ -70,7 +70,7 @@
    * functions of the state, so the spotlight moves from the button to the figure within one card. `panel`
    * opens the folds around the target and scrolls it into view when it is not fully visible; `up` climbs
    * from the target to its label; `top` scrolls the panel to its top. `watch` = areas kept lit; the card keeps
-   * off them and off `avoid`. `text` and `why` may be functions (worded for the experiment); `when` leaves a
+   * off them and off `avoid`. `pane` names the workspace a target drawn by `rect` is in, for a phone. `text` and `why` may be functions (worded for the experiment); `when` leaves a
    * card out. `prepare` strips an example back to what detection found, for the lesson's practice. */
   const LESSONS = [
     { id: 'figure', goal: 'figure', title: 'Your first figure', desc: 'Compare with the original, check the lanes and the ladder, name a lane, read the notices, export.',
@@ -96,7 +96,7 @@
             why: 'Until it is confirmed, the legend and the log say the ladder was identified from the band pattern. "Check ladder and band assignments" on the card means few ladder bands sit on peaks: choose the product you loaded in the list, or drag a misplaced yellow line and the others re-fit.',
             done: () => S().markers.some(m => m.confirmed) }] },
         { title: 'Name a lane', parts: [
-          { rect: () => firstUnnamed() && rectOf(firstUnnamed()), watch: '#previewBox', text: 'Click a grey lane number on the figure, type a name (for example WT) and press Enter: the next lane opens for typing. Name one lane; Escape stops.',
+          { pane: 'figure', rect: () => firstUnnamed() && rectOf(firstUnnamed()), watch: '#previewBox', text: 'Click a grey lane number on the figure, type a name (for example WT) and press Enter: the next lane opens for typing. Name one lane; Escape stops.',
             why: 'Names are typed on the figure, so you see them in place. A row of names copied from a spreadsheet can also be pasted into the box under the lane list.',
             enter: () => named(), done: b => named() > b }] },
         { title: 'Read the notices', warnings: true, parts: [
@@ -113,21 +113,21 @@
       end: 'Every label is listed under Annotations, where it can be edited or removed; on the figure, click a label to change its text.',
       steps: [
         { title: 'Group line', parts: [
-          { el: () => (App.mode === 'group' ? null : '#btnAddGroup'), rect: () => (App.mode === 'group' ? laneLabels() : null), panel: true, watch: () => (App.mode === 'group' ? '#previewBox' : [ANNO, '#previewBox']),
+          { pane: 'figure', el: () => (App.mode === 'group' ? null : '#btnAddGroup'), rect: () => (App.mode === 'group' ? laneLabels() : null), panel: true, watch: () => (App.mode === 'group' ? '#previewBox' : [ANNO, '#previewBox']),
             text: 'Click [Group line], then on the figure press on one lane name, drag to another and release. Type a label (for example EcoRI) and press Enter.',
             why: 'A group line brackets lanes that share a treatment or a genotype. It belongs to the lanes, so it follows them when lanes are hidden or reordered.',
             enter: () => S().groups.length, done: b => S().groups.length > b && !!lastText(S().groups) }] },
         { title: 'Target band arrow', parts: [
-          { el: () => (App.mode === 'arrow' ? null : '#btnAddArrow'), rect: () => (App.mode === 'arrow' && gelImage() ? rectOf(gelImage()) : null), panel: true, watch: () => (App.mode === 'arrow' ? '#previewBox' : [ANNO, '#previewBox']),
+          { pane: 'figure', el: () => (App.mode === 'arrow' ? null : '#btnAddArrow'), rect: () => (App.mode === 'arrow' && gelImage() ? rectOf(gelImage()) : null), panel: true, watch: () => (App.mode === 'arrow' ? '#previewBox' : [ANNO, '#previewBox']),
             text: 'Click [Target band], then click a band on the figure (a dashed line shows where the arrow goes). Type a name, leave [Show size] ticked and click [Done].',
             why: 'The size is read from the ladder at that height, interpolated between ladder lanes when there are several. A size outside the ladder\'s calibrated range is marked ≈.',
             enter: () => S().arrows.length, done: b => S().arrows.length > b }] },
         { title: 'Condition row', parts: [
-          { el: () => (S().conditions.length > condBase ? null : '#btnAddCond'), rect: () => (S().conditions.length > condBase ? condCells() : null), panel: true, watch: () => (S().conditions.length > condBase ? '#previewBox' : [ANNO, '#previewBox']),
+          { pane: 'figure', el: () => (S().conditions.length > condBase ? null : '#btnAddCond'), rect: () => (S().conditions.length > condBase ? condCells() : null), panel: true, watch: () => (S().conditions.length > condBase ? '#previewBox' : [ANNO, '#previewBox']),
             text: 'Click [Condition row]: a row of cells appears under the lane names. Click a cell once for +, again for −, a third time to clear it. Fill two cells.',
             why: 'A + / − row says per lane whether a treatment or probe was present, which reads faster than repeating it in every lane name.',
             enter: () => { condBase = S().conditions.length; return condBase; }, done: b => S().conditions.length > b && condVals() >= 2 },
-          { rect: () => condName(), watch: '#previewBox', text: 'Click the row\'s label at its left end, type what the row stands for (for example EcoRI) and press Enter.',
+          { pane: 'figure', rect: () => condName(), watch: '#previewBox', text: 'Click the row\'s label at its left end, type what the row stands for (for example EcoRI) and press Enter.',
             done: () => S().conditions.length > 0 && !!S().conditions[lastCond()].name }] }
       ] },
     { id: 'strips', goal: 'figure', title: 'Strips', desc: () => (nucleic() ? 'Show only chosen regions of the gel, stacked.' : 'The target and the loading control as thin panels from one blot.'),
@@ -137,7 +137,7 @@
         : 'On your own blot, give each strip the protein name; the legend notes say the panels come from one image and the uncropped image shows what was omitted.'),
       steps: [
         { title: 'Add a strip', parts: [
-          { el: () => (App.mode === 'strip' ? null : '#btnAddStrip'), rect: () => (App.mode === 'strip' ? cropRect() : null), panel: true, watch: () => (App.mode === 'strip' ? ['#editorBox', '#figCol'] : [ANNO, '#editorBox']), avoid: '#editorBox',
+          { pane: 'image', el: () => (App.mode === 'strip' ? null : '#btnAddStrip'), rect: () => (App.mode === 'strip' ? cropRect() : null), panel: true, watch: () => (App.mode === 'strip' ? ['#editorBox', '#figCol'] : [ANNO, '#editorBox']), avoid: '#editorBox',
             text: () => (nucleic()
               ? 'Click [Strip], then on the image drag from a little above a band row to a little below it. The figure shows only that region; press Enter to leave its name empty.'
               : 'Click [Strip], then on the image drag from a little above the target band to a little below it. The figure shows only that region; type the protein and press Enter.'),
@@ -145,7 +145,7 @@
               : 'Western figures usually show the target and the loading control as thin panels from the same membrane, one strip each, so the figure stays compact.'),
             enter: () => S().strips.length, done: b => S().strips.length > b }] },
         { title: () => (nucleic() ? 'Remove the strip' : 'A second strip'), parts: [
-          { el: () => (nucleic() ? '#annoList [data-stdel]' : App.mode === 'strip' ? null : '#btnAddStrip'), rect: () => (!nucleic() && App.mode === 'strip' ? cropRect() : null), panel: true,
+          { pane: 'image', el: () => (nucleic() ? '#annoList [data-stdel]' : App.mode === 'strip' ? null : '#btnAddStrip'), rect: () => (!nucleic() && App.mode === 'strip' ? cropRect() : null), panel: true,
             watch: () => (nucleic() ? [ANNO, '#figCol'] : App.mode === 'strip' ? ['#editorBox', '#figCol'] : [ANNO, '#editorBox']), avoid: () => (nucleic() ? null : '#editorBox'),
             alt: () => (nucleic() ? 'Skip' : 'Not applicable'),
             text: () => (nucleic() ? 'Every strip is listed under Annotations. This gel is better shown whole: click [×] next to the strip to remove it.'
@@ -179,7 +179,7 @@
       end: 'The figure area, the lanes shown and the analysis are independent: changing what the figure shows never changes a measurement.',
       steps: [
         { title: 'The figure area', parts: [
-          { rect: cropHandle, watch: ['#editorBox', '#figCol'], avoid: '#editorBox', text: 'Only what is inside the red box becomes the figure. Drag the outlined handle on its bottom edge up a little and watch the figure.',
+          { pane: 'image', rect: cropHandle, watch: ['#editorBox', '#figCol'], avoid: '#editorBox', text: 'Only what is inside the red box becomes the figure. Drag the outlined handle on its bottom edge up a little and watch the figure.',
             why: 'The box\'s sides snap to the gaps between lanes (hold Alt to move freely). It sets the figure only; the analysis area is set apart in the Densitometry step.',
             enter: () => JSON.stringify(S().crop), done: b => JSON.stringify(S().crop) !== b }] },
         { title: 'Space lanes evenly', parts: [
@@ -201,19 +201,19 @@
             text: 'Values mean something only when the bands are within the detector\'s range. The line above reads the file for clipped or piled-up pixels. Tick [Show saturated pixels] to mark them on the image.',
             why: 'A file cannot show saturation that the imager clipped before saving: check the imager\'s own saturation display too, and take a shorter exposure when a band of interest is saturated. Contrast settings never change the measured values.',
             done: () => $('showSat').checked }] },
-        { title: 'Marker image', when: western, parts: [
+        { title: 'Ladder image', when: western, parts: [
           { el: '#mkImageBox', panel: true, watch: '#editorBox', alt: 'Not applicable',
-            text: 'If the ladder was imaged separately (white light), click [Load marker image…]. It is rotated and corrected with the blot and aligned to it; slide the opacity to check that the membrane edges coincide. No separate image: click [Not applicable].',
+            text: 'If the ladder was imaged separately (white light), click [Load ladder image…]. It is rotated and corrected with the blot and aligned to it; slide the opacity to check that the membrane edges coincide. No separate image: click [Not applicable].',
             why: 'Sizes read from a misaligned marker image are off by the same shift. The alignment found is shown here and written to the log.',
             done: () => App.hasMarkerImage() }] },
         { title: 'Box the band', parts: [
-          { el: () => (App.mode === 'quant' ? null : '#btnAddBox'), rect: () => (App.mode === 'quant' ? cropRect() : null), panel: true, watch: () => (App.mode === 'quant' ? ['#editorBox', '#figCol'] : ['#quantSec', '#editorBox']), avoid: '#editorBox',
+          { pane: 'image', el: () => (App.mode === 'quant' ? null : '#btnAddBox'), rect: () => (App.mode === 'quant' ? cropRect() : null), panel: true, watch: () => (App.mode === 'quant' ? ['#editorBox', '#figCol'] : ['#quantSec', '#editorBox']), avoid: '#editorBox',
             text: () => `Click [+ Band box], then click the ${western() ? 'target band' : 'band to measure'} on the image (or drag from just above it to just below). The box is measured in every lane of the analysis area; the results open under the figure.`,
             why: 'A box stands for one band row: every lane is read inside it, at the same height, from the original pixels.',
             enter: () => S().quant.rows.length, done: b => S().quant.rows.length > b, after: () => { G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); } }] },
         { title: 'Lanes measured', parts: [
           { el: '#qAreaBox', panel: true, watch: '#editorBox', alt: 'Already correct',
-            text: 'The dashed rectangle on the image is the analysis area: its lanes are measured, whatever the figure shows. Untick a lane under Lanes measured to leave it out (a torn or empty lane), or click [Already correct].',
+            text: 'The lanes of the analysis area are measured, whatever the figure shows (the area is the red box when the first band box was drawn, and is drawn dashed green once they differ). Untick a lane under Lanes measured to leave it out (a torn or empty lane), or click [Already correct].',
             why: 'Hiding a lane in the figure never removes it from the analysis, and the other way round, so a figure choice cannot change a number.',
             enter: () => S().lanes.map(l => (l.noMeasure ? 1 : 0)).join(''), done: b => S().lanes.map(l => (l.noMeasure ? 1 : 0)).join('') !== b }] },
         { title: 'Background and profile', parts: [
@@ -247,7 +247,7 @@
     { el: '#editorBox', title: 'Image editor', text: 'The working image with what was detected: red box = the figure area, blue = lanes, yellow = ladder bands, green = band boxes. Drag to correct; the switch above says whether a drag edits the figure or the measurement. Original shows the file as it was opened.' },
     { el: '#sections .sec:nth-of-type(2)', title: '2 · Lanes', text: 'The wells shown in the figure, and one row per lane: its name, its role (sample, negative control, ladder), and whether it is in the figure and in the analysis.', panel: true },
     { el: '#figCol', title: 'Figure', text: 'The finished figure. Click a grey lane number and type its name; Enter jumps to the next lane. Any label can be edited by clicking it. The analysis window opens under it once there are band boxes.' },
-    { el: '#sections .sec:nth-of-type(3)', title: '3 · Marker', text: 'The ladder was identified by its band pattern: the card says how many ladder bands sit on peaks and the size range they calibrate. Confirm the product you loaded; drag a misplaced yellow line on the image.', panel: true },
+    { el: '#sections .sec:nth-of-type(3)', title: '3 · Size ladder', text: 'The ladder was identified by its band pattern: the card says how many ladder bands sit on peaks and the size range they calibrate. Confirm the product you loaded; drag a misplaced yellow line on the image.', panel: true },
     { el: ANNO, title: '4 · Annotations', text: 'Group lines over lane names, arrows at target bands (sized from the ladder), + / − condition rows, and strips to show only parts of a blot.', panel: true },
     { el: '#quantSec', title: '6 · Densitometry', text: 'A band box per band row; every lane of the analysis area is measured from the original pixels, with its limits. Normalization is your choice, each with its assumption stated. The analysis window shows the profile, table, plot and band sizes.', panel: true },
     { el: '#btnExport', title: 'Export', text: 'The figure alone (PNG, TIFF, PDF, SVG, PowerPoint), a results package (figure, chart, values, log, methods), a complete archive (that plus the original image and the project file) or the chart. A pre-flight check lists problems first.' },
@@ -365,7 +365,7 @@
     document.body.classList.toggle('tut-warn', !hands() || !!s.warnings);
     // a target that changed with the state (the button, then the figure) is revealed like a new one
     const sel = val(p.el);
-    if (sel !== lastSel) { lastSel = sel; reveal(p); }
+    if (sel !== lastSel) { lastSel = sel; safe(() => bringOut(p)); reveal(p); }
     const sp = spot(), c = card(), pad = 6, vw = window.innerWidth, vh = window.innerHeight;
     const r = targetRect(p);
     // the ring marks a control; a whole area (a column, the panel) is shown by the dim alone
@@ -411,10 +411,23 @@
     base = p && p.enter ? safe(() => p.enter(), null) : null;
     place();
   }
+  // the workspace a part's target is in, on a phone where one is shown at a time: from the element, else the part's `pane`
+  function paneOf(p) {
+    const el = targetEl(p);
+    if (el) return el.closest('#panel') ? 'steps' : el.closest('#rawCol') ? 'image' : el.closest('#quantView') ? 'analysis' : el.closest('#figCol') ? 'figure' : null;
+    return val(p.pane) || null;
+  }
+  // a target in a folded step is unfolded, and on a phone its workspace shown, before it is looked for
+  function bringOut(p) {
+    if (p.panel && G.UI.unfold) G.UI.unfold(targetEl(p));
+    if (G.UI.phone && G.UI.phone()) { const pane = paneOf(p); if (pane && document.body.dataset.pane !== pane) G.UI.showPane(pane); }
+  }
   const partOk = (s, k) => {
     const p = s.parts ? s.parts[k] : s;
     if ((s.when && !safe(s.when, false)) || (p.when && !safe(p.when, false))) return false;
-    return !p.el && !p.rect ? true : !!targetRect(p, true);
+    if (!p.el && !p.rect) return true;
+    safe(() => bringOut(p));
+    return !!targetRect(p, true);
   };
   // forward: the next part of this card, else the next card; parts whose target is off screen are skipped
   function forward() {

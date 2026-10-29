@@ -499,7 +499,7 @@
       const ways = /Use my image/.test(es.textContent) && !!es.querySelector('[data-lesson="figure"]') && !!es.querySelector('[data-lesson="measure"]') && !!es.querySelector('#btnOverview');
       const idle = !G.Tour.active();
       const L = G.Tour.lessons(), short = L.length >= 6 && L.every(l => l.cards.length >= 2 && l.cards.length <= 8);
-      const order = L.find(l => l.id === 'measure').cards.join(' > ') === 'Acquisition and saturation > Marker image > Box the band > Lanes measured > Background and profile > Normalization > Read the values > Export results and provenance';
+      const order = L.find(l => l.id === 'measure').cards.join(' > ') === 'Acquisition and saturation > Ladder image > Box the band > Lanes measured > Background and profile > Normalization > Read the values > Export results and provenance';
       App.setPref('lessons', null);
       // the menu: lessons under two goals; an example is open, so it is the practice copy (no "Practise on" choice)
       G.Tour.menu();
@@ -559,7 +559,7 @@
       await G.Tour.practice('measure');
       log.push(await until('Acquisition and saturation·0'));
       const prepQuant = !App.S.quant.rows.length && App.S.quant.norm === 'none';
-      $('showSat').checked = true; $('showSat').dispatchEvent(new Event('change')); log.push(await act('Marker image·0'));
+      $('showSat').checked = true; $('showSat').dispatchEvent(new Event('change')); log.push(await act('Ladder image·0'));
       const naWords = $('tourAlt').textContent === 'Not applicable';
       $('showSat').checked = false; $('showSat').dispatchEvent(new Event('change'));
       $('tourAlt').click(); log.push(await until('Box the band·0'));
@@ -592,7 +592,7 @@
       G.Tour.next();
       const expect = ['Working image and original·0', 'Check the lanes·0', 'Check the ladder·0', 'Name a lane·0', 'Read the notices·0', 'Export the figure·0', 'Lesson done·0',
         'Group line·0', 'Target band arrow·0', 'Target band arrow·0',
-        'Acquisition and saturation·0', 'Marker image·0', 'Box the band·0', 'Lanes measured·0', 'Background and profile·0', 'Normalization·0', 'Read the values·0', 'Export results and provenance·0', 'Lesson done·0',
+        'Acquisition and saturation·0', 'Ladder image·0', 'Box the band·0', 'Lanes measured·0', 'Background and profile·0', 'Normalization·0', 'Read the values·0', 'Export results and provenance·0', 'Lesson done·0',
         'Add a strip·0', 'Remove the strip·0', 'Lesson done·0'];
       const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
       const checks = { ways, idle, short, order, menu, prepared, clickable, warnHidden, dimmed, waits, halfway, altWords, whyFolded, pageStill, ringOnConfirm, cardInPanel, glued, whyRefolded, typingWaits, noticesCard, exportWaits, dialogWaits, backWaits, endCard, doneKept,
@@ -735,7 +735,7 @@
       G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
       const only = vis($('figPane')) && !vis($('quantView')) && !vis($('gutterFig'));
       G.QuantUI.setView('quant');
-      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv'));
+      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv').closest('.sec'));   // the steps stay (step 1 may be folded to its summary)
       const hTop = $('figPane').getBoundingClientRect().height, hCol = $('figCol').getBoundingClientRect().height;
       G.Splitters.setFigSplit(0.7); await new Promise(r => setTimeout(r, 30));
       const split = Math.abs($('figPane').getBoundingClientRect().height / hCol - 0.7) < 0.08 && hTop > 0 && App.prefs().figSplit === 0.7;
@@ -1067,6 +1067,54 @@
       const hiddenEmpty = App.S.lanes.filter(l => l.hidden).length;
       $('laneList').querySelector('[data-pick="all"]').click(); const shownAll = App.S.lanes.every(l => !l.hidden);
       R.picks = { none, all, n: m.bands.length, hadLink, empty: empty.length, hiddenEmpty, shownAll, ok: none === 0 && all === m.bands.length && hadLink === empty.length > 0 && hiddenEmpty === empty.length && shownAll };
+    }
+    // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
+    // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to
+    // the lines on the image lists only what is drawn and can be folded; the figure at its printed size; one filled
+    // button in the export window, which also holds the resolution; the More menu; an example says it is not saved
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      const shownEl = el => !!(el && el.offsetParent !== null);
+      const secs = [...document.querySelectorAll('#sections > .sec')];
+      const words = /Size ladder/.test(secs[2].querySelector('.sec-head').textContent) && $('rangeLabel').textContent === 'Lanes shown' && $('btnAddMarker').textContent === '+ Add ladder lane'
+        && [...$('editSeg').querySelectorAll('button')].map(b => b.textContent).join('|') === 'Figure|Boxes' && parseFloat(getComputedStyle(document.body).fontSize) >= 14;
+      // folding: a done step folds to its heading and summary; the heading unfolds it, by click or Enter
+      const s1 = secs[0], h1 = s1.querySelector('.sec-head');
+      s1.classList.add('done'); G.UI.foldDone();
+      const folded = s1.classList.contains('collapsed') && !shownEl($('polSeg')) && shownEl(h1) && !!$('stImage').textContent && h1.getAttribute('aria-expanded') === 'false';
+      h1.click(); const clickOpens = !s1.classList.contains('collapsed') && shownEl($('polSeg'));
+      h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); const keyCloses = s1.classList.contains('collapsed');
+      G.Tour.start('image'); await wait(200);
+      const lessonUnfolds = $('tourTitle').textContent === 'Band look' && !s1.classList.contains('collapsed') && shownEl($('polSeg'));
+      G.Tour.finish();
+      // the key: what is drawn now, foldable, gone in the Original view
+      const key = $('overlayKey'), on = k => !key.querySelector(`li[data-k="${k}"]`).classList.contains('off');
+      const keyShown = shownEl(key) && on('crop') && on('lane') && on('ladder') === App.S.markers.length > 0 && on('box') === App.S.quant.rows.length > 0;
+      const closed0 = key.classList.contains('closed');
+      $('okeyToggle').click(); const keyFolds = key.classList.contains('closed') !== closed0 && App.prefs().okeyClosed === !closed0;
+      $('okeyToggle').click();
+      $('btnOrig').click(); await wait(50); const keyOrig = !shownEl(key); $('btnOrig').click(); await wait(50); const keyBack = shownEl(key);
+      // the figure at its printed size: 1 pt = 4/3 CSS px
+      const fw = G.UI.lastFig().w;
+      $('btnActual').click(); const svg = () => $('preview').querySelector('svg');
+      const actual = Math.abs(parseFloat(svg().style.width) - fw * 4 / 3) < 0.5 && $('btnActual').getAttribute('aria-pressed') === 'true';
+      $('btnActual').click(); const fitted = Math.abs(parseFloat(svg().style.width) - fw * 4 / 3) > 0.5 || $('btnActual').getAttribute('aria-pressed') === 'false';
+      // the export window: one filled button (the card it was opened for), the resolution beside the options
+      const filled = () => [...$('exportDlg').querySelectorAll('.btn.primary')].map(b => b.id);
+      G.UI.openExport('archive'); const archiveMain = filled().join() === 'btnArchive';
+      G.UI.openExport(); const oneMain = filled().length === 1;
+      const dpi0 = App.S.style.dpi, dx = $('dpiExp');
+      dx.value = '1200'; dx.dispatchEvent(new Event('change')); const dpiSet = App.S.style.dpi === 1200 && $('dpiTop').value === '1200';
+      dx.value = String(dpi0); dx.dispatchEvent(new Event('change'));
+      $('btnExportClose').click();
+      // the More menu: lessons, library, help, print
+      const more = ['mLessons', 'mLibrary', 'mHelp', 'mPrint'].every(id => $('moreMenu').contains($(id)));
+      $('mLessons').click(); const moreLessons = !$('lessonDlg').classList.contains('hidden'); $('btnLessonClose').click();
+      // an example says at once that it is not kept
+      await G.UI.loadExample('western'); await wait(50);
+      const exampleNote = $('saveNote').textContent === 'Example: not saved';
+      const checks = { words, folded, clickOpens, keyCloses, lessonUnfolds, keyShown, keyFolds, keyOrig, keyBack, actual, fitted, archiveMain, oneMain, dpiSet, more, moreLessons, exampleNote };
+      R.compact = Object.assign({ ok: Object.values(checks).every(Boolean) }, checks);
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
