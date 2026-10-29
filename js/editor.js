@@ -6,7 +6,7 @@
   const box = document.getElementById('editorBox');
   const ctx = cv.getContext('2d');
   const view = { s: 1, ox: 0, oy: 0 };
-  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null, cornersOn = false;
+  let dpr = 1, drag = null, hover = null, spaceDown = false, gridOn = false, creating = null, cornersOn = false, origOn = false;
   const HIT = 7;
 
   const toImg = (sx, sy) => ({ x: (sx - view.ox) / view.s, y: (sy - view.oy) / view.s });
@@ -42,6 +42,16 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!App.S) return;
+    // the Original view: the image as decoded, fitted to the editor, with no overlay and nothing to drag
+    if (origOn) {
+      const oc = App.originalCanvas(), s = Math.min((w - 40) / oc.width, (h - 40) / oc.height);
+      ctx.imageSmoothingEnabled = s < 2;
+      ctx.drawImage(oc, (w - oc.width * s) / 2, (h - oc.height * s) / 2, oc.width * s, oc.height * s);
+      ctx.font = '600 12px -apple-system, Segoe UI, Arial, sans-serif'; ctx.textAlign = 'left';
+      const t = 'Original, as decoded: no flip, rotation, geometry or overlay';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, 12, 20); ctx.fillStyle = '#152229'; ctx.fillText(t, 12, 20);
+      return;
+    }
     App.renderFull();
     const S = App.S, rot = App.rot;
     ctx.imageSmoothingEnabled = view.s < 2;
@@ -50,7 +60,7 @@
     ctx.drawImage(App.fullCanvas, 0, 0);
     // white-light marker image of a Western, laid over the blot to check the ladder positions
     if (App.hasMarkerImage() && document.getElementById('mkOverlay').checked) {
-      ctx.globalAlpha = 0.45; ctx.drawImage(App.markerCanvas(), 0, 0); ctx.globalAlpha = 1;
+      ctx.globalAlpha = (+document.getElementById('mkOpacity').value || 45) / 100; ctx.drawImage(App.markerCanvas(), 0, 0); ctx.globalAlpha = 1;
     }
     if (document.getElementById('showSat').checked) ctx.drawImage(App.getSatCanvas(), 0, 0);
     ctx.restore();
@@ -122,6 +132,15 @@
       ctx.strokeText(t2, b.x + 8, (ya + yb) / 2 + 4); ctx.fillStyle = ctl ? '#5c6900' : '#14713a'; ctx.fillText(t2, b.x + 8, (ya + yb) / 2 + 4);
       ctx.globalAlpha = 1;
     });
+    // the analysis area (dashed green) when it is set apart from the figure box: the band boxes measure inside it
+    const ga = S.quant.region;
+    if (q && ga && (ga.x !== c.x || ga.y !== c.y || ga.w !== c.w || ga.h !== c.h)) {
+      const g0 = toScr(ga.x, ga.y), g1 = toScr(ga.x + ga.w, ga.y + ga.h);
+      ctx.strokeStyle = '#1f9d55'; ctx.lineWidth = 1.2; ctx.setLineDash([8, 4]);
+      ctx.strokeRect(g0.x, g0.y, g1.x - g0.x, g1.y - g0.y); ctx.setLineDash([]);
+      ctx.textAlign = 'left'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.strokeText('Analysis area', g0.x + 4, g1.y + 14); ctx.fillStyle = '#14713a'; ctx.fillText('Analysis area', g0.x + 4, g1.y + 14);
+    }
     if (q) { drawStrips(); drawBoxes(); } else { drawBoxes(); drawStrips(); }
     if (creating) {
       const ya = toScr(0, Math.min(creating.y0, creating.y1)).y, yb = toScr(0, Math.max(creating.y0, creating.y1)).y;
@@ -249,9 +268,11 @@
     return [[c.x, c.y, 'nw'], [mx, c.y, 'n'], [c.x + c.w, c.y, 'ne'], [c.x + c.w, my, 'e'], [c.x + c.w, c.y + c.h, 'se'], [mx, c.y + c.h, 's'], [c.x, c.y + c.h, 'sw'], [c.x, my, 'w']];
   }
 
-  // the Densitometry view is open: band boxes are the active layer on the raw image (else the strips are)
-  const quantLayer = () => !!(G.QuantUI && G.QuantUI.view && G.QuantUI.view() === 'quant');
+  // the editing layer chosen with the Editing switch above the image: band boxes ('quant') or the figure's
+  // lanes, ladder bands and strips
+  const quantLayer = () => !!(G.QuantUI && G.QuantUI.layer && G.QuantUI.layer() === 'quant');
   function hitTest(sx, sy, shift) {
+    if (origOn) return null;
     const S = App.S; if (!S) return null;
     const c = S.crop, p = toImg(sx, sy), tol = HIT / view.s;
     if (spaceDown) return { type: 'pan' };
@@ -277,7 +298,8 @@
       const q = quantLayer();
       if (q) for (let k = 0; k < S.quant.rows.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.quant.rows[k][e]) <= tol) return { type: 'qedge', k, e };
       if (!q) for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
-      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= c.x && p.x <= c.x + c.w) return { type: 'qbody', k }; }
+      const ga = G.Quant.region(S);
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const r = S.quant.rows[k]; if (p.y > Math.min(r.y0, r.y1) && p.y < Math.max(r.y0, r.y1) && p.x >= ga.x && p.x <= ga.x + ga.w) return { type: 'qbody', k }; }
     }
     if (inY) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
     if (inY && Math.abs(p.x - c.x) <= tol) return { type: 'crop', k: 'w' };
@@ -547,5 +569,5 @@
 
   function setGrid(on) { if (gridOn !== !!on) { gridOn = !!on; draw(); } }
   // toScreen / toImage: canvas pixel <-> rotated-image pixel (used by the self-tests to click real positions)
-  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null), setCorners: on => { cornersOn = !!on; draw(); } };
+  G.Editor = { draw, resize, fitFull, fitCrop, zoom: () => view.s, refreshZoom, setGrid, toScreen: toScr, toImage: toImg, hit: (sx, sy) => hitTest(sx, sy, false), hoverType: () => (hover ? hover.type : null), setCorners: on => { cornersOn = !!on; draw(); }, setOriginal: on => { origOn = !!on; draw(); }, original: () => origOn };
 })(window);

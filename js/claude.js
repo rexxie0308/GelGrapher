@@ -25,7 +25,7 @@
       imageProcessing: {
         sourceBitDepth: S.file.bits, rotationDeg: S.rotation, orientation: G.Export.flipText(S) || 'as imaged', contrast: 'linear, whole image', gamma: S.levels.gamma,
         inverted: !!S.levels.invert, removedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
-        cameraSaturatedFracInCrop: +k.sensorFrac.toFixed(5), effectiveGelDpi: Math.round(A.effectiveDpi()), figureWells: r ? [r[0] + 1, r[1] + 1] : null,
+        bandEndClippedFracInCrop: +k.sensorFrac.toFixed(5), saturation: A.satReport().text, effectiveGelDpi: Math.round(A.effectiveDpi()), figureWells: r ? [r[0] + 1, r[1] + 1] : null,
         markerFromWhiteLightImage: A.hasMarkerImage()
       },
       legendNotes: G.Export.legendHints(S)
@@ -33,9 +33,9 @@
     if (S.quant.rows.length) {
       const R = G.Quant.measure(A);
       out.densitometry = {
-        background: { edge: 'straight line between box edges', rolling: 'rolling ball', none: 'none' }[R.method],
+        description: G.Quant.describe(A, R),
         loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceLane: S.lanes[R.ref] ? (S.lanes[R.ref].name || `well ${R.ref + 1}`) : null,
-        relativeValues: R.rows.map((row, kk) => (kk === R.control ? null : { band: row.name, perLane: R.lanes.map((i, j) => ({ lane: R.names[j], value: R.rel[kk][j] == null ? null : +R.rel[kk][j].toFixed(2) })) })).filter(Boolean),
+        relativeValues: R.rows.map((row, kk) => (kk === R.control ? null : { band: row.name, perLane: R.lanes.map((i, j) => ({ lane: R.names[j], value: R.rel[kk][j] == null ? null : +R.rel[kk][j].toFixed(2), flags: G.Quant.flagText(R.flags[kk][j]) || undefined })) })).filter(Boolean),
         wellsWithSaturatedPixels: R.saturatedLanes.map(i => i + 1)
       };
     }
@@ -44,7 +44,7 @@
   function buildPrompt() {
     return [
       `You help a biologist write the figure legend and the methods text for a ${App.gelType().name()} figure prepared with GelGrapher.`,
-      'Use ONLY the facts in the JSON below. Where information is missing (sample amounts, antibodies and dilutions, gel percentage, imaging system, exposure), write a placeholder in square brackets such as [primary antibody, dilution]. Never invent results, conditions or numbers. Describe densitometry values only if they are present, without claiming statistical significance (there is one blot).',
+      'Use ONLY the facts in the JSON below. Where information is missing (sample amounts, antibodies and dilutions, gel percentage, imaging system, exposure), write a placeholder in square brackets such as [primary antibody, dilution]. Never invent results, conditions or numbers. Describe densitometry values only if they are present, without claiming statistical significance (there is one blot). Use densitometry.description word for word in substance: do not upgrade a lane-signal normalization to total-protein normalization, do not call a loading control validated, and mention values flagged below LOQ or with clipped pixels as such.',
       'Reply in plain text without Markdown, with exactly these two headings on their own lines:',
       'Figure legend',
       '(a one-sentence title, then 2 to 5 sentences: what the lanes show, the marker, arrows or strips, the normalization if any, and every disclosure in legendNotes)',

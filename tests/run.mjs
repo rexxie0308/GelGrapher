@@ -75,11 +75,11 @@ const UI_CHECKS = [
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
   ['library keeps the gel with its edits, renames, reopens, closes and removes it', r => r.library.ok, ['library']],
   ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
-  ['hands-on tutorial: one card per task, the ring follows the stage, the block stays lit, waits for the action and Next', r => r.tutorial.ok, ['tutorial']],
+  ['lessons: nothing starts by itself; short lessons by goal on a practice copy, worded for the experiment, one action per card that waits for it; Already correct / Not applicable, Why?, progress remembered, the measuring lesson in order, a lesson on the user\'s gel undone on request', r => r.lessons.ok, ['lessons']],
   ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
   ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
-  ['densitometry: band pixels above the noise floor are box-size independent; no relative value without a band in the reference lane', r => r.densMode.ok, ['densMode']],
-  ['raw image edits one layer at a time: band boxes in the Densitometry view, strips with the figure', r => r.layers.ok, ['layers']],
+  ['densitometry: a two-fold dilution reads two-fold in the default whole-box measure (not in the thresholded one); boxes below their LOQ are flagged, never a reference or a denominator; the figure box and figure lanes change no number; methods and CSV describe the same measure', r => r.densMode.ok, ['densMode']],
+  ['the image edits one layer at a time, chosen with the Editing switch (or a tool that makes boxes or strips); showing or activating a window never changes it', r => r.layers.ok, ['layers']],
   ['the figure column follows the panel step: steps 1-5 the figure, step 6 the Densitometry view', r => r.followView.ok, ['followView']],
   ['long group labels wrap, shrink or stay on one line; typed line breaks', r => r.groupFit.ok, ['groupFit']],
   ['typeface allowlist (SVG, measurement, PDF) and a custom lane-name angle', r => r.fonts.ok, ['fonts']],
@@ -90,10 +90,13 @@ const UI_CHECKS = [
   ['"+ Add lane" places a lane at the click, Shift keeps it armed; lane names and the paste box are in step 2, Marker is step 3', r => r.addLane.ok, ['addLane']],
   ['a gel small in a large frame: the red box is found coarse to fine on the gel with every lane, its rows framed on the bands', r => r.smallInFrame.ok, ['smallInFrame']],
   ['a strip of two or three lanes finds exactly its lanes; the lane-fix fold is two rows of titled tools', r => r.strip.ok, ['strip']],
+  ['detected is not confirmed: the ladder card states matched bands and range and asks for confirmation (legend, log, step state follow); sizes interpolate between ladder lanes; lane roles; the low-signal prompt; the Original view; one export dialog with a complete archive; the profile reads out a box', r => r.review.ok, ['review']],
+  ['saturation from the original pixels at the band end, where the file clips: dark bands at black, 12-bit data in a 16-bit file, floating point (cannot tell), colour (warned); the marker image shares the blot\'s geometry and its offset is measured', r => r.saturation.ok, ['saturation']],
   ['a remembered ladder with one band more than the gel\'s does not stick: the library is checked and the ladder fitting every band wins; a perfect usual ladder stays', r => r.ladderRecheck.ok, ['ladderRecheck']],
   ['the ladder library is well formed: unique ids, sizes largest first, reference bands among the sizes, catalogue numbers, earlier ids still open; one ladder\'s loading formats count once in the search, a starred one stands for them; legends keep a standard\'s range', r => r.ladderLibrary.ok, ['ladderLibrary']],
   ['geometry correction: Auto at load corrects a keystoned gel (lanes parallel within 2 %) with every lane and the red box framed beside the outer lanes, seg / legend / log show it, rotation and undo carry it, Off restores, Manual box maps a trapezoid, a hand-placed lane survives a box change, the detection polarity can be overridden', r => r.keystone.ok, ['keystone']],
-  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
+  ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']],
+  ['less text, larger type: Size ladder and Lanes shown, finished steps folded to a summary (a lesson unfolds what it needs), a key to the lines on the image, the figure at printed size, one filled button in the export window with its resolution, the More menu', r => r.compact.ok, ['compact']]
 ];
 
 // Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in
@@ -192,6 +195,48 @@ async function runIn(name, base) {
       await page.waitForTimeout(2000);
       outside.hits.length ? fail('no request leaves the page', outside.hits.join(', ')) : pass('no request leaves the page');
       await page.close();
+    }
+    // a phone (390 × 844): one workspace at a time with a bar at the bottom, a two-row top bar, nothing wider than the screen;
+    // a lesson shows the workspace its card needs and keeps its card above the bar
+    {
+      const mctx = await browser.newContext({ viewport: { width: 390, height: 844 } }), page = await mctx.newPage();
+      try {
+        await page.goto(`${base}/index.html?example=dna`);
+        await page.waitForFunction(() => window.App && window.App.S && document.body.classList.contains('has-gel'), null, { timeout: 60000 });
+        await page.waitForTimeout(500);
+        const r = await page.evaluate(async () => {
+          const $ = id => document.getElementById(id), shown = el => !!(el && el.offsetParent !== null && el.getBoundingClientRect().height > 0), wait = ms => new Promise(f => setTimeout(f, ms));
+          const nav = $('mobileNav').getBoundingClientRect(), top = document.querySelector('.topbar').getBoundingClientRect();
+          const first = document.body.dataset.pane === 'figure' && shown($('figPane')) && !shown($('panel')) && !shown($('rawCol'));
+          const narrow = document.documentElement.scrollWidth <= innerWidth + 1 && top.height <= 110 && nav.bottom <= innerHeight + 1 && nav.height >= 44;
+          document.querySelector('#mobileNav [data-pane="image"]').click(); await wait(200);
+          const image = shown($('rawCol')) && !shown($('figCol')) && $('editor').getBoundingClientRect().width > 300;
+          document.querySelector('#mobileNav [data-pane="steps"]').click(); await wait(100);
+          const steps = shown($('panel')) && !shown($('stage'));
+          await window.Tour.practice('figure'); await wait(400);
+          const card = $('tourCard').getBoundingClientRect();
+          const lesson = document.body.dataset.pane === 'image' && $('tourTitle').textContent === 'Working image and original' && card.bottom <= nav.top + 1 && card.top > 0;
+          return { first, narrow, image, steps, lesson };
+        });
+        Object.values(r).every(Boolean) ? pass('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs')
+          : fail('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs', JSON.stringify(r));
+      } catch (e) { fail('phone layout', e.message.split('\n')[0]); }
+      finally { await mctx.close(); }
+    }
+    // a first visit: nothing starts by itself; "Practice with an example" opens the example and its lesson
+    {
+      const fctx = await browser.newContext({ viewport: { width: 1280, height: 860 } }), page = await fctx.newPage();
+      try {
+        await page.goto(`${base}/index.html`);
+        await page.waitForTimeout(1500);
+        const idle = await page.evaluate(() => document.getElementById('tour').classList.contains('hidden') && !window.App.S && !!document.querySelector('#emptyState [data-lesson="figure"]'));
+        await page.click('#emptyState [data-lesson="figure"]');
+        await page.waitForFunction(() => window.App && window.App.S && window.Tour && window.Tour.lesson() === 'figure', null, { timeout: 60000 });
+        const started = await page.evaluate(() => ({ example: window.App.isExample, title: document.getElementById('tourTitle').textContent }));
+        idle && started.example === 'dna' && started.title === 'Working image and original' ? pass('first visit: nothing starts by itself; Practice with an example opens its lesson')
+          : fail('first visit: nothing starts by itself; Practice with an example opens its lesson', JSON.stringify({ idle, started }));
+      } catch (e) { fail('first visit', e.message.split('\n')[0]); }
+      finally { await fctx.close(); }
     }
   } catch (e) {
     fail('runner', e.message);

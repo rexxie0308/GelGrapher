@@ -24,8 +24,9 @@
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
     <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
-    <button class="btn" id="btnGuide" title="Hands-on tutorial on this gel: one step at a time, you do the clicks">Guide me</button>
+    <button class="btn" id="btnGuide" title="Short hands-on lessons: a first figure, labels, strips, image corrections, lanes, measuring bands">Lessons</button>
     <button class="btn" id="btnLibrary" title="Every gel you opened, with your latest edits">Library</button>
+    <span class="save-note hidden" id="saveNote" role="status" aria-live="polite"></span>
     <div class="menu-wrap">
       <button class="btn" id="btnTplMenu">Open / Save ▾</button>
       <div class="menu hidden" id="tplMenu">
@@ -45,31 +46,19 @@
       </div>
     </div>
     <button class="icon-btn" id="btnHelp" title="Help">?</button>
-    <span class="divider"></span>
-    <select id="dpiTop" title="Export resolution"><option value="300">300 dpi</option><option value="600" selected>600 dpi</option><option value="1200">1200 dpi</option></select>
-    <div class="menu-wrap">
-      <div class="split">
-        <button class="btn primary" id="btnPNG" title="Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes (CSV), the processing log and the methods text">Export all</button><button class="btn primary caret" id="btnExportMenu">▾</button>
-      </div>
-      <button class="icon-btn round" id="btnPrint" title="Print the figure with a caption, for a lab notebook (Ctrl+P)" aria-label="Print the figure"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 6V2.5h8V6"/><rect x="1.5" y="6" width="13" height="5.5" rx="1"/><path d="M4 9.5h8v4H4z"/></svg></button>
-      <div class="menu hidden right" id="exportMenu">
-        <div class="menu-head">The figure alone</div>
-        <button id="btnPNGItem"><span>PNG</span><small>At the chosen dpi, with the resolution and a processing summary embedded</small></button>
-        <button id="btnTIFF"><span>TIFF (LZW, grayscale)</span><small>For journals that only accept TIFF (e.g. PLOS)</small></button>
-        <button id="btnPDF"><span>PDF (vector)</span><small>Text and lines stay vector; the gel is embedded pixel for pixel</small></button>
-        <button id="btnPPTX"><span>PowerPoint (editable)</span><small>Text, lines and arrows stay editable; the gel can be recropped on the slide</small></button>
-        <button id="btnSVG">SVG (vector, editable in Illustrator)</button>
-        <button id="btnCopyFig"><span>Copy figure to clipboard</span><small>PNG at the chosen dpi, for pasting into slides or a lab notebook</small></button>
-        <button id="btnPrintMenu"><span>Print…</span><small>The figure with a caption (file, date, notes), sized for a lab notebook page (Ctrl+P)</small></button>
-        <div class="menu-sep"></div>
-        <button id="btnUncropped"><span>Uncropped image (same processing)</span><small>For the supplement: same contrast and orientation, crop box and well numbers marked</small></button>
-        <button id="btnOriginal"><span>Original data (file + SHA-256)</span><small>The untouched source file, byte-identical</small></button>
-        <button id="btnLog"><span>Processing log (JSON)</span><small>File fingerprint, all parameters, clipping, effective resolution</small></button>
-        <div class="menu-sep"></div>
-        <label class="menu-check"><input type="checkbox" id="preflightOn" checked> <span>Check before export</span></label>
-        <label class="menu-check" title="The legend notes (inversion, removed lanes, ladder) as a line of text under the figure in every export and print"><input type="checkbox" id="notesOn"> <span>Include legend notes under the figure</span></label>
+    <div class="menu-wrap" id="moreWrap">
+      <button class="icon-btn" id="btnMore" title="More: lessons, library, help, print" aria-label="More" aria-haspopup="menu">⋯</button>
+      <div class="menu right hidden" id="moreMenu" role="menu">
+        <button id="mLessons" role="menuitem"><span>Lessons</span></button>
+        <button id="mLibrary" role="menuitem"><span>Library</span><small>Every gel you opened, with your latest edits</small></button>
+        <button id="mHelp" role="menuitem"><span>Help</span></button>
+        <button id="mPrint" role="menuitem"><span>Print the figure</span></button>
       </div>
     </div>
+    <span class="divider"></span>
+    <select id="dpiTop" title="Export resolution"><option value="300">300 dpi</option><option value="600" selected>600 dpi</option><option value="1200">1200 dpi</option></select>
+    <button class="btn primary" id="btnExport" title="Choose what to export: the figure, a results package, a complete archive, or the chart">Export…</button>
+    <button class="icon-btn round" id="btnPrint" title="Print the figure with a caption, for a lab notebook (Ctrl+P)" aria-label="Print the figure"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M4 6V2.5h8V6"/><rect x="1.5" y="6" width="13" height="5.5" rx="1"/><path d="M4 9.5h8v4H4z"/></svg></button>
     <input type="file" id="fileInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden>
     <input type="file" id="markerInput" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp" hidden>
   </div>
@@ -79,18 +68,22 @@
   <aside id="panel">
     <div class="empty" id="emptyState">
       <div class="empty-icon">▣</div>
-      <h2>Drop a gel or blot image here</h2>
+      <h2>Gel and blot figures, with densitometry</h2>
       <div class="field type-field"><label for="gelTypeStart">Experiment</label><select id="gelTypeStart"></select><p class="hint" id="gelTypeStartHint"></p></div>
-      <p>TIFF from iBright, ChemiDoc and other imagers (16 / 8-bit), PNG or JPG.<br>Straightening, cropping, lanes and marker sizes are automatic;<br>you type the lane names and export.</p>
-      <label class="btn primary big"><span>Choose file</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
-      <div class="examples"><span class="ex-label">Examples (synthetic)</span>
-        <button class="btn" id="btnDemo" data-example="dna">DNA gel</button><button class="btn" data-example="sds">SDS-PAGE</button><button class="btn" data-example="western">Western blot</button></div>
+      <label class="btn primary big"><span>Use my image</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
+      <p class="hint">Or drop it anywhere in the window: a TIFF from the imager (8 or 16-bit), PNG or JPG. Several exposures of one gel can go together; the best is picked.</p>
+      <div class="start-learn">
+        <div class="ex-label">Practice with an example</div>
+        <div class="inline"><button class="btn" data-lesson="figure" title="A short hands-on lesson on an example of the experiment above: check, label, export">Prepare a figure</button><button class="btn" data-lesson="measure" title="A short hands-on lesson on an example of the experiment above: from acquisition to exported values">Measure bands</button></div>
+        <div class="inline"><button class="btn ghost" id="btnOverview" title="Two minutes, read only: where everything is">Quick overview</button><button class="btn ghost" id="btnLessonsStart">All lessons</button></div>
+      </div>
+      <div class="examples"><span class="ex-label">Finished examples</span>
+        <button class="btn sm" id="btnDemo" data-example="dna">DNA gel</button><button class="btn sm" data-example="sds">SDS-PAGE</button><button class="btn sm" data-example="western">Western blot</button></div>
       <div id="libBox" class="lib hidden">
         <div class="lib-head"><span>Your gels</span><span class="h3-note" id="libNote"></span></div>
         <div id="libGrid" class="lib-grid"></div>
         <p class="hint">Every gel you open is kept in this browser with your latest edits. Click one to continue where you left off. Nothing is uploaded.</p>
       </div>
-      <p class="hint">You can drop several exposures of the same gel at once; the best one is picked automatically.</p>
       <p class="privacy">Images are processed only in this browser and never uploaded.</p>
     </div>
 
@@ -107,7 +100,7 @@
         <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span></div>
         <div class="seg" id="geomSeg">
           <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
-          <button data-geom="manual" title="A box with four free corners on the raw image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
+          <button data-geom="manual" title="A box with four free corners on the image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
           <button data-geom="off" title="The uncorrected image; annotations follow">Off</button>
         </div>
         <div class="inline hidden" id="geomPlace">
@@ -115,7 +108,7 @@
           <button class="btn sm ghost" id="btnGeomCancel" title="Leave the box without changing anything">Cancel</button>
           <span class="h3-note">Drag the round corners onto the gel's corners (the square handles slide a whole side); nothing happens until Apply.</span>
         </div>
-        <p class="hint" id="geomHint"><b>Auto</b> runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. <b>Manual</b>: drag the blue box onto the corners of the gel, then Apply.</p>
+        <p class="hint" id="geomHint" title="Auto runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. Manual: drag the blue box onto the corners of the gel, then Apply. Measurements always read the original pixels.">Auto corrects a camera angle and bent lanes. Manual: drag the box's corners onto the gel, then Apply.</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
@@ -163,17 +156,18 @@
           <div class="cl-head">Rows of wells on this gel <span class="h3-note">one figure per row; names and annotations of each row are kept</span></div>
           <div class="seg full" id="rowSeg"></div>
         </div>
-        <div class="field inline range-row">
-          <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
-          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Loaded only</button>
+        <span class="range-label" id="rangeLabel">Lanes shown</span>
+        <div class="field inline range-row" role="group" aria-labelledby="rangeLabel" style="margin-top:0">
+          <select id="rangeA" aria-label="First lane shown"></select> – <select id="rangeB" aria-label="Last lane shown"></select>
+          <button class="btn sm ghost" id="btnRangeAuto" title="Show only the lanes with bands">Loaded</button>
         </div>
-        <p class="hint">Or drag the red box on the image (its sides snap to the gaps between lanes; Alt moves freely).</p>
+        <p class="hint" title="Its sides snap to the gaps between lanes; hold Alt to move them freely">Or drag the sides of the red box on the image.</p>
         <div class="field inline">
-          <button class="btn sm" id="btnAddLane" title="Then click on the raw image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
-          <span class="h3-note">then click where the lane runs. Drag a blue line to move it; Delete removes it.</span>
+          <button class="btn sm" id="btnAddLane" title="Then click on the image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
+          <span class="h3-note" title="Drag a blue line to move a lane; Delete removes the selected lane">then click where it runs</span>
         </div>
         <details class="adv" id="fixLanes">
-          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect in the red box, space N lanes evenly, or spread between two</span></summary>
+          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect, space evenly, spread</span></summary>
           <div class="crop-lanes">
             <div class="field inline">
               <button class="btn sm" id="btnRedetectCrop" title="Find the lanes again inside the red box only; lanes you placed by hand stay">Re-detect in box</button>
@@ -188,10 +182,10 @@
         </details>
         <div class="suggest hidden" id="emptyBar">
           <div id="emptyText"></div>
-          <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
+          <div class="inline"><button class="btn sm" id="btnNegEmpty">Mark as negative control</button><button class="btn sm ghost" id="btnCutEmpty">Leave out of the figure</button><button class="btn sm ghost" id="btnIgnoreEmpty">Ignore</button></div>
         </div>
         <div class="cl-head" style="margin-top:10px">Lane names <span class="h3-note" id="laneCountNote"></span></div>
-        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter: next lane). Untick “Show” or press <code>H</code> to leave a lane out. <code>*lacZ*</code> is italic.</p>
+        <p class="hint" title="Enter moves to the next lane; *lacZ* is set in italics. Fig.: in the figure (or select the lane and press H). Meas.: in the analysis, once there are band boxes.">Type names on the figure (click a grey number) or paste a row below.</p>
         <div id="laneList" class="list"></div>
         <textarea id="laneBulk" rows="1" placeholder="Paste a row of names: M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
         <details class="adv" id="laneAdv">
@@ -205,17 +199,17 @@
 
       <!-- marker -->
       <section class="sec">
-        <div class="sec-head"><span class="sec-n">3</span>Marker<span class="sec-status" id="stMarker"></span></div>
+        <div class="sec-head"><span class="sec-n">3</span><span>Size ladder</span><span class="sec-status" id="stMarker"></span></div>
         <div id="markerList"></div>
         <div class="field inline">
-          <button class="btn sm" id="btnAddMarker">+ Add marker lane</button>
+          <button class="btn sm" id="btnAddMarker" title="Mark a lane as a ladder lane">+ Add ladder lane</button>
           <button class="btn sm ghost" id="btnAutoMarkers">Re-detect</button>
         </div>
         <div class="mk-image" id="mkImageBox">
-          <div class="cl-head"><span>Marker image</span> <span class="h3-note">optional, for Westerns</span></div>
-          <p class="hint" id="mkImageText">Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.</p>
-          <div class="field inline"><button class="btn sm" id="btnMarkerImg">Load marker image…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel">Remove</button>
-            <label class="switch hidden" id="mkOverlayWrap"><input type="checkbox" id="mkOverlay" checked><span>Overlay on image</span></label></div>
+          <div class="cl-head"><span>Ladder image</span> <span class="h3-note">white light, optional</span></div>
+          <p class="hint" id="mkImageText" title="The white-light image of the same membrane, for a prestained ladder the blot image does not show. It is aligned to the blot and used only to find the ladder bands; the figure still shows the blot.">Ladder not on the blot image? Load the white-light image of the membrane.</p>
+          <div class="field inline"><button class="btn sm" id="btnMarkerImg">Load ladder image…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel">Remove</button>
+            <span class="inline hidden" id="mkOverlayWrap"><label class="switch"><input type="checkbox" id="mkOverlay" checked><span>Overlay</span></label><input type="range" id="mkOpacity" min="10" max="90" value="45" style="width:80px" title="Opacity of the ladder image over the blot: slide it to check that the membrane edges coincide" aria-label="Ladder image opacity"></span></div>
         </div>
         <details class="adv" id="favAdv">
           <summary><span>Favourite ladders ★</span><span class="h3-note" id="favNote"></span></summary>
@@ -296,22 +290,30 @@
       <section class="sec ana-sec" id="quantSec">
         <details class="adv flush" id="quantDetails">
           <summary class="sec-head as-summary"><span class="sec-n">6</span><span>Densitometry</span> <span class="h3-note" id="stQuant">band intensities, band sizes</span></summary>
-          <p class="lead">Add a <b>band box</b> for each band of interest, e.g. the target and the loading control: click <b>+ Band box</b>, then click the band on the raw image (or drag across it). The box is measured in every lane from the raw pixel values; the chart and table open in the <b>Analysis</b> window under the figure (also from <b>Analysis</b> in the top bar). While that window is the active one the boxes are the layer you can drag on the raw image (strips fade to outlines); click the figure to work on strips again.</p>
+          <p class="lead" title="A band box spans one band row; every measured lane is read in it from the original pixels.">Click <b>+ Band box</b>, then the band on the image.</p>
           <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><button class="btn sm ghost" id="btnShowQuant">Show results</button></div>
           <div id="boxList" class="list"></div>
-          <p class="hint">Tick <b>Loading control</b> on the box of a housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.</p>
           <div class="field inline">
-            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto" title="Edge line: a straight line between the lane profile at the top and bottom edge of the box (ImageJ gel analyser). Border median: the median of a 3-pixel border around the box (Image Studio style). Rolling ball: a baseline under the whole lane profile."><option value="edge">Straight line at box edges</option><option value="border">Median of the box border</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
+            <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Whole box: every pixel of the box after background subtraction; linear in the amount of signal. Thresholded signal: only pixels more than 3 σ above the background count; it ignores empty margins but loses the faint part of every band, so faint bands read too low."><option value="box">Whole box (background-subtracted)</option><option value="band">Thresholded signal (pixels above 3 σ)</option></select></label>
           </div>
+          <p class="hint warn-t hidden" id="qModeWarn">Thresholded signal is not linear: a faint band loses most of its signal (doubling it can read as 3–10 ×). Use <b>Whole box</b> to compare amounts.</p>
           <div class="field inline">
-            <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Band pixels: only pixels above the noise floor of the background count, so the value does not change with the box size. Whole box: every pixel of the box (ImageJ gel analyser), which drifts with the box size and the noise."><option value="band">Band pixels above the noise floor</option><option value="box">Whole box (ImageJ style)</option></select></label>
+            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto" title="Edge line: a straight line between the lane profile at the top and bottom edge of the box (ImageJ gel analyser). Border median: the median of a 3-pixel border around the box (Image Studio style). Rolling ball: a baseline under the lane profile over the analysis area."><option value="edge">Straight line at box edges</option><option value="border">Median of the box border</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
           </div>
           <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
-          <div class="field inline">
-            <label class="inline-label"><span>Normalize to</span> <select id="qNorm" style="width:auto" title="Loading control: each band is divided by the ticked box in the same lane. Total lane: divided by the whole lane's density inside the figure area (total-protein normalization on a stain-free or stained gel). None: the volumes themselves."><option value="control">Loading-control box</option><option value="lane">Total lane density</option><option value="none">Nothing</option></select></label>
+          <div class="field" id="qAreaBox">
+            <div class="cl-head">Analysis area <span class="h3-note" id="qAreaNote"></span></div>
+            <div class="inline"><button class="btn sm ghost" id="btnAreaFromCrop" title="Set the analysis area to the current figure box (results can change)">Use the figure box</button></div>
+            <div class="cl-head" style="margin-top:6px">Lanes measured <span class="h3-note">untick to leave a lane out of the analysis; the figure is not affected</span></div>
+            <div id="qLaneList" class="chips"></div>
           </div>
+          <div class="field inline">
+            <label class="inline-label"><span>Normalize</span> <select id="qNorm" style="width:auto" title="Nothing: the background-subtracted values. Loading-control box: each band divided by the box ticked “Divide by this box” in the same lane. Lane signal: each band divided by its lane's signal over the analysis area."><option value="none">Nothing (raw values)</option><option value="control">By a loading-control box</option><option value="lane">By the lane signal</option></select></label>
+          </div>
+          <p class="hint" id="qNormHint"></p>
+          <label class="switch hidden" id="qLaneTotalWrap" title="Tick only when this image is a total-protein stain (e.g. Ponceau, Coomassie, REVERT) or a stain-free image of the same gel or membrane"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label>
           <div class="field inline"><label class="inline-label"><span>Reference lane (= 1.00)</span> <select id="qRef" style="width:auto"></select></label></div>
-          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the normalization).</p>
+          <p class="hint" title="Relative values are given against this lane: 2.00 means twice the reference lane, after the normalization. Its band must be at or above its limit of quantification.">2.00 = twice this lane; its band must be above its LOQ.</p>
           <details class="adv" id="plotAdv">
             <summary><span>Plot</span><span class="h3-note">bars or points, values, title, axis label</span></summary>
             <div class="field inline">
@@ -323,7 +325,7 @@
             </div>
             <div class="field"><label><span>Title</span></label><input type="text" id="plotTitle" placeholder="none"></div>
             <div class="field"><label><span>Y-axis label</span></label><input type="text" id="plotY" placeholder="automatic (from the boxes and the normalization)"></div>
-            <p class="hint">One value per lane: the figure's lanes in order, markers left out. Error bars and significance need replicate gels, which this app does not pool. The chart is exported from the analysis window; <b>Export all</b> at the top right bundles it with the figure and the numbers.</p>
+            <p class="hint">One value per measured lane, ladders left out. A dashed bar is below its limit of quantification. Error bars and significance need replicate gels, which this app does not pool.</p>
           </details>
           <details class="adv" id="methodsAdv">
             <summary><span>Methods text</span><span class="h3-note">what was measured, for the manuscript</span></summary>
@@ -344,9 +346,11 @@
   <main id="stage">
     <section class="pane-col" id="rawCol">
       <div class="col-head">
-        <span class="col-title">Raw image</span>
-        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span><span class="col-sub" id="rawNote"></span>
+        <span class="col-title">Image editor</span>
+        <span class="seg-label" id="editSegLabel">Edit</span><div class="seg sm" id="editSeg" role="group" aria-labelledby="editSegLabel" title="What a drag on the image edits. Figure: the red box, lanes, ladder bands and strips. Boxes: the band boxes of the measurement (the other layer is shown faint)"><button data-layer="figure" class="on">Figure</button><button data-layer="quant">Boxes</button></div>
+        <span class="col-sub" id="workNote"></span><span class="col-sub" id="rawNote"></span>
         <span class="flex"></span>
+        <button class="btn sm ghost" id="btnOrig" aria-pressed="false" title="Show the image as decoded, without flip, rotation, geometry correction or overlays (press again to return)">Original</button>
         <button class="btn sm ghost" id="fitFull" title="Show the whole image">Full</button>
         <button class="btn sm ghost" id="fitCrop" title="Zoom to the figure area">Crop</button>
         <span class="zoomlabel" id="zoomLabel"></span>
@@ -354,6 +358,19 @@
       <div id="expoStrip" class="expo hidden"></div>
       <div id="editorBox" tabindex="0">
         <canvas id="editor"></canvas>
+        <div id="overlayKey" class="okey hidden" aria-label="What the lines on the image are">
+          <button class="okey-toggle" id="okeyToggle" aria-expanded="true" title="Show or hide the key">Key</button>
+          <ul id="okeyList">
+            <li data-k="crop"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#ff4d4f" stroke-width="1.5"/></svg>Figure area</li>
+            <li data-k="lane"><svg width="22" height="10" aria-hidden="true"><path d="M11 0v10" stroke="#2f6feb" stroke-width="1.5" stroke-dasharray="3 2"/></svg>Lane</li>
+            <li data-k="ladder"><svg width="22" height="10" aria-hidden="true"><path d="M11 0v10M5 5h12" stroke="#e0a800" stroke-width="1.6"/></svg>Ladder lane and bands</li>
+            <li data-k="hidden"><svg width="22" height="10" aria-hidden="true"><path d="M11 0v10" stroke="#e5484d" stroke-width="1.5" stroke-dasharray="3 2"/></svg>Left out of the figure (✕)</li>
+            <li data-k="strip"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#0e8f8f" stroke-width="1.4" stroke-dasharray="4 2"/></svg>Strip</li>
+            <li data-k="box"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#1f9d55" stroke-width="1.2"/></svg>Band box</li>
+            <li data-k="area"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#1f9d55" stroke-width="1.2" stroke-dasharray="5 2"/></svg>Analysis area</li>
+            <li data-k="arrow"><svg width="22" height="10" aria-hidden="true"><path d="M1 5h20" stroke="#c026d3" stroke-width="1.4" stroke-dasharray="4 2"/></svg>Target band</li>
+          </ul>
+        </div>
         <div id="dropHint">
           <div class="dh-icon">▣</div>
           <div class="dh-text">Drop the gel image here</div>
@@ -361,7 +378,7 @@
         </div>
       </div>
     </section>
-    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
+    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize image editor and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <!-- the right column holds two windows, the figure and the analysis below it, each closable; a divider sets their share -->
     <section class="pane-col" id="figCol">
       <div class="pane active" id="figPane">
@@ -370,8 +387,8 @@
           <span class="col-sub" id="figSub">Click any text to edit it</span>
           <span class="flex"></span>
           <span class="zoomlabel" id="figSize"></span>
-          <select id="figFmt" style="width:auto" title="Format of the figure export (resolution: the dpi in the top bar)"><option value="png">PNG</option><option value="tiff">TIFF</option><option value="pdf">PDF</option><option value="svg">SVG</option><option value="pptx">PowerPoint</option></select>
-          <button class="btn sm" id="btnFigExport" title="Export the figure alone in this format">Export figure</button>
+          <button class="btn sm ghost" id="btnActual" aria-pressed="false" title="Show the figure at its printed size (approximate: a screen's pixel size varies; hold a ruler to the screen to check)">Actual size</button>
+          <button class="btn sm" id="btnFigExport" title="Export the figure alone (opens the export choices)">Export figure…</button>
           <button class="icon-btn pane-close" id="btnCloseFig" title="Close the figure window (Figure in the top bar brings it back)" aria-label="Close the figure window">×</button>
         </div>
         <div id="previewBox">
@@ -384,32 +401,36 @@
       <div class="pane hidden" id="quantView">
         <div class="qv-head">
           <span class="col-title">Analysis</span>
-          <div class="seg" id="quantTabs"><button data-tab="int" class="on">Band intensity</button><button data-tab="size">Band sizes</button></div>
+          <div class="seg" id="quantTabs"><button data-tab="prof" class="on" title="What a box measures: the lane profile, the background and the counted signal">Profile</button><button data-tab="int" title="The values of every box in every lane, with their limits">Table</button><button data-tab="plot" title="The chart of the relative values">Plot</button><button data-tab="size" title="The size of every band in every lane">Band sizes</button></div>
           <span class="flex"></span>
           <div class="inline" id="quantActions">
             <button class="btn sm" id="btnQCopy">Copy table</button><button class="btn sm" id="btnQCSV">CSV</button>
-            <select id="qChartFmt" style="width:auto" title="Format of the chart export (resolution: the dpi in the top bar)"><option value="png">PNG</option><option value="tiff">TIFF</option><option value="pdf">PDF</option><option value="svg">SVG</option><option value="pptx">PowerPoint</option></select><button class="btn sm" id="btnQChart">Export chart</button>
+            <button class="btn sm" id="btnQChart" title="Export the chart alone (opens the export choices)">Export chart…</button>
           </div>
           <div class="inline hidden" id="sizeActions"><button class="btn sm" id="btnSCopy">Copy table</button><button class="btn sm" id="btnSCSV">CSV</button></div>
           <button class="icon-btn pane-close" id="btnCloseAna" title="Close the analysis window (Analysis in the top bar brings it back)" aria-label="Close the analysis window">×</button>
         </div>
         <div class="qv-body">
-          <div id="quantInt">
-            <div id="quantEmpty" class="qv-empty hidden">
-              <b>No band boxes yet.</b><br>Click <b>+ Band box</b> (step 6 in the panel, or here), then click the band on the raw image. The box is measured in every lane of the figure; tick the loading control and the values are normalized to it.
-              <div><button class="btn primary" id="btnAddBox2">+ Band box</button></div>
-            </div>
-            <div id="quantChart" class="qchart"></div>
+          <div id="quantEmpty" class="qv-empty hidden">
+            <b>No band boxes yet.</b><br>Click <b>+ Band box</b>, then click a band on the image. The box is measured in every lane of the analysis area.
+            <div><button class="btn primary" id="btnAddBox2">+ Band box</button></div>
+          </div>
+          <div id="quantProf">
+            <div class="field inline"><select id="qProfBox" style="width:auto" aria-label="Band box"></select><select id="qProfLane" style="width:auto" aria-label="Lane"></select></div>
+            <canvas id="qProfile" height="150"></canvas>
+            <p class="prof-read" id="qProfRead"></p>
+            <p class="hint">The signal down the lane, from the working image (the numbers come from the original pixels). Dashed: the background the box subtracts. Shaded: what is counted (the whole box above the background; thresholded signal: only above the dotted threshold).</p>
+          </div>
+          <div id="quantInt" class="hidden">
             <div id="quantTable" class="qtable"></div>
-            <details class="adv" id="profAdv"><summary>Lane profile</summary>
-              <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
-              <canvas id="qProfile" height="130"></canvas>
-              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
-            </details>
-            <p class="hint" id="quantNote">Integrated density of each box, from the original pixel values (the box is mapped back through the rotation and the geometry correction and read at the original pixels; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+            <p class="hint" id="quantNote"></p>
+          </div>
+          <div id="quantPlot" class="hidden">
+            <div id="quantChart" class="qchart"></div>
+            <p class="hint">Plot type, title and axis label: step 6, Plot. A dashed bar is below its limit of quantification.</p>
           </div>
           <div id="quantSize" class="hidden">
-            <p class="lead">Every band in every lane of the figure, sized against the marker.</p>
+            <p class="lead">Every band in every lane of the figure, sized against the ladder.</p>
             <div id="sizeTable" class="qtable"></div>
           </div>
         </div>
@@ -418,6 +439,10 @@
     </section>
   </main>
 </div>
+
+<nav id="mobileNav" class="mobile-nav" aria-label="Workspace">
+  <button data-pane="steps" class="on">Steps</button><button data-pane="image">Image</button><button data-pane="figure">Figure</button><button data-pane="analysis">Analysis</button>
+</nav>
 
 <div id="popover" class="popover hidden"></div>
 <textarea id="floatEd" class="float-ed hidden" rows="1" autocomplete="off" spellcheck="false"></textarea>
@@ -432,47 +457,59 @@
   <div id="tourCard">
     <div class="tour-top"><b id="tourTitle"></b><span class="h3-note" id="tourStep"></span></div>
     <p id="tourText"></p>
+    <details class="tour-why hidden" id="tourWhy"><summary>Why?</summary><p id="tourWhyText"></p></details>
     <div class="tour-status" id="tourStatus"></div>
-    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Exit</button><span class="flex"></span><button class="btn sm hidden" id="tourTourBtn">Overview tour</button><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
+    <div class="tour-more hidden" id="tourMore"><button class="btn sm" id="tourNextLesson"></button><button class="btn sm ghost" id="tourMenuBtn">All lessons</button><button class="btn sm ghost hidden" id="tourRevert" title="Put this gel back as it was before the lesson">Undo the lesson's changes</button></div>
+    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Exit</button><span class="flex"></span><button class="btn sm hidden" id="tourAlt"></button><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
   </div>
 </div>
+
+<div id="lessonDlg" class="dlg hidden" role="dialog" aria-modal="true" aria-labelledby="lessonTitle"><div class="dlg-body lessons">
+  <button class="dlg-x" id="btnLessonClose" aria-label="Close">×</button>
+  <h3 id="lessonTitle">Lessons</h3>
+  <p class="hint">A few minutes each. Every card asks for one action on the page and waits for it; Why? gives the reason.</p>
+  <div class="field inline hidden" id="lessonWhereBox"><span>Practise on</span><div class="seg" id="lessonWhere"><button data-where="example" class="on">An example</button><button data-where="this">This gel</button></div></div>
+  <p class="hint" id="lessonNote"></p>
+  <div id="lessonList"></div>
+  <p class="inline"><button class="btn sm" id="btnLessonTour">Quick overview</button><span class="h3-note">two minutes, read only: where everything is</span></p>
+</div></div>
 
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
   <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
   <div>
-  <p class="inline"><button class="btn sm primary" id="btnTutorial">Hands-on tutorial</button><span class="h3-note">make a figure step by step, about ten minutes</span></p>
-  <p class="inline"><button class="btn sm" id="btnTour">Overview tour</button><span class="h3-note">two minutes: where everything is</span></p>
+  <p class="inline"><button class="btn sm primary" id="btnTutorial">Lessons…</button><span class="h3-note">short and hands-on: a first figure, labels, strips, image corrections, lanes, measuring bands</span></p>
+  <p class="inline"><button class="btn sm" id="btnTour">Quick overview</button><span class="h3-note">two minutes: where everything is</span></p>
   <h3>Fastest way to a figure</h3>
   <ol>
     <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
     <li><b>Click a lane name</b> on the figure and type; Enter jumps to the next (or paste a whole row on the left).</li>
-    <li>Check the ladder on the left. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
-    <li>“Export all” at the top right saves everything in one ZIP (figure, chart, numbers, log, methods); each window has its own export control for the figure or the chart alone, and the arrow next to Export all lists the figure formats. A pre-flight check points out problems first.</li>
+    <li>Check the ladder card on the left and <b>confirm</b> it is the product you loaded. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>ladder image</b>.</li>
+    <li><b>Export…</b> at the top right offers four things: the figure alone, a results package (figure, chart, numbers, log, methods), a complete archive (that plus the original image and the project file), and the chart alone. A pre-flight check points out problems first.</li>
   </ol>
   <h3>Common tasks</h3>
   <ul>
-    <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
-    <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
-    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
-    <li><b>Analysis</b>: step 6, “+ Band box”, click the band on the raw image. Tick the loading control (GAPDH, actin…) and every other band is divided by it in the same lane, or normalize to the total lane density. The chart and the table open in the analysis window under the figure (Figure and Analysis in the top bar show or hide the two windows; drag the divider between them); plot options and the methods text are in step 7.</li>
+    <li><b>Show only some lanes</b>: pick the wells under Lanes, or drag the sides of the red box. Names are never lost.</li>
+    <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick its Fig. box in the lane list). A splice gap is added and the legend notes say so. The lane is still measured unless you untick Meas.</li>
+    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the image editor. Only the strips are shown, stacked, each with its own name.</li>
+    <li><b>Measure bands</b>: Densitometry (step 6), “+ Band box”, click the band on the image. Values are background-subtracted and relative to a reference lane; normalization is a choice under Normalize: a loading-control box (tick “Divide by this box”; it assumes that band is linear and unchanged by the treatment) or the lane signal (total-protein normalization only on a total-protein stain or stain-free image). The profile, table and plot open in the analysis window under the figure; plot options and the methods text are in the Densitometry step.</li>
     <li><b>Band sizes in every lane</b>: the analysis window, “Band sizes”.</li>
     <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
     <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
     <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
-    <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
+    <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under Lanes and make one figure per row. Each row keeps its names and annotations.</li>
     <li><b>Come back to a gel later</b>: every gel you open is kept in this browser's Library (top bar) with your latest edits; click it to continue. To take a gel to another computer, save a project file (Open / Save ▾).</li>
-    <li><b>Into a slide or notebook</b>: Export ▾ → Copy figure to clipboard.</li>
-    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the raw image and the figure; double-click one to reset. The sizes are remembered.</li>
-    <li><b>Use it like a desktop app</b>: on the web version, File ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
+    <li><b>Into a slide or notebook</b>: Export… → Figure → Copy to clipboard.</li>
+    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the image editor and the figure; double-click one to reset. The sizes are remembered.</li>
+    <li><b>Use it like a desktop app</b>: on the web version, Open / Save ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
   </ul>
   <h3>Image integrity</h3>
   <ul>
     <li>Only linear, whole-image adjustments; gamma is locked at 1 unless unlocked.</li>
     <li>Camera saturation (re-image needed) and contrast clipping (fixable) are reported separately.</li>
     <li>Removed lanes get a splice mark and strips a gap; never splice different gels into one panel.</li>
-    <li>Densitometry uses the raw pixel values, never the display contrast.</li>
+    <li>Densitometry reads the original pixel values, never the display contrast or the resampled working image.</li>
     <li>Also export the uncropped image and the original file for the supplement.</li>
   </ul>
   <p class='muted small'>Shortcuts: Ctrl+Z undo · Ctrl+Shift+Z redo · Space+drag pan · wheel zoom · H remove/restore lane · Esc cancel</p>
@@ -499,6 +536,47 @@
   <div id="claudeOut" class="claude-out" aria-live="polite"></div>
   <div class="pf-actions"><span id="claudeNote" class="muted small"></span><span class="flex"></span>
     <button class="btn" id="claudeStop">Stop</button><button class="btn" id="claudeAgain">Write again</button><button class="btn primary" id="claudeCopy">Copy</button></div>
+</div></div>
+
+<div id="exportDlg" class="dlg hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle"><div class="dlg-body exp">
+  <button class="dlg-x" id="btnExportClose" aria-label="Close">×</button>
+  <h3 id="exportTitle">Export</h3>
+  <div class="exp-grid">
+    <div class="exp-card" data-card="figure">
+      <b>Figure</b>
+      <p class="hint">The figure alone, for a manuscript or slides.</p>
+      <div class="inline"><select id="figFmt" style="width:auto"><option value="png">PNG</option><option value="tiff">TIFF (LZW, grayscale)</option><option value="pdf">PDF (vector)</option><option value="svg">SVG (vector)</option><option value="pptx">PowerPoint (editable)</option></select><button class="btn sm primary" id="btnPNGItem">Export figure</button></div>
+      <div class="inline"><button class="btn sm ghost" id="btnCopyFig" title="PNG at the chosen resolution, for pasting into slides or a lab notebook">Copy to clipboard</button><button class="btn sm ghost" id="btnPrintMenu" title="The figure with a caption, sized for a notebook page (Ctrl+P)">Print…</button></div>
+    </div>
+    <div class="exp-card" data-card="package">
+      <b>Results package</b>
+      <p class="hint">One ZIP: the figure (PNG, PDF, SVG), the chart, the measurements and band sizes (CSV), the processing log and the methods text. It does not hold the original image or the project.</p>
+      <button class="btn sm primary" id="btnPNG">Export results package</button>
+    </div>
+    <div class="exp-card" data-card="archive">
+      <b>Complete archive</b>
+      <p class="hint">The results package plus the original image file (and ladder image) with their SHA-256, and the project file that reopens everything: for the lab archive or a reviewer.</p>
+      <button class="btn sm primary" id="btnArchive">Export complete archive</button>
+    </div>
+    <div class="exp-card" data-card="chart" id="expChartCard">
+      <b>Chart</b>
+      <p class="hint">The densitometry chart alone.</p>
+      <div class="inline"><select id="qChartFmt" style="width:auto"><option value="png">PNG</option><option value="tiff">TIFF (LZW, grayscale)</option><option value="pdf">PDF (vector)</option><option value="svg">SVG (vector)</option><option value="pptx">PowerPoint (editable)</option></select><button class="btn sm" id="btnExpChart">Export chart</button></div>
+    </div>
+  </div>
+  <details class="adv"><summary>Supplementary files</summary>
+    <div class="exp-more">
+      <button class="btn sm ghost" id="btnUncropped" title="Same contrast and orientation, crop box and well numbers marked">Uncropped image (same processing)</button>
+      <button class="btn sm ghost" id="btnOriginal" title="The untouched source file, byte-identical">Original data (file + SHA-256)</button>
+      <button class="btn sm ghost" id="btnLog" title="File fingerprint, all parameters, clipping, effective resolution">Processing log (JSON)</button>
+    </div>
+  </details>
+  <div class="field inline wrap exp-opts">
+    <label class="inline-label" title="For PNG, TIFF and the clipboard; PDF, SVG and PowerPoint keep text and lines as vectors. Journals set their own minimum, often 300 dpi for photographs and more for images with text."><span>Resolution</span> <select id="dpiExp" style="width:auto"><option value="300">300 dpi</option><option value="600">600 dpi</option><option value="1200">1200 dpi</option></select></label>
+    <span class="h3-note" id="expDpiNote"></span>
+    <label class="switch"><input type="checkbox" id="preflightOn" checked> <span>Check before export</span></label>
+    <label class="switch" title="The legend notes (inversion, removed lanes, ladder) as a line of text under the figure in every export and print"><input type="checkbox" id="notesOn"> <span>Legend notes under the figure</span></label>
+  </div>
 </div></div>
 
 <div id="preflightDlg" class="dlg hidden"><div class="dlg-body pf">

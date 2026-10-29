@@ -922,6 +922,87 @@
     return n;
   }
 
+  /* How far image b is offset from image a (same pixel size): normalised cross-correlation of their
+   * gradient magnitudes (edges of the membrane, the slab, the wells and the bands show in both, even
+   * when one is a white-light picture and the other a chemiluminescence exposure), at a quarter of
+   * the resolution, searched over +-maxShift full-resolution pixels. Returns { dx, dy (full-res px,
+   * b relative to a), peak (correlation at the best offset), at0 (at no offset), confident }.
+   * confident: a clear peak (>= 0.25 and above the no-offset value or at it). */
+  function alignmentShift(a, b, maxShift) {
+    if (!a || !b || a.w !== b.w || a.h !== b.h) return null;
+    maxShift = maxShift || 40;
+    // gradient magnitude of the image averaged in f x f blocks
+    const grad = (img, f) => {
+      const w = Math.floor(img.w / f), h = Math.floor(img.h / f), s = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let t = 0; for (let j = 0; j < f; j++) for (let i = 0; i < f; i++) t += img.data[(y * f + j) * img.w + x * f + i];
+        s[y * w + x] = t / (f * f);
+      }
+      const g = new Float32Array(w * h);
+      for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+        const gx = s[y * w + x + 1] - s[y * w + x - 1], gy = s[(y + 1) * w + x] - s[(y - 1) * w + x];
+        g[y * w + x] = Math.sqrt(gx * gx + gy * gy);
+      }
+      return { g, w, h };
+    };
+    // best offset at block size f, searched over cx +- R, cy +- R (in blocks); the margin excludes the borders
+    const search = (f, cx, cy, R, margin) => {
+      const A = grad(a, f), B = grad(b, f), w = A.w, h = A.h, m = margin + 1;
+      const ncc = (dx, dy) => {
+        let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, n = 0;
+        for (let y = m; y < h - m; y++) for (let x = m; x < w - m; x++) {
+          const p = A.g[y * w + x], q = B.g[(y + dy) * w + x + dx];
+          sa += p; sb += q; saa += p * p; sbb += q * q; sab += p * q; n++;
+        }
+        if (!n) return 0;
+        const cov = sab / n - (sa / n) * (sb / n), va = saa / n - (sa / n) ** 2, vb = sbb / n - (sb / n) ** 2;
+        return va > 0 && vb > 0 ? cov / Math.sqrt(va * vb) : 0;
+      };
+      let best = { dx: cx, dy: cy, c: -Infinity };
+      for (let dy = cy - R; dy <= cy + R; dy++) for (let dx = cx - R; dx <= cx + R; dx++) {
+        if (Math.abs(dx) > margin || Math.abs(dy) > margin) continue;
+        const c = ncc(dx, dy); if (c > best.c) best = { dx, dy, c };
+      }
+      return { best, at0: ncc(0, 0) };
+    };
+    // coarse: blocks large enough that the search window is at most 10 blocks; then a fine pass
+    const f1 = Math.max(1, Math.round(Math.max(a.w, a.h) / 400), Math.ceil(maxShift / 10));
+    const c1 = search(f1, 0, 0, Math.ceil(maxShift / f1), Math.ceil(maxShift / f1));
+    const f2 = Math.max(1, Math.round(f1 / 3)), k = f1 / f2;
+    const c2 = search(f2, Math.round(c1.best.dx * k), Math.round(c1.best.dy * k), Math.ceil(k) + 1, Math.ceil(maxShift / f2) + 2);
+    const best = c2.best.c >= c1.best.c - 0.05 ? { dx: c2.best.dx * f2, dy: c2.best.dy * f2, c: c2.best.c } : { dx: c1.best.dx * f1, dy: c1.best.dy * f1, c: c1.best.c };
+    return { dx: best.dx, dy: best.dy, peak: +best.c.toFixed(3), at0: +c2.at0.toFixed(3), step: f2, confident: best.c >= 0.25 };
+  }
+
+  /* Where the pixel values of an image are clipped, read from the values themselves (no metadata
+   * says whether a detector saturated). Values are fractions of the file's full scale (0..1).
+   *   hi / lo: { level, kind, count }: kind 'limit' when pixels reach the digital limit of the file
+   *     (0 or full scale), 'pileup' when an unusually large number of pixels share the extreme value
+   *     below that limit (data of a lower bit depth in a 16-bit container, or an imager that clips
+   *     before writing), 'none' otherwise; level is the clipping value (null with 'none').
+   *   float: floating-point data have no digital limit, so only a pile-up can show clipping.
+   *   rawMax / effBits: the largest stored value and, for a 16-bit container whose largest value is
+   *     2^k - 1 with k < 16, k (the data look k-bit).
+   * meta: { bits, fmt (3 = float), lossy } from the decoder. */
+  function clipLevels(img, meta) {
+    meta = meta || {};
+    const d = img.data, n = d.length, float = meta.fmt === 3;
+    let mx = -Infinity, mn = Infinity;
+    for (let i = 0; i < n; i++) { const v = d[i]; if (v > mx) mx = v; if (v < mn) mn = v; }
+    const eps = 0.5 / 65535;
+    let nHi = 0, nLo = 0;
+    for (let i = 0; i < n; i++) { const v = d[i]; if (v >= mx - eps) nHi++; if (v <= mn + eps) nLo++; }
+    // a pile-up: the extreme value is shared by far more pixels than a smooth histogram tail gives
+    const pile = c => c >= Math.max(20, n * 1e-4);
+    const side = (ext, cnt, atLimit) => (!float && atLimit ? { level: ext, kind: 'limit', count: cnt }
+      : pile(cnt) ? { level: ext, kind: 'pileup', count: cnt } : { level: null, kind: 'none', count: 0 });
+    const hi = side(mx, nHi, mx >= 1 - eps), lo = side(mn, nLo, mn <= eps);
+    const bits = meta.bits || 8, full = Math.pow(2, bits) - 1, rawMax = float ? null : Math.round(mx * full);
+    let effBits = null;
+    if (!float && bits === 16 && rawMax < full) { const k = Math.round(Math.log2(rawMax + 1)); if (k < 16 && Math.pow(2, k) - 1 === rawMax) effBits = k; }
+    return { hi, lo, float, lossy: !!meta.lossy, bits, rawMax, effBits };
+  }
+
   // Map to 8-bit grayscale RGBA. levels in raw domain; gamma applied after linear stretch.
   function toImageData(img, lv, out) {
     const n = img.w * img.h;
@@ -2025,6 +2106,27 @@
     return best;
   }
 
+  /* The ladders that fit one lane about as well as the best, for the marker card: the fast score over the
+   * library (identical lists counted once), the seven best scored again with the full chain assignment.
+   * Returns [{ id, score, frac }] best first. */
+  function ladderCandidates(peaks, ladders, h, k) {
+    const lib = uniqueLadders(ladders);
+    matchMulti.fast = true;
+    let rows;
+    try {
+      rows = lib.map(l => {
+        const D = prepLane({ peaks, sizes: l.sizes });
+        const models = D.ys.length >= 2 ? ransacModels(D, h, 12) : [];
+        const r = models.length ? matchMulti([{ peaks, sizes: l.sizes, models }], h) : null;
+        return { id: l.id, sizes: l.sizes, models, score: r ? r.score : 0 };
+      }).filter(c => c.score >= 0.4).sort((a, b) => b.score - a.score).slice(0, 7);
+    } finally { matchMulti.fast = false; }
+    return rows.map(c => {
+      const r = matchMulti([{ peaks, sizes: c.sizes, models: c.models }], h);
+      return { id: c.id, score: r.score, frac: (r[0].matchedCount || 0) / c.sizes.length };
+    }).sort((a, b) => (b.score - a.score) || (b.frac - a.frac)).slice(0, k || 5);
+  }
+
   // Rank ladder presets by fit to the detected peaks of one lane
   function rankLadders(peaks, ladders, h) {
     return uniqueLadders(ladders).map(l => {
@@ -2108,6 +2210,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore, clipLevels, alignmentShift, sharpBandCount, rankLadders, ladderCandidates, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
 })(window);

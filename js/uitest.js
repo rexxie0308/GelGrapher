@@ -472,113 +472,137 @@
       const r = st.quant.rows[0], box = { name: 'extra', y0: r.y0 + 2, y1: r.y1 + 2 }; st.quant.rows.push(box); App.boxAdded = true; App.commit();
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
-      const lcHead = /loading control/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
+      const lcHead = /divisor/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
       G.QuantUI.show('quant', false);
       const v2 = G.QuantUI.view(), figShown = !$('figPane').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
       R.quantView = { v0, v1, chart, tableRows, lanes, lcHead, panelHasChart, v2, figShown,
         ok: v0 === 'figure' && v1 === 'quant' && chart && tableRows === lanes && lcHead && panelHasChart && v2 === 'figure' && figShown };
     }
-    // 35. the hands-on tutorial: every part waits for the real action, for typing to end and for dialogs to close, then for Next;
-    // one card walks through "the button, then the figure"; the block a control sits in stays lit; the card keeps to the panel's corner
-    if (/[?&]draft=1/.test(location.search) || true) {
+    // 35. lessons: nothing starts by itself and the start screen offers the ways in; a lesson is short, worded for the
+    // experiment and practises on a copy (an example, or the open gel whose state comes back at the end); each card asks
+    // for one action and waits for it (not while a text box or a dialog is open), then for Next; "Already correct",
+    // "Not applicable" and "Keep raw values" move on; "Why?" opens; the measuring lesson keeps the reviewer's order;
+    // finished lessons and the card a lesson was left at are remembered
+    {
       const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
       const at = () => $('tourTitle').textContent + '·' + G.Tour.part();
       const until = async (want, ms) => { const t0 = Date.now(); while (at() !== want && Date.now() - t0 < (ms || 5000)) await wait(100); return at(); };
       // the action was done on the page: wait for the card to say so, click Next, and report where that leads
       const act = async want => { const t0 = Date.now(); while (!G.Tour.done() && Date.now() - t0 < 5000) await wait(100); if (!G.Tour.done()) return 'not done: ' + at(); G.Tour.next(); return until(want); };
       const warnsHidden = () => getComputedStyle($('warnings')).display === 'none';
-      const holes = () => $('tourHoles').childNodes.length;
       const spotR = () => $('tourSpot').getBoundingClientRect(), cardR = () => $('tourCard').getBoundingClientRect(), panelR = $('panel').getBoundingClientRect();
       const within = (a, b, tol) => a.left >= b.left - tol && a.top >= b.top - tol && a.right <= b.right + tol && a.bottom <= b.bottom + tol;
       const log = [];
-      App.setPref('tutorialSeen', null);
-      $('panel').scrollTop = 200; $('imgAdv').open = false; $('fixLanes').open = false; $('laneAdv').open = false;
-      G.Tour.start('tutorial');
-      log.push(await until('The three areas·0'));                  // a gel is open, so the practice-gel step is skipped
+      // the start screen: "Use my image", practice by goal, the overview; no lesson is running
+      const es = $('emptyState');
+      const ways = /Use my image/.test(es.textContent) && !!es.querySelector('[data-lesson="figure"]') && !!es.querySelector('[data-lesson="measure"]') && !!es.querySelector('#btnOverview');
+      const idle = !G.Tour.active();
+      const L = G.Tour.lessons(), short = L.length >= 6 && L.every(l => l.cards.length >= 2 && l.cards.length <= 8);
+      const order = L.find(l => l.id === 'measure').cards.join(' > ') === 'Acquisition and saturation > Ladder image > Box the band > Lanes measured > Background and profile > Normalization > Read the values > Export results and provenance';
+      App.setPref('lessons', null);
+      // the menu: lessons under two goals; an example is open, so it is the practice copy (no "Practise on" choice)
+      G.Tour.menu();
+      const menu = !$('lessonDlg').classList.contains('hidden') && $('lessonList').querySelectorAll('.ls-item').length === L.length && $('lessonList').querySelectorAll('.ls-goal').length === 2 && $('lessonWhereBox').classList.contains('hidden');
+      $('btnLessonClose').click();
+      // the first figure, on the open example, stripped back to what detection found
+      $('panel').scrollTop = 200;
+      await G.Tour.practice('figure');
+      log.push(await until('Working image and original·0'));
+      const prepared = App.isExample && !App.S.groups.length && !App.S.strips.length && !App.S.quant.rows.length && !App.S.markers.some(m => m.confirmed);
       const clickable = getComputedStyle($('tour')).pointerEvents === 'none', warnHidden = warnsHidden(), dimmed = getComputedStyle($('tourDim').querySelector('.dim')).fill !== 'none';
-      G.Tour.next(); const ringHidden = $('tourSpot').style.display === 'none';   // a whole column is shown by the dim alone
-      const glued = $('tourText').innerHTML.includes('<span class="tour-kb"><kbd class="tour-key">Next</kbd>.</span>');   // "." never starts a line
-      G.Tour.next(); const panelTop = $('panel').scrollTop === 0;   // the panel intro shows its top
-      G.Tour.next(); log.push(at());                               // band look: one card, try it yourself
-      const twoLit = holes() === 2;                                // the switch and the figure column stay lit
-      G.Tour.next(); log.push(at());                               // straighten: one card for + and back
-      await wait(300);
-      const foldOpened = $('imgAdv').open, blockLit = holes() === 3, ringOnPlus = within(spotR(), $('rotPlus').getBoundingClientRect(), 8);
-      const cardInPanel = cardR().right <= panelR.right + 1 && cardR().bottom > innerHeight - 40;   // bottom left while working in the panel
-      App.setRotation(App.S.rotation + 0.5); App.commit(); await wait(700);
-      const stageMoves = within(spotR(), $('btnResetRot').getBoundingClientRect(), 8) && !G.Tour.done();   // the ring moves to the next control
-      $('btnResetRot').click(); log.push(await act('Set the contrast·0'));
-      const warnShown = !warnsHidden();
-      App.S.levels.white -= 0.01; App.commit(); await wait(700); const lvStage = within(spotR(), $('btnResetLv').getBoundingClientRect(), 8);
-      $('btnResetLv').click(); log.push(await act('The figure area·0'));
-      App.S.crop.h -= 5; App.commit(); log.push(await act('Check the lanes·0'));
-      G.Tour.next(); log.push(at()); await wait(300); const fixOpened = $('fixLanes').open;
-      const spot0 = spotR().top; $('panel').scrollTop += 40; await wait(120);
-      const follows = Math.abs(spotR().top - spot0 + 40) < 3 || $('panel').scrollTop === 0;   // the spotlight follows a scroll
-      $('btnEvenCrop').dispatchEvent(new MouseEvent('click', { bubbles: true })); log.push(await act('Check the lanes·2'));
+      const waits = $('tourNext').disabled && !$('tourAlt').classList.contains('hidden');
+      $('btnOrig').click(); await wait(700); const halfway = !G.Tour.done();     // the original is on screen: back to the working image first
+      $('btnOrig').click(); log.push(await act('Check the lanes·0'));
+      const altWords = $('tourAlt').textContent === 'Already correct';
+      $('tourAlt').click(); log.push(await until('Check the ladder·0'));
       await wait(400);
-      const fl0 = G.UI.figLanes(), spare = App.emptyLanes().filter(i => fl0.includes(i))[0] ?? fl0[fl0.length - 1];
-      const showVisible = within(spotR(), $('laneList').getBoundingClientRect(), 8);   // the Show box is scrolled into view, the ring inside the list
-      const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i)), names0 = fl.map(i => App.S.lanes[i].name);
-      fl.forEach(i => { App.S.lanes[i].name = ''; });                 // no names when the naming card begins
-      App.S.lanes[spare].hidden = true; App.commit(); log.push(await act('Name the lanes·0'));
-      App.S.lanes[fl[0]].name = 'tut-A'; App.commit(); await wait(700);
-      const oneEnough = G.Tour.done();                              // one name is enough
-      log.push(await act('Check the ladder·0'));
-      G.Tour.next(); log.push(at()); await wait(300); const bandsOpened = !!document.querySelector('#markerList .mk-card details[open]');
-      App.S.markers[0].bands[0].show = !App.S.markers[0].bands[0].show; App.commit(); log.push(await act('Group line·0'));
-      await wait(400); const ringOnBtn = within(spotR(), $('btnAddGroup').getBoundingClientRect(), 8);   // after the ring's slide
-      App.mode = 'group'; App.emit('change'); await wait(200);
-      const groupStage = spotR().left > $('figCol').getBoundingClientRect().left;   // the ring moves to the lane names on the figure
-      App.mode = null; App.S.groups.push({ from: fl[0], to: fl[1], text: '' }); App.commit(); await wait(700);
-      const needsLabel = !G.Tour.done();                            // a group without a label is not done
-      App.S.groups[App.S.groups.length - 1].text = 'tut'; $('floatEd').classList.remove('hidden'); App.commit(); await wait(1200);
-      const typingWaits = !G.Tour.done();                           // nor while a text box is open
-      $('floatEd').classList.add('hidden'); log.push(await act('Target band arrow·0'));
-      const skipLink = !!$('tourSkipPart');
-      App.mode = 'arrow'; App.emit('change'); await wait(100);
-      const gelImg = document.querySelector('#preview [data-edit="gel"]'), gr = gelImg.getBoundingClientRect();
-      gelImg.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: gr.left + gr.width / 2, clientY: gr.top + gr.height / 2 }));
-      const guide = !$('arrowGuide').classList.contains('hidden') && Math.abs(parseFloat($('arrowGuide').style.width) - gr.width) < 2;
-      App.mode = null; App.emit('change'); const guideGone = $('arrowGuide').classList.contains('hidden');
-      const b0 = App.S.markers[0].bands[5]; App.S.arrows.push({ y: b0.y, text: 'tut', size: true, side: '' }); App.commit(); log.push(await act('Condition row·0'));
-      App.S.conditions.push({ name: '', values: App.S.lanes.map(() => '') }); App.commit(); await wait(300);
-      const noMarkerCell = !document.querySelector(`#preview [data-edit="cond"][data-src="${App.S.markers[0].lane}"]`) && document.querySelectorAll('#preview [data-edit="cond"]').length === fl.filter(i => !App.S.lanes[i].hidden).length;
-      const cellsStage = !G.Tour.done() && spotR().width > 100;
-      App.S.conditions[0].values[fl[0]] = '+'; App.S.conditions[0].values[fl[1]] = '−'; App.commit(); await wait(300); const nameStage = !G.Tour.done();
-      App.S.conditions[0].name = 'EcoRI'; App.commit(); log.push(await act('Strips·0'));
-      const nucleic = App.kind() === 'dna' || App.kind() === 'rna';
-      const stripText = (nucleic ? /DNA or RNA gel like this one/ : /Western figures show/).test($('tourText').textContent);   // worded for the gel that is open
-      G.Tour.skipStep(); log.push(at());                           // densitometry intro
-      G.Tour.next(); log.push(at()); App.mode = 'quant'; App.emit('change'); await wait(200);
-      const quantStage = spotR().left > panelR.right;              // the ring moves to the raw image
-      App.mode = null; const r0 = App.S.markers[0].bands[3], r1 = App.S.markers[0].bands[6];
-      App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await act('Densitometry·2'));
-      const viewOpened = G.QuantUI.view() === 'quant';             // the follow-up of the part ran
-      App.S.quant.rows.push({ y0: r1.y - 6, y1: r1.y + 6, name: 'b' }); App.S.quant.control = 1; App.commit(); log.push(await act('Densitometry·3'));
-      log.push(await act('Densitometry·4'));
-      G.Tour.next(); log.push(at()); G.QuantUI.show('quant', false);
-      $('warnings').innerHTML = '<div><span>⚠ a notice</span></div>';          // a notice is up: it is the first target of the export step
-      log.push(await act('Export the figure·0'));
-      const noticesStep = !warnsHidden() && spotR().height > 10;
-      G.Tour.next(); G.Tour.next(); log.push(at()); const exportWaits = $('tourNext').disabled;
+      const whyFolded = !$('tourWhy').classList.contains('hidden') && !$('tourWhy').open && $('tourWhyText').textContent.length > 40;
+      $('tourWhy').open = true;
+      const pageStill = document.scrollingElement.scrollTop === 0;   // the panel scrolled to the control, the page itself did not
+      const confirmEl = document.querySelector('#markerList .mk-card .mk-confirm');
+      const ringOnConfirm = within(spotR(), confirmEl.getBoundingClientRect(), 8);
+      // while working in the panel the card keeps to the panel's column (its bottom, or its top when the control sits low)
+      // and never covers the control
+      const cr = cardR(), tr = confirmEl.getBoundingClientRect(), box4 = r => [r.left, r.top, r.right, r.bottom].map(Math.round);
+      const cardInPanel = cr.left >= panelR.left - 1 && cr.right <= panelR.right + 1 && !(cr.left < tr.right && cr.right > tr.left && cr.top < tr.bottom && cr.bottom > tr.top);
+      const cardAt = { card: box4(cr), control: box4(tr), panel: box4(panelR) };
+      const glued = $('tourText').innerHTML.includes('<span class="tour-kb"><kbd class="tour-key">Confirm this is the ladder you loaded</kbd>.</span>');   // "." never starts a line
+      confirmEl.querySelector('input').click(); log.push(await act('Name a lane·0'));
+      const whyRefolded = !$('tourWhy').open;
+      const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
+      App.S.lanes[fl[0]].name = 'tut-A'; $('floatEd').classList.remove('hidden'); App.commit(); await wait(1200);
+      const typingWaits = !G.Tour.done();                            // not while a text box is open
+      $('floatEd').classList.add('hidden');
+      $('warnings').innerHTML = '<div><span>⚠ a notice</span></div>';          // a notice is up: the notices card applies
+      log.push(await act('Read the notices·0'));
+      const noticesCard = !warnsHidden() && spotR().height > 10;
+      G.Tour.next(); log.push(at());
+      const exportWaits = $('tourNext').disabled;
       const fontPt = App.S.style.fontPt; App.S.style.fontPt = 4; App.commit();  // something the pre-flight check warns about
-      G.UI.autoConfirm = null; $('btnPNG').click(); await wait(300);
-      const dialogWaits = !$('preflightDlg').classList.contains('hidden') && at() === 'Export the figure·2' && !G.Tour.done();   // the pre-flight window holds the step
-      $('pfBack').click(); await wait(300); const backWaits = at() === 'Export the figure·2' && !G.Tour.done();
+      G.UI.autoConfirm = null; $('btnPNGItem').click(); await wait(300);
+      const dialogWaits = !$('preflightDlg').classList.contains('hidden') && at() === 'Export the figure·0' && !G.Tour.done();   // the pre-flight window holds the card
+      $('pfBack').click(); await wait(300); const backWaits = at() === 'Export the figure·0' && !G.Tour.done();
       App.S.style.fontPt = fontPt; App.commit();
-      G.Tour.skipStep(); log.push(at()); const last = $('tourNext').textContent;
+      $('tourAlt').click(); log.push(at());
+      const endCard = $('tourNext').textContent === 'Finish' && !$('tourMore').classList.contains('hidden') && /Labels on the figure/.test($('tourNextLesson').textContent) && $('tourRevert').classList.contains('hidden');
       G.Tour.next();
-      const expect = ['The three areas·0', 'Band look: bright or dark·0', 'Straighten the image·0', 'Set the contrast·0', 'The figure area·0', 'Check the lanes·0', 'Check the lanes·1', 'Check the lanes·2',
-        'Name the lanes·0', 'Check the ladder·0', 'Check the ladder·1', 'Group line·0', 'Target band arrow·0', 'Condition row·0', 'Strips·0', 'Densitometry·0', 'Densitometry·1', 'Densitometry·2', 'Densitometry·3', 'Densitometry·4', 'Densitometry·5',
-        'Export the figure·0', 'Export the figure·2', 'Done·0'];
+      const doneKept = !G.Tour.active() && !!(App.prefs().lessons || {}).figure && App.prefs().lessons.figure.done === true;
+      // left part-way: the card is remembered and the menu offers to continue there on this gel
+      await G.Tour.practice('labels');
+      log.push(await until('Group line·0'));
+      $('tourAlt').click(); log.push(await until('Target band arrow·0'));
+      $('tourSkip').click();
+      const left = App.prefs().lessons.labels, leftAt = !!left && left.at === 1 && !left.done;
+      G.Tour.menu();
+      const tick = !!document.querySelector('#lessonList .ls-item.done [data-ls="figure"]'), resume = document.querySelector('#lessonList [data-resume="labels"]');
+      if (resume) resume.click();
+      log.push(await until('Target band arrow·0'));
+      $('tourSkip').click();
+      // measuring, in order, on the Western example
+      await G.Tour.practice('measure');
+      log.push(await until('Acquisition and saturation·0'));
+      const prepQuant = !App.S.quant.rows.length && App.S.quant.norm === 'none';
+      $('showSat').checked = true; $('showSat').dispatchEvent(new Event('change')); log.push(await act('Ladder image·0'));
+      const naWords = $('tourAlt').textContent === 'Not applicable';
+      $('showSat').checked = false; $('showSat').dispatchEvent(new Event('change'));
+      $('tourAlt').click(); log.push(await until('Box the band·0'));
+      App.mode = 'quant'; App.emit('change'); await wait(200);
+      const quantStage = spotR().left > panelR.right;              // the ring moves to the image
+      App.mode = null; const r0 = App.S.markers[0].bands[3];
+      App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await act('Lanes measured·0'));
+      const profileOpen = G.QuantUI.view() === 'quant' && !$('quantProf').classList.contains('hidden');   // the follow-up of the card ran
+      $('tourAlt').click(); log.push(await until('Background and profile·0'));
+      const pl = $('qProfLane'); pl.value = [...pl.options].map(o => o.value).find(v => v !== pl.value); pl.dispatchEvent(new Event('change')); log.push(await act('Normalization·0'));
+      const proteinWords = /GAPDH/.test($('tourText').textContent) && /total-protein/.test($('tourText').textContent) && $('tourAlt').textContent === 'Keep raw values';
+      $('tourAlt').click(); log.push(await until('Read the values·0'));
+      document.querySelector('#quantTabs [data-tab="int"]').click(); log.push(await act('Export results and provenance·0'));
+      $('tourAlt').click(); log.push(at());
+      G.Tour.next();
+      const measureDone = App.prefs().lessons.measure.done === true;
+      // on the user's own gel: the menu offers the choice; the lesson is worded for its experiment, and what it
+      // changed is undone at its end on request
+      await App.load(new File([G.Demo.encodeTiff16(G.Demo.makeGel())], 'demo_gel.tif', { type: 'image/tiff' }), 'dna-agarose');
+      G.Tour.menu(); const whereShown = !$('lessonWhereBox').classList.contains('hidden'); $('btnLessonClose').click();
+      const strips0 = App.S.strips.length;
+      await G.Tour.practice('strips', { where: 'this' });
+      log.push(await until('Add a strip·0'));
+      const ownGel = !App.isExample && /DNA and RNA gels/.test($('tourWhyText').textContent);
+      const c = App.S.crop; App.S.strips.push({ y0: c.y + 10, y1: c.y + 40, label: '' }); App.commit(); log.push(await act('Remove the strip·0'));
+      $('tourAlt').click(); log.push(at());
+      const revertShown = !$('tourRevert').classList.contains('hidden');
+      $('tourRevert').click(); await wait(100);
+      const reverted = App.S.strips.length === strips0 && $('tourRevert').classList.contains('hidden');
+      G.Tour.next();
+      const expect = ['Working image and original·0', 'Check the lanes·0', 'Check the ladder·0', 'Name a lane·0', 'Read the notices·0', 'Export the figure·0', 'Lesson done·0',
+        'Group line·0', 'Target band arrow·0', 'Target band arrow·0',
+        'Acquisition and saturation·0', 'Ladder image·0', 'Box the band·0', 'Lanes measured·0', 'Background and profile·0', 'Normalization·0', 'Read the values·0', 'Export results and provenance·0', 'Lesson done·0',
+        'Add a strip·0', 'Remove the strip·0', 'Lesson done·0'];
       const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
-      const checks = { clickable, warnHidden, warnShown, dimmed, glued, ringHidden, panelTop, twoLit, foldOpened, blockLit, ringOnPlus, cardInPanel, stageMoves, lvStage, fixOpened, follows, showVisible, oneEnough, bandsOpened, ringOnBtn, groupStage, needsLabel, typingWaits, skipLink, guide, guideGone, noMarkerCell, cellsStage, nameStage, stripText, quantStage, viewOpened, noticesStep, exportWaits, dialogWaits, backWaits };
-      R.tutorial = Object.assign({ bad, last, hidden: $('tour').classList.contains('hidden'), seen: !!App.prefs().tutorialSeen,
-        ok: !bad.length && Object.values(checks).every(Boolean) && last === 'Done' && $('tour').classList.contains('hidden') && !!App.prefs().tutorialSeen }, checks);
-      fl.forEach((i, k) => { App.S.lanes[i].name = names0[k]; });
-      App.S.groups.pop(); App.S.arrows.pop(); App.S.conditions.pop(); App.S.quant.rows = []; App.S.quant.control = -1; App.S.lanes[spare].hidden = false; App.commit();
+      const checks = { ways, idle, short, order, menu, prepared, clickable, warnHidden, dimmed, waits, halfway, altWords, whyFolded, pageStill, ringOnConfirm, cardInPanel, glued, whyRefolded, typingWaits, noticesCard, exportWaits, dialogWaits, backWaits, endCard, doneKept,
+        leftAt, tick, resume: !!resume, prepQuant, naWords, quantStage, profileOpen, proteinWords, measureDone, whereShown, ownGel, revertShown, reverted };
+      R.lessons = Object.assign({ bad, cardAt, ok: !bad.length && Object.values(checks).every(Boolean) && !G.Tour.active() }, checks);
+      await G.UI.loadExample('western');                               // the sections that follow ran on the Western example
     }
     // 37. print: a page with the figure at a readable size and a caption with the legend notes
     {
@@ -592,25 +616,42 @@
         off: !!notes && !svg0.includes(probe), on: !!notes && svg1.includes(probe), taller: fn.h > f.h && fn.svg.includes(`height="`) && fn.notes >= 1,
         ok: !!$('btnPrint') && !!$('btnPrintMenu') && !!$('notesOn') && /width:1[2-8]\d\.\dmm/.test(h0) && !!notes && !svg0.includes(probe) && svg1.includes(probe) && fn.h > f.h };
     }
-    // 38. densitometry: the band-pixel measure does not change with the box size; a reference lane without the band gives no relative values
+    // 38. densitometry is linear by default and says when it cannot be trusted: a two-fold dilution series reads
+    // two-fold in the whole-box measure (the thresholded measure does not, for faint bands); a box over an empty
+    // region is below its limit of quantification, so it is flagged and the reference lane cannot serve; a
+    // denominator below its LOQ gives no normalized value; the analysis area and lanes are apart from the figure
     {
-      await G.UI.loadExample('western');
-      const st = App.S, q = st.quant, row = q.rows[0], h = Math.abs(row.y1 - row.y0), keep = JSON.parse(JSON.stringify(q));
-      q.mode = 'band'; q.control = -1;
-      const v1 = G.Quant.measure(App).vol[0];
-      q.rows[0] = { y0: Math.min(row.y0, row.y1) - h * 0.6, y1: Math.max(row.y0, row.y1) + h * 0.6, name: row.name };   // a box more than twice as tall
-      const v2 = G.Quant.measure(App).vol[0];
-      const drift = Math.max(...v1.map((v, j) => Math.abs(v2[j] / v - 1)));
-      q.mode = 'box';
-      const v3 = G.Quant.measure(App).vol[0], driftBox = Math.max(...v1.map((v, j) => Math.abs(v3[j] / v - 1)));
-      // a box over an empty region: the reference lane has no band there, so no relative value, and the chart falls back to the values
-      q.mode = 'band'; q.rows = [q.rows[0], { y0: st.crop.y + 2, y1: st.crop.y + 10, name: 'empty' }];
-      const M = G.Quant.measure(App), ch = G.Quant.chartSVG(App, M);
-      const emptyLow = Math.max(...M.vol[1]) < 0.02 * Math.max(...M.vol[0]);
-      const R2 = { refOk: M.refOk, relNull: M.rel[1].every(v => v == null), chart: !!(ch && ch.svg) };
-      Object.assign(q, keep); App.commit();
-      R.densMode = { drift: +drift.toFixed(4), driftBox: +driftBox.toFixed(4), emptyLow, refOk: R2.refOk, relNull: R2.relNull, chart: R2.chart,
-        ok: drift < 0.03 && emptyLow && R2.refOk[0] === true && R2.refOk[1] === false && R2.relNull && R2.chart };
+      const keepImg = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      // lanes 1-4: a two-fold series of a faint band (peak 0.02 to 0.16 above background); lane 5: empty
+      const amps = [0.02, 0.04, 0.08, 0.16], samples = [null, ...amps.map(a => [[3000, a]]), [], [[3000, 0.08]], [[3000, 0.08]], [[3000, 0.08]]];
+      await App.load(new File([G.Demo.encodeTiff16(G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: 9, samples, seed: 3, clean: true }))], 'dilution.tif'), 'dna-agarose');
+      const st = App.S, q = st.quant, xs = st.lanes.map(l => l.x), want = Array.from({ length: 4 }, (_, k) => 260 + 80 * (k + 1));
+      const li = want.map(x => xs.reduce((b, v, i) => (Math.abs(v - x) < Math.abs(xs[b] - x) ? i : b), 0));
+      const box = G.Quant.bandBox(App, st.lanes[li[3]].x, G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: 9, samples, seed: 3, clean: true }).truth.yOf(3000));
+      q.rows = [{ y0: box.y0, y1: box.y1, name: 'series' }]; q.region = Object.assign({}, st.crop); q.ref = li[0];
+      const ratios = mode => { q.mode = mode; const M = G.Quant.measure(App), v = li.map(i => M.vol[0][M.lanes.indexOf(i)]); return v.slice(1).map((x, k) => x / v[k]); };
+      const rBox = ratios('box'), rBand = ratios('band');
+      const linear = rBox.every(r => Math.abs(r - 2) < 0.2), bandOff = Math.abs(rBand[0] - 2) > 0.3;
+      // an empty box: below LOQ in every lane, flagged, no reference
+      q.mode = 'box'; q.rows.push({ y0: st.crop.y + st.crop.h * 0.04, y1: st.crop.y + st.crop.h * 0.08, name: 'empty' });
+      const M2 = G.Quant.measure(App), emptyFlag = M2.flags[1].every(f => f.below), noRef = M2.refOk[1] === false && M2.rel[1].every(v => v == null);
+      // dividing by the empty box: no normalized values (the denominator is below its LOQ)
+      q.norm = 'control'; q.control = 1;
+      const M3 = G.Quant.measure(App), denWeak = M3.norm[0].every(v => v == null) && M3.flags[0].every(f => f.den === 'weak');
+      q.norm = 'none'; q.control = -1;
+      // the figure is not the analysis: a narrower red box and a lane hidden from the figure change no number
+      const before = JSON.stringify(G.Quant.measure(App).vol), lanesBefore = G.Quant.quantLanes(App).join();
+      st.crop = { x: st.crop.x + 100, y: st.crop.y + 30, w: st.crop.w - 200, h: st.crop.h - 60 }; st.lanes[li[2]].hidden = true;
+      const sameVals = JSON.stringify(G.Quant.measure(App).vol) === before, sameLanes = G.Quant.quantLanes(App).join() === lanesBefore;
+      // leaving a lane out of the analysis does remove it
+      st.lanes[li[2]].noMeasure = true; const leftOut = !G.Quant.quantLanes(App).includes(li[2]);
+      // the methods, the CSV and the log say the same thing about the measure
+      const M4 = G.Quant.measure(App), D = G.Quant.describe(App, M4), methods = G.Quant.methodsText(App, M4), csvT = G.Quant.quantCSV(App, M4);
+      const consistent = methods.includes(D.measure) && csvT.includes(D.measure) && /LOQ/.test(methods) && /whole box/.test(D.measure);
+      await App.load(new File([keepImg.buf], keepImg.name), keepImg.type);
+      App.S = JSON.parse(keepImg.snap); App.hist = keepImg.hist; App.future = keepImg.future; App.isExample = keepImg.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.densMode = { rBox: rBox.map(r => +r.toFixed(3)), rBand: rBand.map(r => +r.toFixed(3)), linear, bandOff, emptyFlag, noRef, denWeak, sameVals, sameLanes, leftOut, consistent,
+        ok: linear && bandOff && emptyFlag && noRef && denWeak && sameVals && sameLanes && leftOut && consistent };
     }
     // 39. the raw image edits one layer at a time: band boxes respond with the Densitometry view, strips with the figure
     {
@@ -619,12 +660,17 @@
       const pt = (x, y) => { const p = G.Editor.toScreen(x, y); return [p.x, p.y]; };
       const qy = Math.min(st.quant.rows[0].y0, st.quant.rows[0].y1), sy = Math.min(st.strips[0].y0, st.strips[0].y1);
       const strip = st.strips[0], sMid = (strip.y0 + strip.y1) / 2;
-      G.QuantUI.setView('figure');
+      G.QuantUI.setLayer('figure');
       const fQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, fS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
-      G.QuantUI.setView('quant');
+      document.querySelector('#editSeg [data-layer="quant"]').click();
       const qQ = (G.Editor.hit(...pt(st.lanes[lane].x, qy)) || {}).type, qS = (G.Editor.hit(...pt(st.lanes[lane].x, sy)) || {}).type;
-      G.QuantUI.setView('figure');
-      R.layers = { fQ, fS, qQ, qS, sMid, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' };
+      // showing or activating a window does not change what the image edits
+      G.QuantUI.setView('figure'); const kept = G.QuantUI.layer() === 'quant';
+      G.QuantUI.setLayer('figure'); G.QuantUI.setView('quant'); const kept2 = G.QuantUI.layer() === 'figure';
+      // the + Band box tool works on the measurement layer and says so on the switch
+      G.FigEdit.setMode('quant'); const tool = G.QuantUI.layer() === 'quant' && document.querySelector('#editSeg [data-layer="quant"]').classList.contains('on'); G.FigEdit.setMode(null);
+      G.QuantUI.setLayer('figure'); G.QuantUI.setView('figure');
+      R.layers = { fQ, fS, qQ, qS, sMid, kept, kept2, tool, ok: fQ !== 'qedge' && fQ !== 'qbody' && fS === 'sedge' && qQ === 'qedge' && qS !== 'sedge' && kept && kept2 && tool };
     }
     // 41. long group labels: wrap (even lines), shrink (not below 5 pt) or one line; typed line breaks; the next tier moves up
     {
@@ -693,7 +739,7 @@
       G.QuantUI.show('quant', false); G.QuantUI.setView('figure');
       const only = vis($('figPane')) && !vis($('quantView')) && !vis($('gutterFig'));
       G.QuantUI.setView('quant');
-      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv'));
+      const both = vis($('figPane')) && vis($('quantView')) && vis($('gutterFig')) && G.QuantUI.view() === 'quant' && $('quantView').classList.contains('active') && vis($('imgAdv').closest('.sec'));   // the steps stay (step 1 may be folded to its summary)
       const hTop = $('figPane').getBoundingClientRect().height, hCol = $('figCol').getBoundingClientRect().height;
       G.Splitters.setFigSplit(0.7); await new Promise(r => setTimeout(r, 30));
       const split = Math.abs($('figPane').getBoundingClientRect().height / hCol - 0.7) < 0.08 && hTop > 0 && App.prefs().figSplit === 0.7;
@@ -706,14 +752,14 @@
       $('viewSeg').querySelector('[data-view="quant"]').click(); const segOpens = vis($('quantView')) && G.QuantUI.view() === 'quant';
       $('figPane').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); const clickActivates = G.QuantUI.view() === 'figure' && vis($('quantView'));
       const page = only && both && split && figClosed && empty && figBack && segOpens && clickActivates, stepsHidden = true, anaShown = vis($('plotAdv')) || true;
-      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export all', title = !!$('btnFigExport') && !!$('figFmt');
+      const numbered = $('quantSec').querySelector('.sec-n').textContent === '6', label = $('btnPNG').textContent === 'Export results package' && $('btnExport').textContent === 'Export…' && !!$('btnArchive'), title = !!$('btnFigExport') && !!$('figFmt') && $('exportDlg').contains($('figFmt'));
       // plot options reach the chart
       q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
       // normalization modes and the border background
       q.norm = 'lane'; q.bg = 'border'; App.commit();
-      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
-      const csvNorm = G.Quant.quantCSV(App, M).includes('total lane'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
+      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'lane signal' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
+      const csvNorm = G.Quant.quantCSV(App, M).includes('lane signal (denominator)'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
       q.norm = 'none'; App.commit();
       const noneNorm = G.Quant.measure(App).normLabel === null;
       // the package
@@ -898,7 +944,101 @@
       const legend = App.S.markers[0] ? G.Export.legendHints(App.S).join(' ') : 'M, NEB Color Prestained Protein Standard, Broad Range (10-250 kDa).';
       App.S.markers.forEach((m, k) => { m.ladderId = keepM[k]; });
       R.ladderLibrary = { n: all.length, bad, fmt: fmt.length, once, starred, legend: legend.slice(0, 200),
-        ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)\./.test(legend) };
+        ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)( \(identified from the band pattern; not confirmed\))?\./.test(legend) };
+    }
+    // 53. saturation is read from the original pixels at the band end of the scale, where this file clips: dark bands
+    // clipped at black, 12-bit data in a 16-bit file (a pile-up at 4095), floating-point data (cannot tell), a
+    // colour image (warned); and the marker image goes through the blot's geometry, with its offset measured
+    {
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      // dark bands (a stained gel scanned in white light) with one band core clipped at black
+      const gd = G.Demo.makeGel({ preset: 'dna', tilt: 0, dark: true });
+      await App.load(new File([G.Demo.encodeTiff16(gd)], 'dark.tif'), 'dna-agarose');
+      // (the synthetic stain clips at 0.03 of full scale, not at 0: a pile-up, 'probably clipped')
+      const darkOk = App.S.bright === false && App.S.saturatedInCrop > 0 && App.satReport().kind === 'probable' && App.acq.lo.kind === 'pileup' && App.acq.hi.kind === 'none';
+      // 12-bit data in a 16-bit file: the saturating band piles up at 4095, far below 65535
+      const g12 = G.Demo.makeGel({ preset: 'dna', tilt: 0 }), d12 = Float32Array.from(g12.data, v => Math.round(v * 4095) / 65535);
+      await App.load(new File([G.Demo.encodeTiff16({ width: g12.width, height: g12.height, data: d12 })], 'twelve.tif'), 'dna-agarose');
+      const twelve = { eff: App.acq.effBits, kind: App.acq.hi.kind, n: App.S.saturatedInCrop, rep: App.satReport().kind };
+      const twelveOk = twelve.eff === 12 && twelve.kind === 'pileup' && twelve.n > 0 && twelve.rep === 'probable';
+      // floating-point data with no pile-up: saturation cannot be told
+      const keepAcq = App.acq; App.acq = G.Engine.clipLevels({ data: Float32Array.from({ length: 4000 }, (_, i) => 0.1 + 0.8 * i / 4000) }, { fmt: 3, bits: 32 });
+      const floatOk = App.satReport().kind === 'unknown' && App.satPredicate() === null; App.acq = keepAcq;
+      // a colour image is converted to grey with a warning
+      const cv = document.createElement('canvas'); cv.width = 120; cv.height = 80; const cx = cv.getContext('2d');
+      cx.fillStyle = '#000'; cx.fillRect(0, 0, 120, 80); cx.fillStyle = '#f00'; cx.fillRect(10, 10, 40, 60); cx.fillStyle = '#0f0'; cx.fillRect(60, 10, 40, 60);
+      const png = await new Promise(r => cv.toBlob(r, 'image/png')), inp = await App.readInput({ name: 'composite.png', buffer: await png.arrayBuffer() });
+      const colourOk = inp.img.colour === true && inp.img.warnings.some(w => /colour image/.test(w));
+      // the marker image under a manual perspective box: the same transform as the blot, so a copy of the blot lands on it
+      const gm = G.Demo.makeGel({ preset: 'western', tilt: 0 }), bufM = G.Demo.encodeTiff16(gm);
+      await App.load(new File([bufM], 'blot.tif'), 'western');
+      const W = App.src.w, H = App.src.h;
+      App.setGeomCorners([[W * 0.08, H * 0.1], [W * 0.92, H * 0.06], [W * 0.95, H * 0.94], [W * 0.05, H * 0.9]]); App.commit();
+      App.setMarkerImage(await App.readInput({ name: 'marker.tif', buffer: bufM }));
+      const mr = App.ensureMarkerRot(), rr = App.ensureRot();
+      let diff = 0; for (let i = 0; i < rr.data.length; i += 97) diff = Math.max(diff, Math.abs(mr.data[i] - rr.data[i]));
+      const sameFrame = mr.w === rr.w && mr.h === rr.h && diff < 1e-4, aligned = App.markerAligned() === true;
+      // an offset copy is measured as offset
+      const sh = new Float32Array(gm.data.length); for (let y = 0; y < gm.height; y++) for (let x = 0; x < gm.width; x++) sh[y * gm.width + x] = gm.data[Math.min(gm.height - 1, Math.max(0, y - 14)) * gm.width + Math.min(gm.width - 1, Math.max(0, x - 10))];
+      App.setMarkerImage(await App.readInput({ name: 'shifted.tif', buffer: G.Demo.encodeTiff16({ width: gm.width, height: gm.height, data: sh }) }));
+      const off = App.markerAlign, offsetSeen = App.markerAligned() === false && Math.abs(off.dx - 10) <= 3 && Math.abs(off.dy - 14) <= 3;
+      App.clearMarkerImage();
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.saturation = { darkOk, twelve, twelveOk, floatOk, colourOk, sameFrame, diff, aligned, off, offsetSeen,
+        ok: darkOk && twelveOk && floatOk && colourOk && sameFrame && aligned && offsetSeen };
+    }
+    // 54. what was detected is shown for review, and choices are explicit: the ladder card says what the calibration
+    // rests on and asks for confirmation; sizes interpolate between ladder lanes; lane roles; the low-signal prompt;
+    // the Original view; one export decision with a complete archive; the profile reads out what a box measured
+    {
+      const $ = id => document.getElementById(id);
+      await G.UI.loadExample('western');
+      const st = App.S, m = st.markers[0];
+      await wait(100);
+      const card = $('markerList').querySelector('.mk-card'), status = card.querySelector('.mk-score').textContent;
+      const shows = /\d+\/\d+ bands/.test(status) && !/Fit \d+%/.test(card.innerHTML);
+      const reviewBefore = document.querySelectorAll('#sections .sec')[2].classList.contains('review') && /not confirmed/.test(G.Export.legendHints(st).join(' '));
+      card.querySelector('[data-f="confirm"]').click(); await wait(50);
+      const confirmed = App.S.markers.every(k => k.confirmed) && !/not confirmed/.test(G.Export.legendHints(App.S).join(' ')) && document.querySelectorAll('#sections .sec')[2].classList.contains('done');
+      const logConf = G.Export.processingLog(App.S).markers[0].ladderConfirmedByUser === true;
+      // changing the ladder takes the confirmation back
+      const sel = $('markerList').querySelector('[data-f="ladder"]'), other = [...sel.options].find(o => o.value !== App.S.markers[0].ladderId).value;
+      sel.value = other; sel.dispatchEvent(new Event('change')); await wait(50);
+      const unconfirmedAgain = App.S.markers[0].confirmed === false;
+      App.undo(); App.undo(); await wait(50);
+      // two ladder lanes with a smile between them: a lane in the middle is sized between them
+      const keepM = JSON.stringify(App.S.markers), mk0 = JSON.parse(keepM)[0], lanes = App.S.lanes, far = lanes.length - 1;
+      const mk1 = Object.assign(JSON.parse(JSON.stringify(mk0)), { lane: far });
+      mk1.bands.forEach(b => { b.y += 20; });
+      App.S.markers = [mk0, mk1];
+      const mb = mk0.bands.filter(b => b.matched), yb = mb[Math.floor(mb.length / 2)].y + 10, xMid = (lanes[mk0.lane].x + lanes[far].x) / 2;
+      const eL = App.estimateInfo(yb, lanes[mk0.lane].x), eM = App.estimateInfo(yb, xMid), eR = App.estimateInfo(yb, lanes[far].x);
+      const interp = eM.how === 'interpolated' && eL.bp < eM.bp && eM.bp < eR.bp;
+      App.S.markers = JSON.parse(keepM); App.commit();
+      // lane roles: a negative control, and a ladder role that makes (and unmakes) a marker lane
+      const lane = G.Quant.quantLanes(App)[2], roleSel = () => $('laneList').querySelector(`[data-role="${lane}"]`);
+      roleSel().value = 'neg'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const neg = App.S.lanes[lane].role === 'neg';
+      roleSel().value = 'ladder'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const asLadder = App.S.markers.some(k => k.lane === lane);
+      roleSel().value = 'sample'; roleSel().dispatchEvent(new Event('change')); await wait(30);
+      const back = !App.S.markers.some(k => k.lane === lane) && !App.S.lanes[lane].role;
+      const emptyWords = $('btnNegEmpty').textContent === 'Mark as negative control' && $('btnCutEmpty').textContent === 'Leave out of the figure';
+      // the Original view: the file as decoded, nothing to drag; the working image said in words
+      $('btnOrig').click(); const orig = G.Editor.original() && G.Editor.hit(200, 200) === null; $('btnOrig').click();
+      const work = /Working image/.test($('workNote').textContent) && !G.Editor.original();
+      // one export decision; the complete archive holds the original image and the project
+      $('btnExport').click(); const dlg = !$('exportDlg').classList.contains('hidden') && document.querySelectorAll('#exportDlg .exp-card').length === 4;
+      $('btnExportClose').click();
+      const f = App.buildFigure(false), ar = await G.Export.packageBlob(App.S, 'ar', f, G.QuantUI.chart(), 150, { archive: { original: { name: App.S.file.name, buffer: App.srcBuffer, sha256: App.S.file.sha256 }, marker: null, project: await App.projectBlob() } });
+      const arNames = ar.files, archive = arNames.some(n => n.startsWith('ar/original/')) && arNames.includes('ar/ar.gelfig') && arNames.includes('ar/README.txt');
+      // the profile: the first view of the analysis window, reading out the box's value and limits
+      G.QuantUI.setView('quant'); document.querySelector('#quantTabs [data-tab="prof"]').click(); await wait(60);
+      const prof = !$('quantProf').classList.contains('hidden') && /LOQ/.test($('qProfRead').textContent);
+      G.QuantUI.show('quant', false);
+      R.review = { shows, status, reviewBefore, confirmed, logConf, unconfirmedAgain, interp, eL: eL.bp, eM: eM.bp, eR: eR.bp, neg, asLadder, back, emptyWords, orig, work, dlg, archive, prof,
+        ok: shows && reviewBefore && confirmed && logConf && unconfirmedAgain && interp && neg && asLadder && back && emptyWords && orig && work && dlg && archive && prof };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
@@ -931,6 +1071,54 @@
       const hiddenEmpty = App.S.lanes.filter(l => l.hidden).length;
       $('laneList').querySelector('[data-pick="all"]').click(); const shownAll = App.S.lanes.every(l => !l.hidden);
       R.picks = { none, all, n: m.bands.length, hadLink, empty: empty.length, hiddenEmpty, shownAll, ok: none === 0 && all === m.bands.length && hadLink === empty.length > 0 && hiddenEmpty === empty.length && shownAll };
+    }
+    // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
+    // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to
+    // the lines on the image lists only what is drawn and can be folded; the figure at its printed size; one filled
+    // button in the export window, which also holds the resolution; the More menu; an example says it is not saved
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      const shownEl = el => !!(el && el.offsetParent !== null);
+      const secs = [...document.querySelectorAll('#sections > .sec')];
+      const words = /Size ladder/.test(secs[2].querySelector('.sec-head').textContent) && $('rangeLabel').textContent === 'Lanes shown' && $('btnAddMarker').textContent === '+ Add ladder lane'
+        && [...$('editSeg').querySelectorAll('button')].map(b => b.textContent).join('|') === 'Figure|Boxes' && parseFloat(getComputedStyle(document.body).fontSize) >= 14;
+      // folding: a done step folds to its heading and summary; the heading unfolds it, by click or Enter
+      const s1 = secs[0], h1 = s1.querySelector('.sec-head');
+      s1.classList.add('done'); G.UI.foldDone();
+      const folded = s1.classList.contains('collapsed') && !shownEl($('polSeg')) && shownEl(h1) && !!$('stImage').textContent && h1.getAttribute('aria-expanded') === 'false';
+      h1.click(); const clickOpens = !s1.classList.contains('collapsed') && shownEl($('polSeg'));
+      h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); const keyCloses = s1.classList.contains('collapsed');
+      G.Tour.start('image'); await wait(200);
+      const lessonUnfolds = $('tourTitle').textContent === 'Band look' && !s1.classList.contains('collapsed') && shownEl($('polSeg'));
+      G.Tour.finish();
+      // the key: what is drawn now, foldable, gone in the Original view
+      const key = $('overlayKey'), on = k => !key.querySelector(`li[data-k="${k}"]`).classList.contains('off');
+      const keyShown = shownEl(key) && on('crop') && on('lane') && on('ladder') === App.S.markers.length > 0 && on('box') === App.S.quant.rows.length > 0;
+      const closed0 = key.classList.contains('closed');
+      $('okeyToggle').click(); const keyFolds = key.classList.contains('closed') !== closed0 && App.prefs().okeyClosed === !closed0;
+      $('okeyToggle').click();
+      $('btnOrig').click(); await wait(50); const keyOrig = !shownEl(key); $('btnOrig').click(); await wait(50); const keyBack = shownEl(key);
+      // the figure at its printed size: 1 pt = 4/3 CSS px
+      const fw = G.UI.lastFig().w;
+      $('btnActual').click(); const svg = () => $('preview').querySelector('svg');
+      const actual = Math.abs(parseFloat(svg().style.width) - fw * 4 / 3) < 0.5 && $('btnActual').getAttribute('aria-pressed') === 'true';
+      $('btnActual').click(); const fitted = Math.abs(parseFloat(svg().style.width) - fw * 4 / 3) > 0.5 || $('btnActual').getAttribute('aria-pressed') === 'false';
+      // the export window: one filled button (the card it was opened for), the resolution beside the options
+      const filled = () => [...$('exportDlg').querySelectorAll('.btn.primary')].map(b => b.id);
+      G.UI.openExport('archive'); const archiveMain = filled().join() === 'btnArchive';
+      G.UI.openExport(); const oneMain = filled().length === 1;
+      const dpi0 = App.S.style.dpi, dx = $('dpiExp');
+      dx.value = '1200'; dx.dispatchEvent(new Event('change')); const dpiSet = App.S.style.dpi === 1200 && $('dpiTop').value === '1200';
+      dx.value = String(dpi0); dx.dispatchEvent(new Event('change'));
+      $('btnExportClose').click();
+      // the More menu: lessons, library, help, print
+      const more = ['mLessons', 'mLibrary', 'mHelp', 'mPrint'].every(id => $('moreMenu').contains($(id)));
+      $('mLessons').click(); const moreLessons = !$('lessonDlg').classList.contains('hidden'); $('btnLessonClose').click();
+      // an example says at once that it is not kept
+      await G.UI.loadExample('western'); await wait(50);
+      const exampleNote = $('saveNote').textContent === 'Example: not saved';
+      const checks = { words, folded, clickOpens, keyCloses, lessonUnfolds, keyShown, keyFolds, keyOrig, keyBack, actual, fitted, archiveMain, oneMain, dpiSet, more, moreLessons, exampleNote };
+      R.compact = Object.assign({ ok: Object.values(checks).every(Boolean) }, checks);
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);

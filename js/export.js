@@ -132,7 +132,7 @@
     return JSON.stringify({
       tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
       rotationDeg: S.rotation, flip: flipText(S), geometry: keystoneText(S) || null, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
-      sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
+      bandEndClippedFrac: +k.sensorFrac.toFixed(5), saturation: A.satReport().kind, levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
       disclosure: legendHints(S).join(' ')
     });
@@ -289,19 +289,20 @@
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
       levels: Object.assign({ note: 'linear whole-image stretch; values are fractions of full scale' }, S.levels),
       clipping: {
-        sensorSaturatedPixels: k.sensor, sensorSaturatedFrac: k.sensorFrac,
+        bandEndClippedPixels: k.sensor, bandEndClippedFrac: k.sensorFrac, saturation: A.satReport(),
+        acquisition: A.acq ? { bits: A.acq.bits, floatingPoint: A.acq.float, lossy: A.acq.lossy, colourConvertedToGrey: !!A.acq.colour, top: A.acq.hi, bottom: A.acq.lo, largestStoredValue: A.acq.rawMax, looksBits: A.acq.effBits } : null,
         levelClippedHighPixels: k.high, levelClippedLowPixels: k.low,
         levelClippedOnBandSideFrac: A.bandClipFrac(), pixelsInCrop: k.n
       },
       resolution: { gelWidthMm: A.gelWidthMm(), gelPixelsAcross: A.visibleWidthPx(), effectiveGelDpi: Math.round(A.effectiveDpi()), exportDpi: S.style.dpi },
       lanes: S.lanes.map((l, i) => ({ well: i + 1, x: Math.round(l.x * 10) / 10, name: l.name, removedFromFigure: !!l.hidden,
         removal: l.hidden ? { reason: l.hiddenReason || 'manual', xFrom: Math.round(bounds[i][0]), xTo: Math.round(bounds[i][1]) } : undefined })),
-      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, fitScore: m.score, unit: m.unit,
+      markers: S.markers.map(m => ({ well: m.lane + 1, ladder: (G.Ladders.get(m.ladderId) || {}).name, ladderConfirmedByUser: !!m.confirmed, fitScore: m.score, unit: m.unit,
         bands: m.bands.map(b => ({ size: b.bp, y: Math.round(b.y * 10) / 10, autoMatched: b.matched, manual: b.manual, labelled: b.show })) })),
       arrows: S.arrows.map(a => {
-        const e = A.estimateInfo(a.y);
+        const e = A.estimateInfo(a.y, a.x);
         return { text: a.text, y: Math.round(a.y * 10) / 10, label: A.arrowLabel(a), userSize: a.sizeText || null,
-          estimatedSize: e ? rnd(e.bp) : null, unit, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [],
+          estimatedSize: e ? rnd(e.bp) : null, unit, extrapolated: e ? e.extrap : null, markersUsed: e ? e.used.map(i => i + 1) : [], sizing: e ? e.how : null,
           perMarker: e ? e.perMarker.map(p => ({ well: p.lane + 1, size: rnd(p.bp), extrapolated: p.extrap })) : [] };
       }),
       groups: S.groups.map(g => ({ fromWell: Math.min(g.from, g.to) + 1, toWell: Math.max(g.from, g.to) + 1, text: g.text })),
@@ -309,14 +310,17 @@
       legendHints: legendHints(S)
     };
     if (S.quant.rows.length) {
-      const R = G.Quant.measure(A);
+      const R = G.Quant.measure(A), D = G.Quant.describe(A, R), r4 = v => (v == null ? null : +v.toFixed(5));
       log.densitometry = {
-        method: { background: R.method, measure: R.mode === 'box' ? 'whole box' : 'band pixels above the noise floor (3 sigma of the background rows at the box edges)', boxWidthPx: Math.round(R.halfWidthPx * 20) / 10, values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' },
-        loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceWell: R.ref + 1,
+        method: Object.assign({ mode: R.mode === 'box' ? 'whole box' : 'thresholded signal', backgroundMethod: R.method, boxWidthPx: Math.round(R.halfWidthPx * 20) / 10,
+          values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' }, D),
+        normalizationMode: R.normMode, loadingControl: R.control >= 0 ? R.rows[R.control].name : null, laneTotalIsTotalProteinStain: R.normMode === 'lane' ? R.laneTotal : null,
+        referenceWell: R.ref + 1, analysisArea: { x: Math.round(R.region.x), y: Math.round(R.region.y), w: Math.round(R.region.w), h: Math.round(R.region.h) },
+        lanesLeftOutOfAnalysis: S.lanes.map((l, i) => (l.noMeasure ? i + 1 : null)).filter(v => v != null),
         boxes: S.quant.rows.map(q => ({ name: q.name, yFrom: Math.round(Math.min(q.y0, q.y1)), yTo: Math.round(Math.max(q.y0, q.y1)) })),
-        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j],
-          values: R.rows.map((row, k2) => ({ band: row.name, volume: +R.vol[k2][j].toFixed(4), saturatedPixels: R.cells[k2][j].sat, normalized: R.norm[k2][j] == null ? null : +R.norm[k2][j].toFixed(5), relative: R.rel[k2][j] == null ? null : +R.rel[k2][j].toFixed(5) })) })),
-        saturatedWells: R.saturatedLanes.map(i => i + 1)
+        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j], denominator: R.totals ? r4(R.totals[j]) : undefined,
+          values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, volume: +c.vol.toFixed(4), lod: r4(c.lod), loq: r4(c.loq), clippedPixels: c.sat, flags: G.Quant.flagText(R.flags[k2][j]) || null, normalized: r4(R.norm[k2][j]), relative: r4(R.rel[k2][j]) }; }) })),
+        clippedWells: R.saturatedLanes.map(i => i + 1)
       };
     }
     return log;
@@ -352,15 +356,21 @@
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
     const short = n => n.replace(/\s*\([^()]*\)\s*$/, '');   // the name without its trailing catalogue numbers
     const names = [...new Set(lads.map(l => short(l.name)))];
-    if (names.length === 1) h.push(`M, ${names[0]}.`);
+    const unconfirmed = S.markers.some(m => !m.confirmed);
+    if (names.length === 1) h.push(`M, ${names[0]}${unconfirmed ? ' (identified from the band pattern; not confirmed)' : ''}.`);
     else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${short(G.Ladders.get(m.ladderId).name)}`).join('; ')}).`);
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
-    if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
+    if (S.markers.length && A.kind() === 'native') h.push('Sizes on a native gel are apparent: mobility depends on shape and charge as well as mass.');
+    if (lads.some(l => l.id === 'nebscextend')) h.push('The supercoiled ladder sizes supercoiled plasmid DNA only; linear and nicked or relaxed forms run differently.');
+    if (S.markers.length >= 2 && S.arrows.some(a => a.size && !a.sizeText)) h.push('Sizes were interpolated between the ladder lanes on either side of each lane.');
+    if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y, a.x) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
+      // the same words as the methods text and the CSV (G.Quant.describe), shortened for a legend
       const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
-      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : R.normMode === 'lane' ? ', normalized to the total lane density' : '';
-      const how = R.mode === 'box' ? 'integrated density in fixed-width boxes' : 'integrated density of the band pixels above the background noise floor in fixed-width boxes';
-      h.push(`Band intensities were quantified by densitometry of the raw image (${how}, ${bg})${ctl}` + (R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.'));
+      const ctl = R.control >= 0 ? `, divided by ${R.rows[R.control].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the lane signal of this image') : '';
+      const how = R.mode === 'box' ? 'integrated density of fixed-width boxes on the original pixel values' : 'thresholded integrated density (pixels above 3 σ of the background) of fixed-width boxes on the original pixel values';
+      const blq = R.flags.flat().some(f => f.below) ? ' Values below the limit of quantification are marked.' : '';
+      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.refOk.some(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.') + blq);
     }
     return h;
   }
@@ -382,7 +392,9 @@
   }
   /* Everything in one ZIP: the figure (PNG, PDF, SVG), the chart (PNG, SVG), the measurements and band sizes
    * (CSV), the processing log and the methods text. fig = {svg, w, h}; chart = {svg, w, h} or null. */
-  async function packageBlob(S, base, fig, chart, dpi) {
+  /* opts.archive: { original: {name, buffer, sha256}, marker: {name, buffer, sha256} | null, project: Blob }:
+   * the complete archive adds the original file(s), byte-identical, and the project file that reopens it all */
+  async function packageBlob(S, base, fig, chart, dpi, opts) {
     const A = G.App, files = [], add = (name, data) => files.push({ name: `${base}/${name}`, data });
     const figPng = await pngBlob(fig.svg, fig.w, fig.h, dpi, S);
     if (figPng) add(`${base}_figure_${dpi}dpi.png`, figPng);
@@ -401,6 +413,14 @@
     if (S.markers.length) add(`${base}_band_sizes.csv`, G.Quant.sizesCSV(A, G.Quant.bandSizes(A)));
     add(`${base}_processing_log.json`, JSON.stringify(processingLog(S), null, 2));
     add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION}\n`);
+    const ar = opts && opts.archive;
+    if (ar) {
+      const keep = f => { const ext = (f.name.match(/\.[^.]+$/) || ['.tif'])[0]; return f.name.replace(/\.[^.]+$/, '') + `_sha256-${String(f.sha256).slice(0, 12)}${ext}`; };
+      add(`original/${keep(ar.original)}`, ar.original.buffer);
+      if (ar.marker) add(`original/${keep(ar.marker)}`, ar.marker.buffer);
+      if (ar.project) add(`${base}.gelfig`, ar.project);
+      add('README.txt', `${base}: complete archive made with ${A.NAME} ${A.VERSION}\n\noriginal/   the source image${ar.marker ? ' and the marker image' : ''}, byte-identical (the SHA-256 in the name; check it with any SHA-256 tool)\n${base}.gelfig   the project: open it in ${A.NAME} (Open / Save > Project file) to continue exactly where this was exported\nthe rest    the figure, chart, measurements, band sizes, processing log and methods text\n`);
+    }
     return { blob: await G.Zip.make(files), files: files.map(f => f.name) };
   }
 
