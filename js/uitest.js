@@ -761,7 +761,7 @@
       q.plot.type = 'point'; q.plot.values = true; q.plot.title = 'My plot'; q.plot.ylabel = 'Fold'; App.commit();
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
       // normalization modes and the border background
-      q.norm = 'lane'; q.bg = 'border'; App.commit();
+      q.norm = 'lane'; G.Quant.placeNormRegions(App); q.bg = 'border'; App.commit();   // (choosing it in the panel places the total-lane regions)
       const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane signal' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t.value > 0);
       const csvNorm = G.Quant.quantCSV(App, M).includes('/ total lane signal'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel ring/.test(methods) && $('methodsText').value === methods;
       q.norm = 'none'; App.commit();
@@ -1341,7 +1341,8 @@
       const sel = $('qBg'); sel.value = 'local'; sel.dispatchEvent(new Event('change')); log.push(await act('A region as tall as the band·0'));
       const hb = document.querySelector('#boxList [data-qhgt="0"]'); hb.value = '57'; hb.dispatchEvent(new Event('change')); log.push(await act('Check the result·0'));
       const Ra = G.Quant.measure(App), va = Ra.values.corrected[0], ratio = va[jb] / va[0], truth = G.Demo.makeGel({ preset: 'broad' }).truth;
-      const highest = va[jb] === Math.max(...va.filter(v => v != null)) && Math.abs(ratio / (truth.amounts[2] / truth.amounts[0]) - 1) < 0.1 && !Ra.cells[0][jb].review.length;
+      // the whole band inside the region now; the background's hold on its faint tails stays flagged (as it should)
+      const highest = va[jb] === Math.max(...va.filter(v => v != null)) && Math.abs(ratio / (truth.amounts[2] / truth.amounts[0]) - 1) < 0.1 && !Ra.cells[0][jb].flags.boundary;
       G.Tour.next(); log.push(at()); G.Tour.next();
       const lessonOk = log.join() === ['A broad band·0', 'See why·0', 'Background outside the band·0', 'A region as tall as the band·0', 'Check the result·0', 'Lesson done·0'].join();
       await G.UI.loadExample('western');
@@ -1383,43 +1384,280 @@
       const c2c = G.Quant.measure(App).cells[0][j2], raised = Math.abs((c2.value - c2c.value) - 0.02 * c2c.n) < 1e-3;
       // disclosed: the table mark, the CSV, the log, the methods and the legend
       const M2 = G.Quant.measure(App), csv = G.Quant.quantCSV(App, M2), logD = G.Export.processingLog(App.S).densitometry;
-      const disclosed = /manual baseline \(drawn\)/.test(csv) && /manual baseline from row/.test(csv) && logD.manuallyIntegratedWells.join() === '2' && /drawn by hand on the lane profile/.test(G.Quant.methodsText(App, M2))
+      const disclosed = /user-defined baseline/.test(csv) && /user-defined baseline from row/.test(csv) && logD.manuallyIntegratedWells.join() === '2' && /relative to a user-defined baseline drawn on the lane profile/.test(G.Quant.methodsText(App, M2))
         && G.Export.legendHints(App.S).some(h => /Lane 2 was integrated manually/.test(h));
       // Automatic takes it back; undo brings it again
       G.Quant.resetLane(App, row(), 'L2'); App.commit(); const back = Math.abs(val('L2') - auto2) < 1e-9;
       App.undo(); const undone = !!row().lanes.L2.manual; App.redo();
-      // the same limits in every lane, each baseline on its own profile (flat 0.1 here): every lane's area over those rows
-      const n = G.Quant.manualAll(App, row(), Y - 30, Y + 30); App.commit();
-      const M3 = G.Quant.measure(App), allLanes = n === xs.length && M3.ids.every((id, j) => { const t = truthIn(xs[j], Y - 30, Y + 30); return Math.abs(M3.values.corrected[0][j] - t) <= 0.01 * Math.max(1, t) + 0.5; });
+      // the same limits in every lane (copied: each keeps its background), then an endpoint baseline on each lane's own
+      // profile (flat 0.1 here, ends on background): every lane's area over those rows
+      G.Quant.resetLane(App, row(), 'L2'); const ids = Object.keys(row().lanes);
+      const cp = G.Quant.copyLimits(App, row(), ids, Y - 30, Y + 30), ep = G.Quant.endpointBaseline(App, row(), ids); App.commit();
+      const M3 = G.Quant.measure(App), allLanes = cp.done.length === xs.length && ep.done.length === xs.length && M3.ids.every((id, j) => { const t = truthIn(xs[j], Y - 30, Y + 30); return Math.abs(M3.values.corrected[0][j] - t) <= 0.01 * Math.max(1, t) + 0.5; });
       Object.keys(row().lanes).forEach(id => G.Quant.resetLane(App, row(), id)); App.commit();
-      // the profile: a pointer drag draws the baseline, a handle moves its end; the tools stay where they are
+      Object.keys(row().lanes).forEach(id => G.Quant.resetLane(App, row(), id)); App.commit();
+      // the profile: a drag changes nothing until "Edit baseline…"; then it draws a draft, a handle moves an end, and
+      // only Apply makes it the lane's baseline; the editing row and the canvas stay where they are
       G.QuantUI.setView('quant'); G.QuantUI.show('figure', false); G.QuantUI.setTab('prof'); G.QuantUI.selectLane(1); await wait(150);
       const cv = $('qProfile'); cv.scrollIntoView({ block: 'center' }); await wait(50);
-      const r = cv.getBoundingClientRect(), toolTop0 = $('qLaneAdj').getBoundingClientRect().top - r.top, canvasTop0 = r.top - $('quantProf').getBoundingClientRect().top;
+      const r = cv.getBoundingClientRect(), rowTop0 = $('qEditRow').getBoundingClientRect().top - r.top, canvasTop0 = r.top - $('quantProf').getBoundingClientRect().top;
       const fire = (type, fx, fy, extra) => cv.dispatchEvent(new PointerEvent(type, Object.assign({ bubbles: true, pointerId: 7, button: 0, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy }, extra || {})));
-      fire('pointerdown', 0.12, 0.85); fire('pointermove', 0.5, 0.85); fire('pointermove', 0.88, 0.85); fire('pointerup', 0.88, 0.85); await wait(100);
-      const m1 = row().lanes.L2.manual, drew = !!m1 && m1.b - m1.a > 20 && App.S.quant.rows[0].lanes.L2.manual === m1;
-      // drag the end handle 6 % of the width to the left
-      const P = G.Quant.laneProfile(App, row(), 'L2'), pxOf = y => { const v0 = P.rows[0].y - 0.5, v1 = P.rows[P.rows.length - 1].y + 0.5, pad = 12; return (pad + (y - v0) / (v1 - v0) * (r.width - 2 * pad)) / r.width; };
-      const yOfLevel = l => { const vals = P.rows.map(q2 => q2.mean).concat([m1.la, m1.lb]); let lo = Math.min(...vals), hi = Math.max(...vals); const sp = (hi - lo) || 1e-3; lo -= sp * 0.06; hi += sp * 0.08; const top = 12 + 4, bot = r.height - 12 - 12; return (bot - (l - lo) / (hi - lo) * (bot - top)) / r.height; };
-      const hx = pxOf(m1.b), hy = yOfLevel(m1.lb);
-      fire('pointerdown', hx, hy); fire('pointermove', hx - 0.06, hy); fire('pointerup', hx - 0.06, hy); await wait(100);
-      const m2 = row().lanes.L2.manual, handle = !!m2 && m2.a === m1.a && m2.b < m1.b;
-      const pills = /manual/.test($('qProfSum').textContent) && /Manual baseline/.test($('qProfMode').textContent);
-      // another lane, another readout: the tools and the canvas stay put
+      const fireAt = (type, p) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, button: 0, clientX: p.x, clientY: p.y }));
+      fire('pointerdown', 0.25, 0.85); fire('pointermove', 0.5, 0.85); fire('pointermove', 0.85, 0.85); fire('pointerup', 0.85, 0.85); await wait(100);
+      const inert = !row().lanes.L2.manual && !G.QuantUI.editing();
+      $('btnEditBase').click(); await wait(100);
+      fire('pointerdown', 0.25, 0.85); fire('pointermove', 0.5, 0.85); fire('pointermove', 0.85, 0.85); fire('pointerup', 0.85, 0.85); await wait(100);
+      const d1 = G.QuantUI.editing(), draftOnly = !!d1 && d1.b - d1.a > 20 && !row().lanes.L2.manual;
+      // drag the end handle left
+      const h = G.QuantUI.profileXY(d1.b, d1.lb); fireAt('pointerdown', h); fireAt('pointermove', { x: h.x - 30, y: h.y }); fireAt('pointerup', { x: h.x - 30, y: h.y }); await wait(100);
+      const d2 = G.QuantUI.editing(), handle = !!d2 && d2.a === d1.a && d2.b < d1.b;
+      $('btnEdApply').click(); await wait(100);
+      const m1 = row().lanes.L2.manual, drew = !!m1 && m1.a === d2.a && m1.b === d2.b && !G.QuantUI.editing();
+      const pills = /user-defined baseline/.test($('qProfSum').textContent) && /user-defined baseline/.test($('qEditState').textContent);
+      // another lane, another readout: the editing row and the canvas stay put
       G.QuantUI.selectLane(2); await wait(150);
-      const r2 = cv.getBoundingClientRect(), stays = Math.abs(($('qLaneAdj').getBoundingClientRect().top - r2.top) - toolTop0) < 1 && Math.abs((r2.top - $('quantProf').getBoundingClientRect().top) - canvasTop0) < 1;
+      const r2 = cv.getBoundingClientRect(), stays = Math.abs(($('qEditRow').getBoundingClientRect().top - r2.top) - rowTop0) < 1 && Math.abs((r2.top - $('quantProf').getBoundingClientRect().top) - canvasTop0) < 1;
       const detailsClosed = !$('qProfMore').open && /Uncorrected sum/.test($('qProfRead').textContent);
-      $('btnLaneReset').click(); G.QuantUI.selectLane(1); await wait(50); $('btnLaneReset').click(); await wait(50);
-      const resetBtn = !row().lanes.L2.manual;
+      G.QuantUI.selectLane(1); await wait(50); $('btnLaneReset').click(); await wait(50);
+      const resetBtn = !row().lanes.L2.manual && G.Quant.limitsOf(row(), 'L2').join() === `${m1.a},${m1.b}`;   // the limits stay
       // the chart: as wide as the window, its width set by the plot (not by a long method line)
       G.QuantUI.setTab('plot'); await wait(150);
       const svg = $('quantChart').querySelector('svg'), vbW = +svg.getAttribute('viewBox').split(' ')[2], axisW = Math.max(0, ...[...svg.outerHTML.matchAll(/<line x1="0" y1="[-\d.]+" x2="([-\d.]+)"/g)].map(m => +m[1]));
       const chartBig = vbW < Math.max(axisW, 45 * G.Render.MM) + 60 && svg.getBoundingClientRect().width > 300 && svg.getBoundingClientRect().height > 180;
       G.QuantUI.show('figure', true); G.QuantUI.setTab('prof');
       await G.UI.loadExample('western');
-      const checks = { exact, tilt, raised, disclosed, back, undone, allLanes, drew, handle, pills, stays, detailsClosed, resetBtn, chartBig };
-      R.manualInt = Object.assign({ ok: Object.values(checks).every(Boolean), auto2: +auto2.toFixed(2), manual2: +c2.value.toFixed(2), truth2: +t2.toFixed(2), m1, m2, vbW, axisW }, checks);
+      const checks = { exact, tilt, raised, disclosed, back, undone, allLanes, inert, draftOnly, drew, handle, pills, stays, detailsClosed, resetBtn, chartBig };
+      R.manualInt = Object.assign({ ok: Object.values(checks).every(Boolean), auto2: +auto2.toFixed(2), manual2: +c2.value.toFixed(2), truth2: +t2.toFixed(2), m1, d1, d2, vbW, axisW }, checks);
+    }
+    // 59. measurement correctness (the follow-up review, B to I): copying limits keeps each lane's background and an
+    // endpoint baseline stays flagged where its ends hold band; a drawn baseline keeps its own diagnostics and a
+    // sensitivity check; unknown noise is never a passed check; frame identities cover the whole transform; warm and
+    // cold caches agree; total-lane denominators do not depend on the bands; narrow and full lane resets; exports
+    // independent of the displayed output; a specification that recomputes the values
+    {
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      let z = 4711; const rnd = () => { z = (z * 16807) % 2147483647; return z / 2147483647; }, gauss = () => Math.sqrt(-2 * Math.log(Math.max(1e-12, rnd()))) * Math.cos(2 * Math.PI * rnd());
+      const synth = (W, H, bgf, bands, noise) => {
+        const data = new Float32Array(W * H), truth = new Float32Array(W * H);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let t = 0; bands.forEach(b => { if (Math.abs(x - b.x) <= (b.hw || 18)) t += b.a * Math.exp(-0.5 * ((y - b.y) / b.s) ** 2); }); truth[y * W + x] = t; data[y * W + x] = Math.min(1, Math.max(0, bgf(x, y) + t + (noise == null ? 0.003 : noise) * gauss())); }
+        return { width: W, height: H, data, truth };
+      };
+      const load = async (img, name) => { App.setPref('byType', {}); await App.load(new File([G.Demo.encodeTiff16(img)], name), 'western'); };
+      const setup = (xs, y0, y1, extra) => {
+        const S = App.S, q = S.quant;
+        S.rotation = 0; S.geom = null; S.flip = { h: false, v: false }; App.applyFlip(); App.rot = null; App.ensureRot();
+        S.lanes = xs.map((x, k) => ({ x, name: 'L' + (k + 1), hidden: false, id: 'L' + (k + 1) })); S.lanePitch = 60; S.laneHalfW = 18; S.markers = [];
+        S.crop = { x: 0, y: 0, w: App.rot.w - 1, h: App.rot.h - 1 };
+        Object.assign(q, { version: 2, region: { x: 0, y: 0, w: App.rot.w - 1, h: App.rot.h - 1 }, norm: 'none', normBand: null, normRegions: null, mode: 'box', bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, wFrac: 0.7, frames: {}, output: 'corrected', ref: null }, extra || {});
+        q.rows = [G.Quant.placeRow(App, { name: 'target' }, y0, y1)]; App.commit();
+      };
+      const cellOf = (M, id, k) => M.cells[k || 0][M.ids.indexOf(id)];
+      const res = {};
+      // B. a narrow band (lane 1) and a broad one holding more (lane 2); limits fitted to the narrow band
+      await load(synth(300, 300, () => 0.1, [{ x: 60, y: 150, a: 0.3, s: 3 }, { x: 120, y: 150, a: 0.12, s: 10 }]), 'scope.tif');
+      setup([60, 120], 120, 180);
+      const row = () => App.S.quant.rows[0], M0 = G.Quant.measure(App), v0 = [cellOf(M0, 'L1').value, cellOf(M0, 'L2').value];
+      const bg0 = App.S.quant.bg;
+      // copy lane 1's tighter limits (142-158) to lane 2: lane 2 keeps the local background (no drawn baseline)
+      row().lanes.L1.dy0 = 142 - row().y0; row().lanes.L1.dy1 = 158 - row().y1; App.commit();
+      const lim = G.Quant.limitsOf(row(), 'L1'), pv = G.Quant.preview(App, row(), ['L2'], () => G.Quant.copyLimits(App, row(), ['L2'], lim[0], lim[1]));
+      const notApplied = !row().lanes.L2.dy0 && !row().lanes.L2.manual;   // a preview changes nothing
+      const cp = G.Quant.copyLimits(App, row(), ['L2'], lim[0], lim[1]); App.commit();
+      const M1 = G.Quant.measure(App), c2 = cellOf(M1, 'L2');
+      res.copyLimits = { limits: lim, after: +c2.value.toFixed(2), method: c2.method, preview: pv.after.L2 && +pv.after.L2.value.toFixed(2), flagged: c2.review.length > 0,
+        ok: cp.done.join() === 'L2' && c2.method === 'local' && App.S.quant.bg === bg0 && !row().lanes.L2.manual && G.Quant.limitsOf(row(), 'L2').join() === lim.join() && notApplied
+          && Math.abs(pv.after.L2.value - c2.value) < 1e-9 && c2.flags.boundary && c2.review.length > 0 };
+      // the endpoint baseline on both lanes at those limits: the broad band falls below the narrow one (the reversal
+      // the review found) and is flagged with the reasons: ends on band, band beyond the limits
+      const ep = G.Quant.endpointBaseline(App, row(), ['L1', 'L2']); App.commit();
+      const M2 = G.Quant.measure(App), e1 = cellOf(M2, 'L1'), e2 = cellOf(M2, 'L2');
+      res.endpoint = { before: v0.map(v => +v.toFixed(2)), after: [e1.value, e2.value].map(v => +v.toFixed(2)), reversed: e2.value < e1.value && v0[1] > v0[0], reasons2: e2.review,
+        ok: ep.done.length === 2 && e2.value < e1.value && v0[1] > v0[0] && !!e2.flags.endpoints && !!e2.flags.boundary && e2.review.some(r => /endpoint holds band signal/.test(r)) && e2.review.some(r => /continues beyond the drawn/.test(r)) };
+      // existing drawn baselines are kept unless replacing is asked for
+      const keepRes = G.Quant.copyLimits(App, row(), ['L1', 'L2'], 130, 170), keptBoth = keepRes.kept.length === 2 && !!row().lanes.L1.manual;
+      const repl = G.Quant.copyLimits(App, row(), ['L2'], 130, 170, { replaceManual: true }); App.commit();
+      res.manualScope = { ok: keptBoth && repl.done.join() === 'L2' && !row().lanes.L2.manual && !!row().lanes.L1.manual };
+      // C. a drawn baseline: integrated relative to it, with its sensitivity, and the band-beyond-the-limits check kept
+      const P = G.Quant.laneProfile(App, row(), 'L2'); G.Quant.setManual(App, row(), 'L2', 140, 160, G.Quant.levelAt(P, 140), G.Quant.levelAt(P, 160)); App.commit();
+      const cm = cellOf(G.Quant.measure(App), 'L2');
+      res.manualDiag = { boundary: cm.flags.boundary, msens: cm.msens && { pos: cm.msens.pos.map(v => +v.toFixed(2)), lev: cm.msens.lev.map(v => +v.toFixed(2)) }, note: cm.prov.manual.note,
+        ok: !!cm.flags.boundary && !!cm.flags.endpoints && !!cm.msens && cm.msens.pos[0] < cm.msens.pos[1] && cm.msens.lev[0] < cm.msens.lev[1] && cm.prov.manual.note === 'integrated relative to a user-defined baseline' && !/exact/.test(JSON.stringify(cm.prov)) };
+      // H. Use automatic background keeps the limits and the shift; a full reset lists and removes exactly those
+      row().lanes.L2.dx = 2; App.commit();
+      G.Quant.useAutoBackground(App, row(), 'L2'); App.commit();
+      const L2a = row().lanes.L2, keptLim = G.Quant.limitsOf(row(), 'L2').join() === '140,160' && L2a.dx === 2 && !L2a.manual;
+      L2a.bg = { sides: 'above' }; G.Quant.setManual(App, row(), 'L2', 140, 160, 0.1, 0.1); App.commit();
+      const listed = G.Quant.laneAdjustments(row(), 'L2'), removed = G.Quant.resetLaneAll(App, row(), 'L2'); App.commit();
+      res.reset = { listed, ok: keptLim && listed.join() === removed.join() && ['drawn baseline', 'horizontal shift', 'lane background settings'].every(w => listed.includes(w)) && Object.keys(row().lanes.L2).join() === 'cx' };
+      // Height (a re-placement in the same frame) keeps a drawn baseline; one in another frame removes it, and says so first
+      G.Quant.setManual(App, row(), 'L1', 140, 160, 0.1, 0.1); App.commit();
+      const sp = G.Quant.rowSpan(App, row()); G.Quant.editRow(App, row(), sp.y0 - 3, sp.y1 + 3); App.commit();
+      const keptOnHeight = !!row().lanes.L1.manual && row().lanes.L1.manual.a === 140;
+      App.setRotation(2); const willDrop = G.Quant.placementDropsManual(App, row()).join() === 'L1';
+      App.setRotation(0); App.rot = null; App.ensureRot();
+      res.global = { ok: keptOnHeight && willDrop && G.Quant.placementDropsManual(App, row()).length === 0 };
+      G.Quant.resetLaneAll(App, row(), 'L1'); App.commit();
+      // F. warm and cold caches agree; a band added inside the background is seen at once, and gone when removed
+      const sig = c => JSON.stringify([c.value, c.flags, c.review, c.prov.placed]);
+      const warm = sig(cellOf(G.Quant.measure(App), 'L1'));
+      G.Quant.clearCache(App); const cold = sig(cellOf(G.Quant.measure(App), 'L1'));
+      const r0 = row(), sp0 = G.Quant.rowSpan(App, r0), other = G.Quant.placeRow(App, { name: 'Other' }, sp0.y0 - 9, sp0.y0 - 5); App.S.quant.rows.push(other); App.commit();
+      const withOther = cellOf(G.Quant.measure(App), 'L1').flags.overlap;
+      G.Quant.clearCache(App); const withOtherCold = cellOf(G.Quant.measure(App), 'L1').flags.overlap;
+      App.S.quant.rows.pop(); App.commit(); const gone = cellOf(G.Quant.measure(App), 'L1').flags.overlap;
+      // another band placed in a different frame (rotated) over the same source pixels is still seen
+      App.setRotation(1); App.rot = null; App.ensureRot();
+      const sp1 = G.Quant.rowSpan(App, r0), other2 = G.Quant.placeRow(App, { name: 'Rotated' }, sp1.y0 - 9, sp1.y0 - 5); App.S.quant.rows.push(other2); App.commit();
+      const cross = cellOf(G.Quant.measure(App), 'L1').flags.overlap, framesDiffer = other2.frame !== r0.frame;
+      App.S.quant.rows.pop(); App.setRotation(0); App.rot = null; App.ensureRot(); App.commit();
+      let grew = 0; for (let t = 0; t < 30; t++) { r0.lanes.L1.dy0 = -t; G.Quant.measure(App); } grew = G.Quant.cacheSize(App); delete r0.lanes.L1.dy0; App.commit();
+      res.cache = { warm: warm === cold, withOther, withOtherCold, gone, cross, ok: warm === cold && !!withOther && JSON.stringify(withOther) === JSON.stringify(withOtherCold) && !gone && framesDiffer && !!cross && cross.some(t => /Rotated/.test(t)) && grew <= 400 };
+      // D. noise: a drawn baseline whose noise regions lie outside the image; too few samples; a contaminated one
+      await load(synth(300, 300, () => 0.1, [{ x: 60, y: 14, a: 0.3, s: 3 }, { x: 120, y: 14, a: 0.3, s: 3 }]), 'edge.tif');
+      setup([60, 120], 4, 24, { bgSides: 'above', ref: 'L1', output: 'fold' });
+      G.Quant.setManual(App, row(), 'L1', 2, 26, 0.1, 0.1); G.Quant.setManual(App, row(), 'L2', 2, 26, 0.1, 0.1); App.commit();
+      const Mn = G.Quant.measure(App), n2 = cellOf(Mn, 'L2');
+      const unavailable = n2.flags.noise === 'unavailable' && n2.flags.below == null && n2.flags.belowUnknown && n2.review.some(r => /noise could not be estimated/.test(r)) && Mn.values.fold[0][1] != null && /noise could not be estimated \(unverified\)/.test(Mn.caveat.fold[0][1] || '');
+      const csvN = G.Quant.quantCSV(App, Mn), csvNoise = /noise not estimated/.test(csvN) && /unverified/.test(csvN);
+      const methN = /noise could not be estimated, so no threshold check was made/.test(G.Quant.methodsText(App, Mn));
+      setup([60, 120], 40, 60, { bgSides: 'above', bgSize: 2, wFrac: 0.15 });
+      const few = cellOf(G.Quant.measure(App), 'L2'), insufficient = few.flags.noise === 'insufficient' && few.flags.below == null && few.review.length > 0;
+      await load(synth(300, 300, () => 0.1, [{ x: 60, y: 150, a: 0.3, s: 3 }, { x: 60, y: 136, a: 0.3, s: 2 }]), 'cont.tif');
+      setup([60, 120], 144, 156);
+      const ct = cellOf(G.Quant.measure(App), 'L1'), contaminated = ct.flags.noise === 'contaminated' && ct.flags.below == null;
+      // unknown clipping (no limit to test against) is said, not taken for "none"
+      const keepSat = App.satPredicate; App.satPredicate = () => null; G.Quant.clearCache(App);
+      const cu = cellOf(G.Quant.measure(App), 'L1'); App.satPredicate = keepSat; G.Quant.clearCache(App);
+      res.noise = { unavailable, csvNoise, methN, insufficient, contaminated, clipUnknown: cu.flags.clipState === 'unknown' && /clipping not checkable/.test(G.Quant.flagText(cu.flags, cu)),
+        ok: unavailable && csvNoise && methN && insufficient && contaminated && cu.flags.clipState === 'unknown' };
+      // E. frames: grids differing at one formerly unsampled entry, or with equal weighted sums, never share a key
+      await load(synth(240, 180, () => 0.1, []), 'frames.tif'); setup([60, 120], 80, 100);
+      const pts = []; for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) pts.push(i * 119.5, j * 89.5);
+      const S = App.S, put = p => { S.geom = { mode: 'manual', grid: { nx: 3, ny: 3, W: 240, H: 180, pts: p } }; App.rot = null; App.ensureRot(); };
+      put(pts.slice()); const fa = G.Quant.placeRow(App, { name: 'a' }, 80, 100); S.quant.rows.push(fa);
+      const p2 = pts.slice(); p2[8] += 2; put(p2); const fb = G.Quant.placeRow(App, { name: 'b' }, 80, 100); S.quant.rows.push(fb);
+      // equal sampled weighted sum (indices 0 and 7 were sampled with weights 1 and 8): shift one, compensate the other
+      const p3 = pts.slice(); p3[0] += 8; p3[7] -= 1; const k3 = App.frameKey({ rotation: 0, geom: { grid: { nx: 3, ny: 3, W: 240, H: 180, pts: p3 } } }), k1 = App.frameKey({ rotation: 0, geom: { grid: { nx: 3, ny: 3, W: 240, H: 180, pts } } });
+      const storedB = S.quant.frames[fb.frame].grid.pts[8] === p2[8];
+      App.commit(); const snap = App.snapshot(); await App.openProject(await (await App.projectBlob()).arrayBuffer());
+      const keptB = () => App.S.quant.rows.some(r => r.frame === fb.frame) && App.S.quant.frames[fb.frame].grid.pts[8] === p2[8] && App.S.quant.frames[fa.frame].grid.pts[8] === pts[8];
+      const reopened = App.snapshot() === snap && keptB();
+      App.undo(); App.redo(); const undoRedo = keptB();
+      res.frames = { ka: fa.frame.slice(0, 40), kb: fb.frame.slice(0, 40), ok: fa.frame !== fb.frame && storedB && k1 !== k3 && App.frameKey({ rotation: 0, geom: { grid: { nx: 3, ny: 3, W: 240, H: 180, pts } } }) !== App.frameKey({ rotation: 0, geom: { grid: { nx: 3, ny: 3, W: 240, H: 180, pts: p2 } } }) && reopened && undoRedo };
+      S.geom = null; App.rot = null; App.ensureRot();
+      // G. total-lane denominators: their own regions, untouched by band order, deletion, renaming, a new band or the area
+      await load(synth(300, 300, () => 0.1, [{ x: 60, y: 90, a: 0.3, s: 3 }, { x: 120, y: 90, a: 0.3, s: 3 }, { x: 60, y: 200, a: 0.2, s: 3 }, { x: 120, y: 200, a: 0.4, s: 3 }]), 'norm.tif');
+      setup([60, 120], 80, 100);
+      const q = App.S.quant; q.region = { x: 0, y: 30, w: 299, h: 120 }; q.norm = 'lane'; G.Quant.placeNormRegions(App); q.output = 'normalized'; App.commit();
+      const den = () => G.Quant.measure(App).totals.map(t => t.value), d0 = den(), nAof = () => { const M = G.Quant.measure(App), k = M.rows.findIndex(r => r.name === 'target'); return M.values.normalized[k]; };
+      const nA0 = nAof();
+      q.region = { x: 0, y: 170, w: 299, h: 60 }; const afterArea = den();
+      q.rows.push(G.Quant.placeRow(App, { name: 'B' }, 190, 210)); App.commit(); const afterNew = den();
+      q.rows.reverse(); App.commit(); const afterReorder = den(), nA1 = nAof();
+      q.rows.find(r => r.name === 'B').name = 'B renamed'; App.commit(); const afterRename = den();
+      q.rows.splice(q.rows.findIndex(r => r.name === 'target'), 1); App.commit(); const afterDelete = den();
+      const same = (a, b) => a.every((v, i) => v === b[i]);
+      // updating them from the analysis area is one undoable change, with the new extent recorded
+      G.Quant.placeNormRegions(App); App.commit(); const updated = den(), nr = q.normRegions; App.undo(); const undone = den();
+      res.normRegions = { d0: d0.map(v => +v.toFixed(2)), updated: updated.map(v => +v.toFixed(2)), ok: same(d0, afterArea) && same(d0, afterNew) && same(d0, afterReorder) && same(d0, afterRename) && same(d0, afterDelete) && same(nA0, nA1) && !same(d0, updated) && nr.y0 === 170 && nr.placed === 2 && same(d0, undone) };
+      // I. exports: the same quantity has the same value, reason and caveat whichever output is shown
+      await load(synth(300, 300, () => 0.1, [{ x: 60, y: 90, a: 0.3, s: 3 }, { x: 120, y: 90, a: 0.3, s: 3 }]), 'export.tif');
+      setup([60, 120], 80, 100);
+      const q2 = App.S.quant, empty = G.Quant.placeRow(App, { name: 'empty' }, 200, 212); q2.rows.push(empty); q2.norm = 'band'; q2.normBand = empty.id; q2.ref = 'L1'; App.commit();
+      const body = () => G.Quant.quantCSV(App, G.Quant.measure(App)).split('\r\n').filter(l => !/^# (method|output shown)/.test(l)).join('\n');
+      const outs = ['corrected', 'normalized', 'fold'].map(o => { q2.output = o; return body(); });
+      const rowsT = G.Quant.tableRows(App, G.Quant.measure(App), { full: true }), hd = rowsT[0], ln = rowsT[1], iWhy = hd.indexOf('target normalized unavailable because');
+      res.exports = { reason: ln[iWhy], ok: outs[0] === outs[1] && outs[1] === outs[2] && iWhy > 0 && /not above zero|noise threshold|unverified|needs review/.test(ln[iWhy] || '') };
+      // a specification recomputes the values on the same image (after display changes too)
+      await G.UI.loadExample('western'); await wait(100);
+      App.setRotation(App.S.rotation + 0.7); App.flip('h'); App.commit();
+      const Mw = G.Quant.measure(App), want = JSON.stringify(Mw.values), spec = JSON.parse(JSON.stringify(G.Quant.spec(App)));
+      await App.load({ name: 'again.tif', buffer: G.Demo.encodeTiff16(G.Demo.makeGel({ preset: 'western' })) }, 'western');
+      G.Quant.applySpec(App, spec); const got = JSON.stringify(G.Quant.measure(App).values);
+      res.spec = { ok: want === got && spec.frames && Object.values(spec.frames).every(f => 'rot' in f) && /centre lies inside/.test(spec.pixelRule) && spec.build === App.BUILD };
+      await G.UI.loadExample('western');
+      const checks = ['copyLimits', 'endpoint', 'manualScope', 'manualDiag', 'reset', 'global', 'cache', 'noise', 'frames', 'normRegions', 'exports', 'spec'];
+      R.correctness = Object.assign({ ok: checks.every(k => res[k] && res[k].ok), failed: checks.filter(k => !(res[k] && res[k].ok)) }, res);
+    }
+    // 60. the profile's controls after the follow-up review: manual integration only in the "Edit baseline…" mode,
+    // complete by keyboard (rows and levels typed, Apply, Cancel, Escape from anywhere, Use automatic background
+    // keeping the limits); a snap option instead of Alt only; the bulk changes scoped, previewed and undone at once;
+    // the full lane reset says what it removes; comparison on the band's rows with a legend; the total-lane regions'
+    // extent stated; notifications over the image editor; touch scrolls the profile unless editing
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      await G.UI.loadExample('broad'); await wait(100);
+      const st = App.S, q = st.quant, row = () => q.rows[0], fl = G.UI.figLanes(), lane4 = fl[3], lid4 = App.laneId(lane4);
+      q.bg = 'local'; App.commit();
+      G.QuantUI.setView('quant'); G.QuantUI.show('figure', false); G.QuantUI.setTab('prof'); G.QuantUI.selectLane(lane4); await wait(150);
+      const cv = $('qProfile'), touchIdle = getComputedStyle(cv).touchAction;
+      // keyboard: Edit baseline…, the four fields, Apply
+      $('btnEditBase').focus(); $('btnEditBase').click(); await wait(80);
+      const editing = !!G.QuantUI.editing() && !$('qEditPanel').classList.contains('hidden') && document.activeElement === $('qEdA') && getComputedStyle(cv).touchAction === 'none';
+      const lim = G.Quant.limitsOf(row(), lid4), set = (id, v) => { $(id).value = String(v); $(id).dispatchEvent(new Event('change')); };
+      set('qEdA', lim[0] - 20); set('qEdB', lim[1] + 20); set('qEdLa', 0.11); set('qEdLb', 0.11); await wait(80);
+      const typed = G.QuantUI.editing(), notYet = !row().lanes[lid4].manual && /With this line/.test($('qEdPreview').textContent);
+      $('btnEdApply').click(); await wait(80);
+      const m = row().lanes[lid4].manual, applied = !!m && m.a === lim[0] - 20 && m.b === lim[1] + 20 && m.la === 0.11 && !G.QuantUI.editing();
+      // Escape from anywhere cancels the editing (the canvas never had the focus)
+      $('btnEditBase').click(); await wait(50); set('qEdLa', 0.2); document.body.focus();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(50);
+      const escaped = !G.QuantUI.editing() && row().lanes[lid4].manual.la === 0.11;
+      // the snap option: off, a drag's ends stay where the pointer is (not on the curve)
+      $('btnEditBase').click(); await wait(50); $('qEdSnap').checked = false;
+      const P = G.Quant.laneProfile(App, row(), lid4), yA = lim[0] - 10, yB = lim[1] + 10, lvl = 0.05;
+      const pa = G.QuantUI.profileXY(yA, lvl), pb = G.QuantUI.profileXY(yB, lvl);
+      const fire = (type, p) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 9, button: 0, clientX: p.x, clientY: p.y }));
+      fire('pointerdown', pa); fire('pointermove', { x: (pa.x + pb.x) / 2, y: pa.y }); fire('pointermove', pb); fire('pointerup', pb); await wait(80);
+      const dr = G.QuantUI.editing(), free = !!dr && Math.abs(dr.la - lvl) < 0.01 && Math.abs(dr.la - G.Quant.levelAt(P, dr.a)) > 0.02;
+      $('qEdSnap').checked = true; $('btnEdCancel').click(); await wait(50);
+      // Use automatic background: the drawn baseline goes, its limits and the shift stay
+      row().lanes[lid4].dx = 1; App.commit(); G.QuantUI.selectLane(lane4); await wait(50);
+      $('btnLaneReset').click(); await wait(80);
+      const L4 = row().lanes[lid4], autoKeeps = !L4.manual && L4.dx === 1 && G.Quant.limitsOf(row(), lid4).join() === `${lim[0] - 20},${lim[1] + 20}`;
+      // Reset all lane adjustments…: says what, removes exactly that
+      G.UI.autoConfirm = true; $('btnLaneResetAll').click(); await wait(80); G.UI.autoConfirm = null;
+      const resetAll = Object.keys(row().lanes[lid4]).join() === 'cx';
+      // Copy integration limits…: measured lanes ticked except the source and lanes with a drawn baseline; unmeasured
+      // lanes unticked; a preview per ticked lane; Apply is one undo
+      G.Quant.setManual(App, row(), App.laneId(fl[5]), lim[0], lim[1], 0.1, 0.1); st.lanes[fl[6]].noMeasure = true; App.commit(); G.QuantUI.selectLane(lane4); await wait(80);
+      row().lanes[lid4].dy0 = -6; row().lanes[lid4].dy1 = 6; App.commit(); await wait(50);
+      const before = JSON.stringify(q.rows);
+      $('btnCopyLimits').click(); await wait(150);
+      const ticked = [...$('bulkLanes').querySelectorAll('input:checked')].map(i => i.dataset.bl), boxes = [...$('bulkLanes').querySelectorAll('input')];
+      const scope = !ticked.includes(lid4) && !ticked.includes(App.laneId(fl[5])) && !ticked.includes(App.laneId(fl[6])) && ticked.length >= 3 && boxes.find(i => i.dataset.bl === lid4).disabled
+        && /not measured/.test($('bulkLanes').textContent) && /has a drawn baseline/.test($('bulkLanes').textContent) && /keeps its own background/.test($('bulkWhat').textContent);
+      const previewRows = $('bulkPreview').querySelectorAll('tbody tr').length === ticked.length;
+      $('btnBulkApply').click(); await wait(100);
+      const L4lim = G.Quant.limitsOf(row(), lid4).join(), copied = ticked.every(id => G.Quant.limitsOf(row(), id).join() === L4lim && !row().lanes[id].manual) && !!row().lanes[App.laneId(fl[5])].manual;
+      App.undo(); const oneUndo = JSON.stringify(App.S.quant.rows) === before;
+      // Use endpoint baseline…: only the lane shown is ticked; the assumption is stated; the preview flags lane 4 (a
+      // broad band whose ends hold band signal)
+      $('btnEndpoint').click(); await wait(150);
+      const tickedE = [...$('bulkLanes').querySelectorAll('input:checked')].map(i => i.dataset.bl);
+      const endpointDlg = tickedE.join() === lid4 && /must represent background/.test($('bulkWhat').textContent) && /holds band signal|continues beyond/.test($('bulkPreview').textContent);
+      $('btnBulkCancel').click(); await wait(50);
+      const cancelled = JSON.stringify(App.S.quant.rows) === before;
+      // compare lanes: the band's rows, a legend naming the lanes; align peaks is labelled as shape only
+      $('qProfAll').click(); await wait(100);
+      const legend = [...$('qProfKey').querySelectorAll('.pk-lane')].map(e => e.textContent.trim());
+      const compare = legend.length >= 5 && legend.includes('Ctrl') && /own rows of the band's frame/.test($('qProfKey').textContent) && $('btnEditBase').disabled;
+      $('qProfAlign').click(); await wait(80); const aligned = /comparing shapes, not positions/.test($('qProfKey').textContent);
+      $('qProfAlign').click(); $('qProfAll').click(); await wait(80);
+      // total-lane regions: their extent stated; editing the analysis area leaves them
+      App.S.quant.norm = 'lane'; G.Quant.placeNormRegions(App); App.commit(); G.QuantUI.render(); await wait(50);   // (App.S is new after the undo above)
+      const nr0 = JSON.stringify(App.S.quant.normRegions), txt0 = $('qNormRegions').textContent;
+      $('btnAreaEdit').click(); const aT = $('qAreaT'); aT.value = String(+aT.value + 30); aT.dispatchEvent(new Event('change')); await wait(50);
+      const normText = /Total-lane regions: rows \d+–\d+/.test(txt0) && /does not move them/.test(txt0) && JSON.stringify(App.S.quant.normRegions) === nr0 && /does not move the bands' regions or the total-lane regions/.test($('qAreaBox').textContent);
+      $('btnAreaEdit').click(); App.undo();
+      // notifications over the image editor, not over the analysis window
+      G.QuantUI.show('figure', true); G.UI.toast('test notice'); await wait(50);
+      const tr = $('toasts').getBoundingClientRect(), er = $('editorBox').getBoundingClientRect(), qr = $('quantView').getBoundingClientRect();
+      const toastPlace = tr.left >= er.left - 1 && tr.right <= er.right + 1 && (tr.right <= qr.left || tr.left >= qr.right || tr.bottom <= qr.top);
+      $('toasts').innerHTML = '';
+      await G.UI.loadExample('western');
+      const checks = { touchIdle: touchIdle === 'pan-y', editing, typed: !!typed, notYet, applied, escaped, free, autoKeeps, resetAll, scope, previewRows, copied, oneUndo, endpointDlg, cancelled, compare, aligned, normText, toastPlace };
+      R.profileUI = Object.assign({ ok: Object.values(checks).every(Boolean), legend }, checks);
     }
     // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
     // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to

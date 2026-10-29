@@ -222,7 +222,7 @@
         { title: 'Inspect the background', parts: [
           { el: '#qProfLane', watch: ['#quantProf', '#editorBox'],
             text: () => { const sw = strongWeak(); return `The profile shows the strongest lane: shaded = counted, dashed line = the background subtracted, grey bands = the rows it came from. Now choose ${sw ? `lane ${sw.weak + 1}, the weakest,` : 'the weakest lane'} in this list. In both, the profile should be flat in the grey bands, not rising towards the band.`; },
-            why: 'A background that holds part of the band, or a region shorter than the band, lowers the value, most of all for broad strong bands; such lanes are marked "? Needs review". Make the band taller (its Height) or move the background further away (Background, Edit…), or drag on the profile from the start of the peak to its end to draw the baseline yourself. Never widen a region into the neighbouring lanes.',
+            why: 'A background that holds part of the band, or a region shorter than the band, lowers the value, most of all for broad strong bands; such lanes are marked "? Needs review". Make the band taller (its Height) or move the background further away (Background, Edit…); never widen a region into the neighbouring lanes. Edit baseline… (a line you draw) is an expert alternative: it assumes both of its ends lie on background.',
             enter: () => { const sw = strongWeak(); return sw ? sw.weak : -1; }, done: w => +$('qProfLane').value === w || (w < 0 && G.QuantUI.tab() === 'prof') }] },
         { title: 'Output and normalization', parts: [
           { el: '#qNorm', panel: true, watch: ['#qNormSub', '#qOutput'], alt: 'Keep unnormalized',
@@ -259,12 +259,12 @@
             done: () => S().quant.bg === 'local' }] },
         { title: 'A region as tall as the band', parts: [
           { el: '#boxList [data-qhgt="0"]', panel: true, watch: ['#quantView', '#editorBox'],
-            text: 'Lane 4 is still marked: its band is taller than the region, so its edges are cut off and the background regions touch it. Type a larger Height for the band (about 57 px here) and press Enter, until lane 4 is no longer marked.',
-            why: 'Make the region taller (or drag its top and bottom edges on the image), never wider: wider regions take in the neighbouring lanes. Keep the background regions clear of the bands above and below; the profile shows where they are. For a single lane you can instead drag on its profile from the start of the peak to its end: that line becomes its baseline (marked ✎ manual).',
-            done: () => { const c = broadCell(); return !!c && !c.flags.boundary && !c.flags.contaminated && !(c.review && c.review.length); } }] },
+            text: 'Lane 4\'s band is taller than the region, so its edges are cut off. Type a larger Height for the band (about 57 px here) and press Enter, until the profile shows the whole peak inside the region.',
+            why: 'Taller, never wider: wider regions take in the neighbouring lanes. Copying one lane\'s limits to the others (Copy integration limits…) can cut off a broader band; an endpoint baseline fails where its ends hold band signal, and is flagged. Judge a region by the flags and the profile, never by moving it until the number looks as expected.',
+            done: () => { const c = broadCell(); return !!c && !c.flags.boundary; } }] },
         { title: 'Check the result', parts: [
           { el: '#quantTabs [data-tab="int"]', watch: '#quantView',
-            text: () => { const r = broadRatio(); return `Lane 4 now reads ${r != null ? r.toFixed(2) : '–'} × lane 2 (true: 2.89 ×), the highest, and the narrow lanes barely changed. Nothing was done to lane 4's number: the background and the region were corrected for every lane. The few per cent still missing are the band's faint tails; a taller region would reach the band above.`; },
+            text: () => { const r = broadRatio(); return `Lane 4 now reads ${r != null ? r.toFixed(2) : '–'} × lane 2 (true: 2.89 ×), the highest; the narrow lanes barely changed. It stays marked ?: its background regions still hold the band's faint tails (a few per cent of the value). A useful recovery within the benchmark's 10 % tolerance, not an exact or validated value.`; },
             why: 'The value of a region is the sum of signal minus background over its pixels; the profile and the table show the uncorrected sum, the background and the result for every lane, so the correction can be checked.' }] }
       ] }
   ];

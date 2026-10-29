@@ -54,7 +54,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand { font-weight: 750; font-size: 16px; letter-spacing: .01em; display: inline-flex; align-items: center; gap: 8px; }
 .brand::before { content: ""; width: 14px; height: 18px; border-radius: 3px; flex: none;
   background: linear-gradient(var(--top-fg) 0 0) 2px 3px / 10px 2px no-repeat, linear-gradient(var(--top-fg) 0 0) 2px 8px / 10px 2px no-repeat, linear-gradient(var(--accent) 0 0) 2px 13px / 10px 2.5px no-repeat, var(--top-fill); }
-.chip { display: inline-flex; align-items: center; gap: 7px; max-width: 260px; padding: 4px 11px; border-radius: 999px;
+/* the image chip gives way first when the bar is short of room (intermediate widths), never the actions */
+.chip { display: inline-flex; align-items: center; gap: 7px; max-width: 260px; min-width: 64px; flex: 0 1 auto; padding: 4px 11px; border-radius: 999px;
   background: var(--top-fill); border: 1px solid var(--top-line); color: var(--top-fg); cursor: pointer; font-size: 12.5px; }
 .chip:hover { background: var(--top-hover); }
 .chip span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -65,7 +66,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .coach-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-bg); flex: none; }
 .coach.done .coach-dot { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
 .coach b { color: var(--top-fg); }
-.topbar-right { display: flex; align-items: center; gap: 7px; }
+.topbar-right { display: flex; align-items: center; gap: 7px; flex: none; margin-left: auto; }
+@media (max-width: 1150px) { .topbar { gap: 8px; } .topbar-right { gap: 5px; } .save-note { max-width: 110px; overflow: hidden; text-overflow: ellipsis; } }
+/* the resolution is also in the export window: the bar leaves it out where room is short */
+@media (max-width: 1000px) { #dpiTop, .topbar .divider { display: none; } }
 .divider { width: 1px; height: 20px; background: var(--top-line); }
 .icon-btn { width: 30px; height: 30px; border-radius: var(--r-sm); border: 1px solid var(--top-line); background: var(--top-fill);
   color: var(--top-fg); cursor: pointer; font-size: 14px; line-height: 1; }
@@ -409,6 +413,7 @@ body.touring #app, body.touring .topbar { user-select: none; }
   padding: 8px 10px 8px 16px; border-radius: 999px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-left: 4px solid var(--ok); box-shadow: var(--shadow-lg); font-size: 12.5px; }
 /* toasts: bottom centre of the window, between the overlay key (bottom left of the image) and the notices
  * (bottom right); they let clicks through and leave within seconds */
+#toasts.anchored { bottom: auto; }
 #toasts { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: max-content; max-width: min(460px, calc(100vw - 32px)); }
 .toast { background: var(--toast-bg); color: var(--toast-fg); border-radius: 10px; padding: 8px 14px; font-size: 14px; line-height: 1.4; box-shadow: var(--shadow-lg); animation: toastIn .22s ease; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -470,7 +475,9 @@ body.touring #app, body.touring .topbar { user-select: none; }
 #sizeTable td:last-child { text-align: left; white-space: normal; }
 .qchart { border-radius: var(--r-sm); overflow: hidden; }
 .qchart:empty { display: none; }
-#qProfile { width: 100%; height: 260px; display: block; border-radius: var(--r-sm); background: var(--panel-2); cursor: crosshair; touch-action: none; }
+/* the profile scrolls with the page on touch until "Edit baseline…" is on; only then does a drag draw */
+#qProfile { width: 100%; height: 280px; display: block; border-radius: var(--r-sm); background: var(--panel-2); cursor: default; touch-action: pan-y; }
+#qProfile.editing { cursor: crosshair; touch-action: none; outline: 2px solid #b45309; outline-offset: 1px; }
 .inline.wrap { flex-wrap: wrap; }
 .legend-wrap { margin: 12px 16px 20px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .legend-wrap .legend { width: 100%; }
@@ -639,8 +646,31 @@ body.touring #app, body.touring .topbar { user-select: none; }
 @container (max-width: 640px) { .plot-wrap { grid-template-columns: 1fr; } }
 /* the profile: its tools in one fixed row above the canvas, the result under it, the parameters folded away */
 .prof-ctl { margin: 0 0 6px; }
-.prof-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 8px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); }
-.pt-mode { flex: 1 1 220px; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the editing row: the state in words (wraps, never cut off) and the one command that changes it */
+.prof-edit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 6px; }
+.pe-state { flex: 1 1 200px; font-size: 13.5px; color: var(--muted); }
+.prof-editpanel { border: 1px solid #b45309; border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 8px; background: var(--panel); display: grid; gap: 6px; }
+.pe-title { font-weight: 600; font-size: 14px; }
+.pe-grid { display: grid; grid-template-columns: auto auto auto; gap: 6px 10px; align-items: center; justify-content: start; }
+.pe-grid input.num { width: 84px; }
+.pe-l { font-weight: 600; font-size: 13px; }
+.prof-actions { margin: 8px 0 4px; gap: 6px; }
+.pk-lane { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+.pk-lane.sel { font-weight: 600; }
+.ps-main { font-size: 15px; margin: 4px 0 2px; }
+.ps-main b { font-size: 17px; }
+.ps-l { color: var(--muted); }
+.ps-sec { font-size: 13.5px; color: var(--muted); margin: 0 0 4px; }
+.ps-status { margin: 4px 0 2px; font-size: 14px; }
+.ps-why { margin: 2px 0 4px 18px; padding: 0; font-size: 13.5px; color: var(--warn); }
+.bulk { width: min(640px, calc(100vw - 32px)); }
+.bulk-lanes { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0; max-height: 160px; overflow: auto; }
+.bulk-lane { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.bulk-lane.src { opacity: .7; }
+.bulk-table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.bulk-table th, .bulk-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+.bulk-prev { max-height: 240px; overflow: auto; margin: 6px 0 10px; }
+@media (pointer: coarse) { .pt-steps .btn.sm, .prof-actions .btn.sm, .pe-act .btn.sm, #btnEditBase { min-height: 40px; padding: 6px 12px; } }
 .pt-steps { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .pt-l { font-size: 12.5px; color: var(--muted); margin: 0 2px 0 6px; }
 .pt-steps .btn.sm { padding: 3px 7px; }

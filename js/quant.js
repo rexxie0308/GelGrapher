@@ -79,43 +79,75 @@
     return out;
   }
 
-  /* ---------- frames and placement ---------- */
-  const frameKeyOf = f => {
-    let sum = 0; const g = f.grid;
-    if (g) for (let i = 0; i < g.pts.length; i += 7) sum += g.pts[i] * (i % 13 + 1);
-    return `${f.rot}|${f.fh ? 1 : 0}${f.fv ? 1 : 0}|${g ? g.nx + 'x' + g.ny + ':' + sum.toFixed(4) : ''}`;
+  /* ---------- frames and placement ----------
+   * A frame is identified by its whole transform: rotation, flips, the source image's size and every value of the
+   * geometry grid (Engine.hashNums over the exact numbers, no rounding). storeFrame also compares the stored
+   * content and takes another key on a collision, so a band is never mapped through another transform. Keys of
+   * earlier projects (a sampled checksum) stay valid as names: a band always reads the frame stored under its key,
+   * and every cache is keyed by that frame's content. */
+  const frameKeyOf = (f, W, H) => { const g = f.grid; return `f2|${f.rot || 0}|${f.fh ? 1 : 0}${f.fv ? 1 : 0}|${W}x${H}|${g ? `${g.nx}x${g.ny}@${g.W}x${g.H}:${E.hashNums(g.pts)}` : '-'}`; };
+  const sameFrame = (a, b) => {
+    if ((a.rot || 0) !== (b.rot || 0) || !!a.fh !== !!b.fh || !!a.fv !== !!b.fv || (a.W != null && b.W != null && (a.W !== b.W || a.H !== b.H))) return false;
+    const g = a.grid, h = b.grid;
+    if (!g || !h) return !g && !h;
+    if (g.nx !== h.nx || g.ny !== h.ny || g.W !== h.W || g.H !== h.H || g.pts.length !== h.pts.length) return false;
+    for (let i = 0; i < g.pts.length; i++) if (g.pts[i] !== h.pts[i]) return false;
+    return true;
   };
   function currentFrame(App) { const S = App.S; return { rot: S.rotation || 0, fh: !!(S.flip && S.flip.h), fv: !!(S.flip && S.flip.v), grid: App.geomGrid(S) }; }
   // the frame shown now, kept in quant.frames; returns its key
   function storeFrame(App) {
-    const q = App.S.quant, f = currentFrame(App), k = frameKeyOf(f);
+    const q = App.S.quant, f = currentFrame(App), W = App.src0.w, H = App.src0.h, base = frameKeyOf(f, W, H);
+    const stored = { rot: f.rot, fh: f.fh, fv: f.fv, W, H, grid: f.grid ? { nx: f.grid.nx, ny: f.grid.ny, W: f.grid.W, H: f.grid.H, pts: Array.from(f.grid.pts) } : null };
     q.frames = q.frames || {};
-    if (!q.frames[k]) q.frames[k] = { rot: f.rot, fh: f.fh, fv: f.fv, grid: f.grid ? { nx: f.grid.nx, ny: f.grid.ny, W: f.grid.W, H: f.grid.H, pts: f.grid.pts.slice() } : null };
+    let k = base, n = 1;
+    while (q.frames[k] && !sameFrame(q.frames[k], stored)) k = `${base}~${++n}`;
+    if (!q.frames[k]) q.frames[k] = stored;
     return k;
   }
-  // frames no band refers to any more are dropped (they can be large: a geometry grid each)
+  // frames no band (and no total-lane region) refers to any more are dropped (they can be large: a grid each)
   function pruneFrames(q, keep) {
     if (!q.frames) return;
     const used = new Set(q.rows.map(r => r.frame).filter(Boolean));
     if (keep && keep.frame) used.add(keep.frame);   // a band being placed may not be in the table yet
+    if (q.normRegions && q.normRegions.frame) used.add(q.normRegions.frame);
     Object.keys(q.frames).forEach(k => { if (!used.has(k)) delete q.frames[k]; });
+  }
+  // a stored frame's content identity (memoised per stored object: undo and project files make new objects)
+  const contentIds = new WeakMap();
+  function frameContentId(App, key) {
+    const f = App.S.quant.frames && App.S.quant.frames[key];
+    if (!f) return null;
+    let id = contentIds.get(f);
+    if (!id) { id = frameKeyOf(f, f.W || App.src0.w, f.H || App.src0.h); contentIds.set(f, id); }
+    return id;
   }
   const mapCache = new Map();
   function frameMapOf(App, key) {
     const q = App.S.quant, f = q.frames && q.frames[key];
     if (!f) return null;
-    const ck = key + '|' + App.src0.w + 'x' + App.src0.h;
+    const ck = frameContentId(App, key) + '|' + App.src0.w + 'x' + App.src0.h;
     let m = mapCache.get(ck);
-    if (!m) { m = E.frameMap(Object.assign({ W: App.src0.w, H: App.src0.h }, f)); mapCache.set(ck, m); if (mapCache.size > 40) mapCache.delete(mapCache.keys().next().value); }
+    if (!m) { m = E.frameMap(Object.assign({}, f, { W: App.src0.w, H: App.src0.h })); mapCache.set(ck, m); if (mapCache.size > 40) mapCache.delete(mapCache.keys().next().value); }
     return m;
   }
   const curMap = App => E.frameMap(Object.assign({ W: App.src0.w, H: App.src0.h }, currentFrame(App)));
   const newId = p => p + Math.random().toString(36).slice(2, 8);
+  // the lanes whose drawn baseline a placement in the frame shown now would remove (their limits are rows of the
+  // band's own frame, meaningless in another one); the interface asks before
+  function placementDropsManual(App, row) {
+    if (!row.lanes) return [];
+    const f = currentFrame(App), cur = { rot: f.rot, fh: f.fh, fv: f.fv, grid: f.grid }, st = row.frame && App.S.quant.frames && App.S.quant.frames[row.frame];
+    const same = st && sameFrame(Object.assign({}, st, { W: null }), cur);
+    return same ? [] : Object.keys(row.lanes).filter(id => row.lanes[id].manual);
+  }
   /* Place a band in the frame shown now, rows y0..y1 of it (inclusive), in every lane of the analysis area
    * (ladders aside; lanes left out of the analysis are placed too, so ticking them back needs no edit). A lane's
-   * own adjustments (dx, dy0, dy1, background) are kept. An explicit analysis change: undoable, counted. */
+   * own adjustments (dx, dy0, dy1, background) are kept; a drawn baseline is kept when the band stays in the same
+   * frame (Height, Re-centre and the region width then leave it alone) and removed otherwise (see
+   * placementDropsManual). An explicit analysis change: undoable, counted. */
   function placeRow(App, row, y0, y1) {
-    const S = App.S, g = region(S), mk = new Set(S.markers.map(m => m.lane)), old = row.lanes || {};
+    const S = App.S, g = region(S), mk = new Set(S.markers.map(m => m.lane)), old = row.lanes || {}, drop = new Set(placementDropsManual(App, row));
     row.frame = storeFrame(App);
     row.y0 = Math.round(Math.min(y0, y1)); row.y1 = Math.round(Math.max(y0, y1));
     row.hw = boxHalfWidth(S);
@@ -125,6 +157,7 @@
       if (mk.has(i) || l.x < g.x || l.x > g.x + g.w) return;
       const id = App.laneId(i), o = old[id] || {}, L = { cx: l.x };
       ['dx', 'dy0', 'dy1', 'bg'].forEach(k => { if (o[k] != null) L[k] = o[k]; });
+      if (o.manual && !drop.has(id)) L.manual = o.manual;
       row.lanes[id] = L;
     });
     row.placed = (row.placed || 0) + 1;
@@ -206,28 +239,33 @@
     return P;
   }
   const corners = (fm, r) => [[r.xa, r.ya], [r.xb, r.ya], [r.xb, r.yb], [r.xa, r.yb]].map(([x, y]) => { const p = fm.to(x, y); return [+p.x.toFixed(2), +p.y.toFixed(2)]; });
-  const cache = new WeakMap();
+  /* Cache of pixel calculations, per decoded image, least recently used dropped first (interactive edits of
+   * regions and baselines would otherwise pile up arrays). It holds only what depends on the cell's own pixels and
+   * settings; whatever depends on other bands (overlap), on the placement count (provenance) or on variants
+   * (sensitivity) is put together fresh on every call, so a warm and a cold cache give the same result. */
+  const cache = new WeakMap(), CACHE_MAX = 400;
   function cacheFor(App) { let c = cache.get(App.src0); if (!c) { c = new Map(); cache.set(App.src0, c); } return c; }
+  function cacheGet(App, key) { const C = cacheFor(App); if (!C.has(key)) return undefined; const v = C.get(key); C.delete(key); C.set(key, v); return v; }
+  function cacheSet(App, key, v) { const C = cacheFor(App); C.set(key, v); while (C.size > CACHE_MAX) C.delete(C.keys().next().value); return v; }
+  function clearCache(App) { cache.delete(App.src0); }
+  const cacheSize = App => cacheFor(App).size;
 
-  /* One lane of one band: { value (the corrected signal, or null with `unavailable`), U, B, n, nb, sigmaPx, f,
-   * t3, t10, clip: {n, kind}, flags, review: [reasons], sens, prof, prov }. opts: {d, gapAdd, bare} (bare: the
-   * value only, for the sensitivity check). */
-  function measureCell(App, row, lid, opts) {
-    opts = opts || {};
+  // noise states: only 'estimated' allows a threshold call
+  const NOISE_TEXT = { estimated: 'estimated', unavailable: 'no background samples inside the image', insufficient: 'too few background samples', contaminated: 'background not flat' };
+  /* The pixel part of one lane of one band (cached): the integration, the local background model, the noise and
+   * its state, clipping and its state, and the diagnostics that depend only on these pixels. */
+  function cellBase(App, row, lid, L, fm, opts) {
     const S = App.S, q = S.quant, mode = q.mode === 'band' ? 'band' : 'box';
-    const L = row.lanes && row.lanes[lid], fm = L && frameMapOf(App, row.frame);
-    if (!L || !fm) return { value: null, unavailable: 'No measurement region in this lane yet (Re-centre on lanes places one).', flags: { unplaced: true }, review: [], n: 0 };
-    // a baseline drawn on the lane's profile replaces the band's background method in this lane
     const man = manualOf(L), method = man ? 'manual' : ['local', 'edge', 'rolling', 'border', 'none'].includes(q.bg) ? q.bg : 'local';
-    const key = JSON.stringify([row.frame, row.y0, row.y1, row.hw, row.strip, L, method, mode, q.bgSides, q.bgGap, q.bgSize, S.bright, opts.d || 0, opts.gapAdd || 0, !!opts.bare]);
-    const C = cacheFor(App);
-    if (C.has(key)) return C.get(key);
+    const key = JSON.stringify(['cell', frameContentId(App, row.frame), row.y0, row.y1, row.hw, row.strip, L, method, mode, q.bgSides, q.bgGap, q.bgSize, S.bright, opts.d || 0, opts.gapAdd || 0, !!opts.bare]);
+    const hit = cacheGet(App, key);
+    if (hit) return hit;
     const bright = S.bright, val = bright ? v => v : v => 1 - v;
     const rect = rectOf(row, L, opts.d), K = Math.round(rect.yb - rect.ya), spec = bgSpec(q, L, rect, opts.gapAdd);
     const sig = gather(App, fm, rect);
-    // the local background regions: subtracted with the local method, and the noise and contamination
-    // diagnostics of every method
-    const loc = bgRects(rect, spec, 'local').map(r => Object.assign(gather(App, fm, r), { side: r.side }));
+    // the local background regions: subtracted with the local method; the noise estimate and the coverage
+    // diagnostics of every method (a drawn baseline's variants skip them: they only need the value)
+    const loc = opts.bare && method === 'manual' ? [] : bgRects(rect, spec, 'local').map(r => Object.assign(gather(App, fm, r), { side: r.side }));
     const sv = b => { const o = new Float64Array(b.raw.length); for (let i = 0; i < o.length; i++) o[i] = val(b.raw[i]); return o; };
     const sideVals = side => { const out = []; side.bins.forEach(b => { const v = sv(b); for (let i = 0; i < v.length; i++) out.push(v[i]); }); return out; };
     // the local model: level(v) at a row centre v (rows of the signal region are v = 0.5 .. K - 0.5)
@@ -278,8 +316,12 @@
     const resid = new Map(); let rs = [];
     if (localLev) loc.forEach(r => r.bins.forEach(b => { const v = sv(b), lv = localLev(b.v + 0.5); for (let i = 0; i < v.length; i++) { const e = v[i] - lv; resid.set(b.idx[i], e); rs.push(e); } }));
     const mr = rs.length ? median(rs) : 0, sigmaPx = rs.length >= 5 ? 1.4826 * median(rs.map(e => Math.abs(e - mr))) : NaN;
-    const W = App.src0.w, corr = dx => { let sab = 0, saa = 0, sbb = 0, k = 0; resid.forEach((e, i) => { const o = resid.get(i + dx); if (o != null && (dx !== 1 || (i % W) + 1 < W)) { sab += (e - mr) * (o - mr); saa += (e - mr) ** 2; sbb += (o - mr) ** 2; k++; } }); return k >= 20 && saa > 0 && sbb > 0 ? E.clamp(sab / Math.sqrt(saa * sbb), 0, 0.95) : 0; };
-    const rx = corr(1), ry = corr(W), f = Math.min(25, (1 + rx) / (1 - rx) * (1 + ry) / (1 - ry));
+    // correlated neighbouring pixels: the variance of a sum is sigma^2 n f, f = the sum of the residuals'
+    // autocorrelation over lags up to 2 pixels in x and y (a direct estimate; a separable first-order model overstated
+    // short-range correlation: 25 instead of 9 for a 3 x 3 blur); f is at least 1 and at most 25
+    const W = App.src0.w, corr = (dx, dy) => { let sab = 0, saa = 0, sbb = 0, k = 0; const off = dy * W + dx; resid.forEach((e, i) => { const x = i % W; if (x + dx < 0 || x + dx >= W) return; const o = resid.get(i + off); if (o != null) { sab += (e - mr) * (o - mr); saa += (e - mr) ** 2; sbb += (o - mr) ** 2; k++; } }); return k >= 20 && saa > 0 && sbb > 0 ? E.clamp(sab / Math.sqrt(saa * sbb), -0.5, 0.98) : 0; };
+    let fsum = 1; for (let dy = 0; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { if (dy === 0 && dx <= 0) continue; fsum += 2 * corr(dx, dy); }
+    const rx = corr(1, 0), ry = corr(0, 1), f = E.clamp(fsum, 1, 25);
     let value = lev ? U - Bsum : null, counted = n, floor = 0;
     if (value != null && mode === 'band') {
       floor = 3 * (isFinite(sigmaPx) ? sigmaPx : 0) + 0.004; value = 0; counted = 0;
@@ -288,16 +330,18 @@
     const unavailable = !lev ? (method === 'local' || method === 'border' ? 'No background region inside the image for this lane.' : 'No background.')
       : !n ? 'The region lies outside the image.' : null;
     if (unavailable) value = null;
-    if (opts.bare) { const out = { value }; C.set(key, out); return out; }
+    if (opts.bare) return cacheSet(App, key, { value });
     const sigmaSum = isFinite(sigmaPx) ? sigmaPx * Math.sqrt(f * (n + (isFinite(m) ? c * n * n / m : 0))) : NaN;
-    // clipping: signal pixels at the band end of the scale where this file clips
+    // clipping: signal pixels at the band end of the scale where this file clips; 'unknown' when the file has no
+    // limit to test against (floating point): not the same as "checked, none"
     const clipT = App.satPredicate ? App.satPredicate() : null;
     let clipN = 0; if (clipT) sig.bins.forEach(b => { for (let i = 0; i < b.raw.length; i++) if (clipT(b.raw[i])) clipN++; });
     const a = App.acq, side = a ? (bright ? a.hi : a.lo) : null;
-    const clipKind = clipN ? (side && side.kind === 'pileup' ? 'pileup' : 'limit') : null;
-    // diagnostics on the residual profile above the LOCAL level (whatever the method subtracts: the line between
-    // the region's ends passes through its end rows by construction, so it cannot show a band reaching them)
-    const lvAt = j => (method === 'manual' ? lev(j) : localLev ? localLev(j + 0.5) : lev ? lev(j) : 0);
+    const clipKind = clipN ? (side && side.kind === 'pileup' ? 'pileup' : 'limit') : null, clipState = clipT ? 'checked' : 'unknown';
+    // coverage diagnostics on the residual profile above the LOCAL level, whatever the method subtracts (the line
+    // between the region's ends, or a drawn baseline, passes through its end rows by construction, so it cannot
+    // show a band reaching them); the method's own level only when there is no local level
+    const lvAt = j => (localLev ? localLev(j + 0.5) : lev ? lev(j) : 0);
     prof.forEach((p, j) => { p.local = localLev ? localLev(j + 0.5) : null; });
     const pr = prof.map((p, j) => (isNaN(p.mean) ? 0 : p.mean - lvAt(j))), peak = Math.max(0, ...pr), tiny = isFinite(sigmaPx) ? 3 * sigmaPx : 0;
     // a band worth checking: above 3 sigma of the pixel noise and above 0.2 % of full scale
@@ -307,10 +351,16 @@
     const contaminated = [];
     if (strong) [A, Bw].forEach(r => {
       if (!r || r.bins.length < 2) return;
-      const meds = r.bins.map(b => median(Array.from(sv(b)))), near = r.side === 'above' ? meds.slice(Math.ceil(meds.length / 2)) : meds.slice(0, Math.floor(meds.length / 2));
-      const far = r.side === 'above' ? meds.slice(0, Math.floor(meds.length / 2)) : meds.slice(Math.ceil(meds.length / 2));
-      const mean = v => v.filter(x => !isNaN(x)).reduce((s, x, _, w) => s + x / w.length, 0), npx = r.n / 2;
-      if (near.length && far.length && mean(near) - mean(far) > Math.max(3 * (isFinite(sigmaPx) ? sigmaPx : 0) / Math.sqrt(Math.max(1, npx)), 0.1 * peak)) contaminated.push(r.side);
+      const half = (arr, nearSide) => (r.side === 'above') === nearSide ? arr.slice(Math.ceil(arr.length / 2)) : arr.slice(0, Math.floor(arr.length / 2));
+      const meds = r.bins.map(b => median(Array.from(sv(b)))), near = half(meds, true), far = half(meds, false);
+      // what the local model itself expects between the two halves (a linear gradient along the lane is not band)
+      const model = r.bins.map(b => (localLev ? localLev(b.v + 0.5) : 0)), mNear = half(model, true), mFar = half(model, false);
+      const mean = v => v.filter(x => !isNaN(x)).reduce((s, x, _, w) => s + x / w.length, 0), npx = r.n / 2, noiseD = 3 * (isFinite(sigmaPx) ? sigmaPx : 0) * Math.sqrt(f / Math.max(1, npx));
+      const d = mean(near) - mean(far) - (mean(mNear) - mean(mFar));
+      // rising towards the band by 10 % of its peak, or by enough to move the value by 3 % (a smear, a tail: a region
+      // that rises by d over half its depth gives a level about d too high, on the order of n pixels)
+      const impact = d * n;
+      if (near.length && far.length && d > noiseD && (d > 0.1 * peak || (value != null && impact > 0.03 * Math.abs(value)))) contaminated.push(r.side);
     });
     // a background region that is not flat (another band, a smear, a speck): a row's median strays from the local
     // model by more than 10 % of the band's peak and 4 standard errors of a row median
@@ -320,86 +370,166 @@
       const off = r.bins.some(b => { if (b.n < 3) return false; const md = median(Array.from(sv(b))), se = 1.2533 * (isFinite(sigmaPx) ? sigmaPx : 0) / Math.sqrt(b.n); return Math.abs(md - localLev(b.v + 0.5)) > Math.max(4 * se, 0.1 * peak); });
       if (off) uneven.push(r.side);
     });
+    // the noise estimate's state: a threshold call needs 'estimated'
+    const noise = !localLev || !rs.length || !isFinite(sigmaPx) ? 'unavailable' : rs.length < 30 ? 'insufficient' : contaminated.length || uneven.length ? 'contaminated' : 'estimated';
+    // a drawn baseline's ends against the background beside them: an end above it holds band signal (the line then
+    // cuts through the band), an end below it adds background to the band
+    // The background beside the limits may itself lie on the band's tails, so the ends are also compared with
+    // background regions further out (the lower of the two for "above", the higher for "below"); judged by what the
+    // difference does to the value: more than 5 % of it and 3 sigma of the sum.
+    let endpoints = null;
+    if (man) {
+      const farSpec = bgSpec(q, L, rect, Math.max(4, Math.round(0.5 * K))), far = bgRects(rect, farSpec, 'local').map(r => Object.assign(gather(App, fm, r), { side: r.side }));
+      const fA = far.find(r => r.side === 'above'), fB = far.find(r => r.side === 'below'), fva = fA ? sideVals(fA) : [], fvb = fB ? sideVals(fB) : [];
+      let farLev = null;
+      if (fva.length && fvb.length) { const ma = median(fva), mb = median(fvb), cA = -farSpec.gap - farSpec.size / 2, cB = K + farSpec.gap + farSpec.size / 2; farLev = v => ma + (mb - ma) * (v - cA) / (cB - cA); }
+      else if (fva.length || fvb.length) { const m0 = median(fva.length ? fva : fvb); farLev = () => m0; }
+      const levs = v => [localLev, farLev].filter(Boolean).map(fn => fn(v));
+      if (!localLev && !farLev) endpoints = { unchecked: true };
+      else {
+        const sumSig = isFinite(sigmaPx) ? sigmaPx * Math.sqrt(f * n) : 0, need = Math.max(0.05 * Math.abs(value || 0), 3 * sumSig, 1e-9);
+        const hi = [man.la - Math.min(...levs(0.5)), man.lb - Math.min(...levs(K - 0.5))], lo = [Math.max(...levs(0.5)) - man.la, Math.max(...levs(K - 0.5)) - man.lb];
+        const impHi = (Math.max(0, hi[0]) + Math.max(0, hi[1])) / 2 * n, impLo = (Math.max(0, lo[0]) + Math.max(0, lo[1])) / 2 * n;
+        const se = isFinite(sigmaPx) ? 1.2533 * sigmaPx / Math.sqrt(Math.max(1, n / Math.max(1, K))) : 0;
+        endpoints = { start: impHi > need && hi[0] > 2 * se ? 'high' : impLo > need && lo[0] > 2 * se ? 'low' : null, end: impHi > need && hi[1] > 2 * se ? 'high' : impLo > need && lo[1] > 2 * se ? 'low' : null,
+          share: Math.max(impHi, impLo) / Math.max(1e-12, Math.abs(value || 0)) };
+      }
+    }
     // two peaks in the region: a neighbouring band, or a doublet
     let peaks = 0;
     if (strong) { for (let j = 1; j < K - 1; j++) if (pr[j] >= pr[j - 1] && pr[j] > pr[j + 1] && pr[j] > 0.3 * peak) { let lo = pr[j]; for (let t = j - 1; t >= 0 && pr[t] <= pr[j]; t--) lo = Math.min(lo, pr[t]); if (pr[j] - lo > 0.25 * peak || peaks === 0) peaks++; } }
     if (strong && K >= 3) { if (pr[0] > pr[1] && pr[0] > 0.3 * peak) peaks++; if (pr[K - 1] > pr[K - 2] && pr[K - 1] > 0.3 * peak) peaks++; }
-    // the background over another band: another band's region of this lane in the same frame
+    // pixel indices for the overlap check in source coordinates (any frame)
+    const idxOf = g => { const out = new Int32Array(g.bins.reduce((s2, b) => s2 + b.idx.length, 0)); let o = 0; g.bins.forEach(b => { out.set(b.idx, o); o += b.idx.length; }); return out; };
+    const base = {
+      value, unavailable, U: lev ? U : null, B: lev ? Bsum : null, n, counted, floor, method, mode, K, rect, spec, man,
+      nb: method === 'local' ? mLocal : method === 'border' ? (ring || []).reduce((s2, r) => s2 + r.n, 0) : method === 'edge' ? m : 0, nNoise: rs.length,
+      sigmaPx, f, rho: [rx, ry], sigmaSum, noise, clipN, clipKind, clipState, boundary, contaminated, uneven, peaks, peak, oneSide, endpoints,
+      sigOutside: sig.outside, locOutside: loc.reduce((s2, r) => s2 + r.outside, 0), prof,
+      bgProf: loc.flatMap(r => r.bins.map(b => ({ v: b.v + 0.5, side: r.side, n: b.n, mean: binMean(b) }))),
+      sigIdx: idxOf(sig), locIdx: loc.map(r => ({ side: r.side, idx: idxOf(r) })),
+      corners: { signal: corners(fm, rect), background: (method === 'border' ? ring : method === 'local' ? loc : []).map(r => ({ side: r.side, corners: corners(fm, r.rect), px: r.n })), noise: loc.map(r => ({ side: r.side, corners: corners(fm, r.rect), px: r.n })) }
+    };
+    return cacheSet(App, key, base);
+  }
+
+  /* One lane of one band: { value (the corrected signal, or null with `unavailable`), U, B, n, nb, sigmaPx, f,
+   * t3, t10, clip: {n, kind, state}, flags, review: [reasons], sens, prof, prov }. opts: {d, gapAdd, bare, total}
+   * (bare: the value only, for the sensitivity checks; total: a total-lane region, no band context). */
+  function measureCell(App, row, lid, opts) {
+    opts = opts || {};
+    const S = App.S, q = S.quant;
+    const L = row.lanes && row.lanes[lid], fm = L && frameMapOf(App, row.frame);
+    if (!L || !fm) return { value: null, unavailable: 'No measurement region in this lane yet (Re-centre on lanes places one).', flags: { unplaced: true, noise: 'unavailable', clipState: 'unknown' }, review: [], n: 0 };
+    const b = cellBase(App, row, lid, L, fm, opts);
+    if (opts.bare) return { value: b.value };
+    const { value, method, mode, K, man } = b, own = method !== 'manual';
+    // the background over another band: any other band's region in this lane, compared in source pixels (bands
+    // placed in different frames can still cover the same pixels)
     const overlap = [];
-    q.rows.forEach(o => { if (o === row || o.frame !== row.frame || !o.lanes || !o.lanes[lid]) return; const r2 = rectOf(o, o.lanes[lid]); loc.forEach(b => { if (b.rect.ya < r2.yb && b.rect.yb > r2.ya && b.rect.xa < r2.xb && b.rect.xb > r2.xa) overlap.push(`${b.side} overlaps ${o.name || 'another band'}`); }); });
-    // sensitivity: the region made taller (the band was cut off?) and the background moved away (it held band?)
-    let sens = null;
-    if (value != null && mode === 'box' && method !== 'manual') {
-      const dd = Math.max(1, Math.round(0.2 * K)), tall = measureCell(App, row, lid, { d: dd, bare: true }).value;
-      const away = method === 'local' ? measureCell(App, row, lid, { gapAdd: Math.max(2, Math.round(0.3 * K)), bare: true }).value : null;
+    if (!opts.total && b.locIdx.length) q.rows.forEach(o => {
+      if (o === row || !o.frame || !o.lanes || !o.lanes[lid]) return;
+      const ofm = frameMapOf(App, o.frame); if (!ofm) return;
+      const ob = cellBase(App, o, lid, o.lanes[lid], ofm, {}), set = ob.sigSet || (ob.sigSet = new Set(ob.sigIdx));
+      b.locIdx.forEach(r => { for (let i = 0; i < r.idx.length; i++) if (set.has(r.idx[i])) { overlap.push(`${r.side} overlaps ${o.name || 'another band'}`); return; } });
+    });
+    // sensitivity: the region made taller (the band was cut off?) and the background moved away (it held band?);
+    // for a drawn baseline: its ends moved by 2 rows and its levels by a little (where it is drawn matters how much?)
+    let sens = null, msens = null;
+    const bare = (rw, LL, o2) => cellBase(App, rw, lid, LL, fm, Object.assign({ bare: true }, o2)).value;
+    if (!opts.total && value != null && mode === 'box' && own) {
+      const dd = Math.max(1, Math.round(0.2 * K)), tall = bare(row, L, { d: dd });
+      const away = method === 'local' ? bare(row, L, { gapAdd: Math.max(2, Math.round(0.3 * K)) }) : null;
       sens = { taller: tall, tallerRows: dd, away, awayPx: method === 'local' ? Math.max(2, Math.round(0.3 * K)) : 0 };
     }
-    const tol = v => Math.max(0.1 * Math.abs(value), 3 * (isFinite(sigmaSum) ? sigmaSum : 0));
-    const unstable = sens ? [sens.taller != null && Math.abs(sens.taller - value) > tol() ? 'taller' : '', sens.away != null && Math.abs(sens.away - value) > tol() ? 'away' : ''].filter(Boolean) : [];
-    const t3 = 3 * sigmaSum, t10 = 10 * sigmaSum;
-    // background regions that hold band give no noise estimate (the band's slope reads as scatter): no threshold
-    // call then; the lane is marked for review instead
-    const noiseOk = !contaminated.length && !uneven.length;
-    const below = value == null || !isFinite(sigmaSum) || !noiseOk ? null : value < t3 ? 't3' : value < t10 ? 't10' : null;
-    // a drawn baseline does not use the background regions: their checks only qualify the noise estimate
-    const own = method !== 'manual';
-    const flags = { clip: clipKind, below, noise: noiseOk ? null : contaminated.length ? 'background holds band' : 'background not flat', boundary: boundary.length ? boundary : null, contaminated: own && contaminated.length ? contaminated : null, uneven: own && uneven.length ? uneven : null, twoPeaks: peaks >= 2,
-      outside: sig.outside > 0 || (own && loc.some(r => r.outside > 0)) ? { signal: sig.outside, background: own ? loc.reduce((s2, r) => s2 + r.outside, 0) : 0 } : null,
-      overlap: own && overlap.length ? overlap : null, oneSide: own && oneSide, unstable: unstable.length ? unstable : null, override: spec.override || !own, edgeMethod: method === 'edge', manual: !own };
+    if (!opts.total && value != null && man) {
+      const dLev = Math.max(isFinite(b.sigmaPx) ? b.sigmaPx : 0, 0.02 * Math.max(b.peak, 0.01)), var_ = mm => bare(row, Object.assign({}, L, { manual: Object.assign({}, man, mm) }), {});
+      const pos = [{ a: man.a - 2 }, { a: man.a + 2 }, { b: man.b - 2 }, { b: man.b + 2 }].filter(mm => (mm.b != null ? mm.b : man.b) - (mm.a != null ? mm.a : man.a) >= 2).map(var_).filter(v => v != null);
+      const lv = [{ la: man.la - dLev }, { la: man.la + dLev }, { lb: man.lb - dLev }, { lb: man.lb + dLev }].map(var_).filter(v => v != null);
+      msens = { dPos: 2, dLev, pos: pos.length ? [Math.min(...pos), Math.max(...pos)] : null, lev: lv.length ? [Math.min(...lv), Math.max(...lv)] : null };
+    }
+    const sigmaSum = b.sigmaSum, tolv = Math.max(0.1 * Math.abs(value), 3 * (isFinite(sigmaSum) ? sigmaSum : 0));
+    const unstable = sens ? [sens.taller != null && Math.abs(sens.taller - value) > tolv ? 'taller' : '', sens.away != null && Math.abs(sens.away - value) > tolv ? 'away' : ''].filter(Boolean) : [];
+    const msDev = msens ? Math.max(0, ...[].concat(msens.pos || [], msens.lev || []).map(v => Math.abs(v - value))) : 0;
+    const baselineSensitive = !!msens && msDev > tolv;
+    const t3 = 3 * sigmaSum, t10 = 10 * sigmaSum, noiseOk = b.noise === 'estimated';
+    // a threshold call only with an estimated noise: "could not estimate" is never "passed"
+    const below = value == null || !noiseOk || !isFinite(sigmaSum) ? null : value < t3 ? 't3' : value < t10 ? 't10' : null;
+    const ends = b.endpoints, endHigh = ends && ['start', 'end'].filter(e => ends[e] === 'high'), endLow = ends && ['start', 'end'].filter(e => ends[e] === 'low');
+    const flags = { clip: b.clipKind, clipState: b.clipState, below, belowUnknown: value != null && !noiseOk, noise: b.noise,
+      boundary: b.boundary.length ? b.boundary : null, contaminated: b.contaminated.length ? b.contaminated : null, uneven: b.uneven.length ? b.uneven : null, twoPeaks: b.peaks >= 2,
+      outside: b.sigOutside > 0 || (own && b.locOutside > 0) ? { signal: b.sigOutside, background: own ? b.locOutside : 0 } : null,
+      overlap: own && overlap.length ? overlap : null, oneSide: own && b.oneSide, unstable: unstable.length ? unstable : null, override: b.spec.override || !own, edgeMethod: method === 'edge',
+      manual: !own, endpoints: endHigh && endHigh.length ? endHigh : null, endpointsLow: endLow && endLow.length ? endLow : null, endpointsUnchecked: !!(ends && ends.unchecked), baselineSensitive };
     const review = [];
-    if (flags.boundary) review.push(method === 'manual' ? 'the peak continues beyond the drawn ' + boundary.map(b => (b === 'top' ? 'start' : 'end')).join(' and ') : method === 'edge' ? 'the band reaches the region\'s ends, where this background is sampled: it subtracts part of the band' : 'the band reaches the region\'s ' + boundary.join(' and ') + ' edge: part of it may lie outside');
-    if (flags.contaminated) review.push(`the background ${contaminated.join(' and ')} rises towards the band: it holds part of the band`);
-    if (flags.uneven) review.push(`the background ${uneven.join(' and ')} is not flat: another band or a smear may lie in it`);
+    const endWord = e => (e === 'top' ? 'start' : 'end');
+    if (flags.boundary) review.push(!own ? `the band continues beyond the drawn ${b.boundary.map(endWord).join(' and ')} (compared with the background beside the limits): part of it is left out`
+      : method === 'edge' ? 'the band reaches the region\'s ends, where this background is sampled: it subtracts part of the band' : 'the band reaches the region\'s ' + b.boundary.join(' and ') + ' edge: part of it may lie outside');
+    const pct = ends && isFinite(ends.share) ? ` (about ${Math.round(100 * ends.share)} % of the value)` : '';
+    if (flags.endpoints) review.push(`the baseline's ${flags.endpoints.join(' and ')} ${flags.endpoints.length > 1 ? 'lie' : 'lies'} above the background beyond the limits: the endpoint holds band signal, so the line cuts through the band${pct}`);
+    if (flags.endpointsLow) review.push(`the baseline's ${flags.endpointsLow.join(' and ')} ${flags.endpointsLow.length > 1 ? 'lie' : 'lies'} below the background beyond the limits: background is counted as band${pct}`);
+    if (flags.endpointsUnchecked) review.push('the baseline\'s ends could not be compared with the background (no background samples beside the limits)');
+    if (flags.contaminated) review.push(own ? `the background ${b.contaminated.join(' and ')} rises towards the band: it holds part of the band` : `the profile just ${b.contaminated.map(sd => (sd === 'above' ? 'before the start' : 'after the end')).join(' and ')} still rises towards the band: the band may continue beyond the limits`);
+    if (flags.uneven) review.push(`the background ${b.uneven.join(' and ')} is not flat: another band or a smear may lie in it`);
     if (flags.twoPeaks) review.push('two peaks in the region: a neighbouring band or a doublet may be included');
     if (flags.overlap) review.push('background region ' + overlap.join(', '));
     if (flags.outside && flags.outside.signal) review.push('part of the region lies outside the image');
     if (flags.unstable) review.push(unstable.map(u => (u === 'taller' ? `the value changes by more than 10 % when the region is ${sens.tallerRows} rows taller at each end` : `the value changes by more than 10 % when the background is moved ${sens.awayPx} px further away`)).join('; '));
+    if (baselineSensitive) review.push(`the value depends on where the baseline is drawn: moving its ends by ${msens.dPos} rows or its levels by ${fmtN(msens.dLev)} changes it by up to ${Math.round(100 * msDev / Math.max(1e-12, Math.abs(value)))} %`);
     if (flags.oneSide) review.push('only one background side lies inside the image');
+    if (value != null && !noiseOk) review.push(`the noise could not be estimated (${NOISE_TEXT[b.noise]}): no 3σ / 10σ check was made`);
     const src = S.file || {};
-    const out = {
-      value, unavailable, U: lev ? U : null, B: lev ? Bsum : null, n, counted, floor, nb: method === 'local' ? mLocal : method === 'border' ? (ring || []).reduce((s2, r) => s2 + r.n, 0) : method === 'edge' ? m : 0, method,
-      sigmaPx, f, rho: [rx, ry], sigmaSum, t3, t10, lod: t3, loq: t10, clip: { n: clipN, kind: clipKind }, flags, review, sens, prof,
-      // the rows of the local background regions (the profile shows exactly the pixels the background came from)
-      bgProf: loc.flatMap(r => r.bins.map(b => ({ v: b.v + 0.5, side: r.side, n: b.n, mean: binMean(b) }))),
-      prov: { image: src.name, sha256: src.sha256, version: VERSION, method, mode, polarity: bright ? 'bright bands: s = I' : 'dark bands: s = 1 - I',
-        signal: { corners: corners(fm, rect), px: n, outsidePx: sig.outside, rows: K },
-        background: (method === 'border' ? ring : method === 'local' ? loc : []).map(r => ({ side: r.side, corners: corners(fm, r.rect), px: r.n })),
-        noiseRegions: loc.map(r => ({ side: r.side, corners: corners(fm, r.rect), px: r.n })),
-        manual: man ? { rows: [man.a, man.b], levels: [+man.la.toFixed(6), +man.lb.toFixed(6)] } : undefined,
-        spec, frame: row.frame, placed: row.placed || 1, laneId: lid, override: ['dx', 'dy0', 'dy1', 'bg', 'manual'].filter(k => L[k] != null) }
+    return {
+      value, unavailable: b.unavailable, U: b.U, B: b.B, n: b.n, counted: b.counted, floor: b.floor, nb: b.nb, method, nNoise: b.nNoise,
+      sigmaPx: b.sigmaPx, f: b.f, rho: b.rho, sigmaSum, t3, t10, lod: t3, loq: t10, clip: { n: b.clipN, kind: b.clipKind, state: b.clipState }, flags, review, sens, msens,
+      prof: b.prof, bgProf: b.bgProf, y0: b.rect.ya + 0.5,
+      prov: { image: src.name, sha256: src.sha256, version: VERSION, build: (G.App && G.App.BUILD) || 'dev', method, mode, polarity: S.bright ? 'bright bands: s = I' : 'dark bands: s = 1 - I',
+        signal: { corners: b.corners.signal, px: b.n, outsidePx: b.sigOutside, rows: K, frameRows: [b.rect.ya + 0.5, b.rect.yb - 0.5], frameCols: [b.rect.xa + 0.5, b.rect.xb - 0.5] },
+        background: own ? b.corners.background : [], noiseRegions: b.corners.noise,
+        manual: man ? { rows: [man.a, man.b], levels: [+man.la.toFixed(6), +man.lb.toFixed(6)], note: 'integrated relative to a user-defined baseline' } : undefined,
+        spec: b.spec, frame: row.frame, placed: row.placed || 1, laneId: lid, override: ['dx', 'dy0', 'dy1', 'bg', 'manual'].filter(k => L[k] != null) }
     };
-    C.set(key, out);
-    return out;
   }
-  // the lane's whole signal over the analysis area's height, at the band's lane position (lane normalization)
-  function laneTotalCell(App, row, lid) {
-    const L = row.lanes && row.lanes[lid];
-    if (!L) return { value: null, unavailable: 'No region in this lane.', flags: {}, review: [] };
-    const st = row.strip || [row.y0, row.y1];
-    const pseudo = { frame: row.frame, y0: st[0], y1: st[1], hw: row.hw, strip: st, lanes: { [lid]: { cx: L.cx, dx: L.dx } }, name: 'lane total' };
-    return measureCell(App, pseudo, lid);
+  const fmtN = v => (v == null || !isFinite(v) ? '–' : Math.abs(v) >= 100 ? v.toFixed(1) : v.toPrecision(3));
+
+  /* ---------- total-lane regions (lane normalization) ----------
+   * One region per lane, of its own: rows y0..y1 of their frame, the lane's centre, a half-width, kept in
+   * quant.normRegions with stable lane ids. Placed from the analysis area when the user chooses total lane signal
+   * or asks to update them; band order, band deletion and the analysis area itself never move them. */
+  function placeNormRegions(App) {
+    const S = App.S, q = S.quant, g = region(S), mk = new Set(S.markers.map(m => m.lane)), lanes = {};
+    S.lanes.forEach((l, i) => { if (!mk.has(i) && l.x >= g.x && l.x <= g.x + g.w) lanes[App.laneId(i)] = { cx: l.x }; });
+    q.normRegions = { frame: storeFrame(App), y0: Math.round(g.y), y1: Math.round(g.y + g.h - 1), hw: boxHalfWidth(S), lanes, placed: ((q.normRegions && q.normRegions.placed) || 0) + 1, from: 'analysis area' };
+    pruneFrames(q);
+    return q.normRegions;
+  }
+  function laneTotalCell(App, lid) {
+    const nr = App.S.quant.normRegions, L = nr && nr.lanes && nr.lanes[lid];
+    if (!nr) return { value: null, unavailable: 'No total-lane regions yet (Update the total-lane regions from the analysis area).', flags: { noise: 'unavailable', clipState: 'unknown' }, review: [] };
+    if (!L) return { value: null, unavailable: 'This lane has no total-lane region (Update the total-lane regions from the analysis area).', flags: { noise: 'unavailable', clipState: 'unknown' }, review: [] };
+    const pseudo = { frame: nr.frame, y0: nr.y0, y1: nr.y1, hw: nr.hw, strip: [nr.y0, nr.y1], lanes: { [lid]: { cx: L.cx, dx: L.dx } }, name: 'lane total' };
+    return measureCell(App, pseudo, lid, { total: true });
   }
 
-  /* The lane's profile around a band, for drawing and for manual integration: the mean signal (s, the same units
-   * as the value) of each row of the lane's region width, over the region and its own height above and below
-   * (at least 12 rows), in rows of the band's frame. { rows: [{y, mean}], region: [first, last], baseline:
-   * [{y, b}] (what the calculation subtracts), bgRows: [{y, mean, side}] (rows of the background regions),
-   * manual, method }. */
+  /* The lane's profile around a band, for drawing and for manual integration: the mean signal per pixel (s, the
+   * value's units) of each row of the lane's region width, with the row's pixel count, over the region and its own
+   * height above and below (at least 12 rows), in rows of the band's frame. { rows: [{y, mean, n}], region:
+   * [first, last], baseline: [{y, b}] (what the calculation subtracts), bgRows: [{y, mean, side}] (rows the
+   * background came from), manual, method }. Rows with no pixel (off the image) have mean NaN: a gap, not zero. */
   function laneProfile(App, row, lid) {
     const L = row.lanes && row.lanes[lid], fm = L && frameMapOf(App, row.frame);
     if (!fm) return null;
     // the window is anchored on the band's own region (a drawn baseline does not move it, unless it reaches past it)
     const c = measureCell(App, row, lid), rect = rectOf(row, L), auto = rectOf(row, Object.assign({}, L, { manual: null })), K = Math.round(auto.yb - auto.ya), M = Math.max(12, K);
     const wa = Math.min(auto.ya - M, rect.ya - 4), wb = Math.max(auto.yb + M, rect.yb + 4);
-    const key = JSON.stringify(['lp', row.frame, row.hw, L.cx, L.dx || 0, wa, wb, App.S.bright]), C = cacheFor(App);
-    let rows = C.get(key);
+    const key = JSON.stringify(['lp', frameContentId(App, row.frame), row.hw, L.cx, L.dx || 0, wa, wb, App.S.bright]);
+    let rows = cacheGet(App, key);
     if (!rows) {
       const val = App.S.bright ? v => v : v => 1 - v, w = gather(App, fm, { xa: rect.xa, xb: rect.xb, ya: wa, yb: wb, v0: 0 });
-      rows = w.bins.map((b, t) => { let s2 = 0; for (let i = 0; i < b.raw.length; i++) s2 += val(b.raw[i]); return { y: wa + 0.5 + t, mean: b.raw.length ? s2 / b.raw.length : NaN }; });
-      C.set(key, rows);
+      rows = cacheSet(App, key, w.bins.map((b, t) => { let s2 = 0; for (let i = 0; i < b.raw.length; i++) s2 += val(b.raw[i]); return { y: wa + 0.5 + t, mean: b.raw.length ? s2 / b.raw.length : NaN, n: b.raw.length }; }));
     }
     return { rows, region: [rect.ya + 0.5, rect.yb - 0.5], method: c.method || App.S.quant.bg,
-      baseline: (c.prof || []).map(p => ({ y: rect.ya + p.v, b: p.bg })), bgRows: c.method === 'manual' ? [] : (c.bgProf || []).map(p => ({ y: rect.ya + p.v, mean: p.mean, side: p.side })),
+      baseline: (c.prof || []).map(p => ({ y: rect.ya + p.v, b: p.bg, n: p.n })), bgRows: c.method === 'manual' ? [] : (c.bgProf || []).map(p => ({ y: rect.ya + p.v, mean: p.mean, side: p.side })),
       manual: manualOf(L), cell: c };
   }
   // the profile's level at row y (mean of rows y-1..y+1), to put a drawn baseline's end on the curve
@@ -408,7 +538,8 @@
     return near.length ? near.reduce((s2, r) => s2 + r.mean, 0) / near.length : NaN;
   }
   /* Manual integration in one lane: limits a..b (rows of the band's frame, inclusive) and a straight baseline from
-   * level la at a to lb at b; the lane's own edge shifts give way to it. An explicit, undoable analysis change. */
+   * level la at a to lb at b, relative to which the region is integrated; the lane's own start / end shifts give
+   * way to it. An explicit, undoable analysis change (the interface's "Edit baseline…"). */
   function setManual(App, row, lid, a, b, la, lb) {
     const L = row.lanes && row.lanes[lid];
     if (!L) return false;
@@ -418,19 +549,65 @@
     delete L.dy0; delete L.dy1;
     return true;
   }
-  // the same limits in every lane of the band, each baseline end on that lane's own profile
-  function manualAll(App, row, a, b) {
-    let n = 0;
-    Object.keys(row.lanes || {}).forEach(id => {
-      const L = row.lanes[id], keep = L.manual; L.manual = { a, b, la: 0, lb: 0 };
-      const P = laneProfile(App, row, id), la = P ? levelAt(P, a) : NaN, lb = P ? levelAt(P, b) : NaN;
-      if (isFinite(la) && isFinite(lb) && setManual(App, row, id, a, b, la, lb)) n++; else if (keep) L.manual = keep; else delete L.manual;
-    });
-    return n;
+  // a lane's integration limits (rows of the band's frame, inclusive): its drawn baseline's, else its region's
+  function limitsOf(row, lid) {
+    const L = row.lanes && row.lanes[lid]; if (!L) return null;
+    const m = manualOf(L); if (m) return [m.a, m.b];
+    const r = rectOf(row, L); return [Math.round(r.ya + 0.5), Math.round(r.yb - 0.5)];
   }
-  // back to the band's own region and background in this lane
-  function resetLane(App, row, lid) { const L = row.lanes && row.lanes[lid]; if (!L) return; ['manual', 'dx', 'dy0', 'dy1', 'bg'].forEach(k => { delete L[k]; }); }
-
+  /* Copy integration limits: rows a..b in each target lane, each keeping its own background method (local regions,
+   * or whatever the band uses); a target lane with a drawn baseline keeps it unless replaceManual (it then goes
+   * back to the band's background, with these limits). Returns the lanes changed and the lanes left alone. */
+  function copyLimits(App, row, targets, a, b, opts) {
+    const done = [], kept = [];
+    targets.forEach(id => {
+      const L = row.lanes && row.lanes[id]; if (!L) return;
+      if (L.manual && !(opts && opts.replaceManual)) { kept.push(id); return; }
+      delete L.manual; L.dy0 = Math.round(a) - row.y0; L.dy1 = Math.round(b) - row.y1; if (!L.dy0) delete L.dy0; if (!L.dy1) delete L.dy1;
+      done.push(id);
+    });
+    return { done, kept };
+  }
+  /* Endpoint baseline in the target lanes: each lane is integrated between its own limits relative to the straight
+   * line joining its own profile at those two rows. Valid only when both ends lie on background; where they do not
+   * (a broad band reaching them) the lane is flagged, never silently accepted. A target with a drawn baseline is
+   * replaced only with replaceManual. */
+  function endpointBaseline(App, row, targets, opts) {
+    const done = [], kept = [];
+    targets.forEach(id => {
+      const L = row.lanes && row.lanes[id]; if (!L) return;
+      if (L.manual && !(opts && opts.replaceManual)) { kept.push(id); return; }
+      const lim = limitsOf(row, id), P = laneProfile(App, row, id), la = P ? levelAt(P, lim[0]) : NaN, lb = P ? levelAt(P, lim[1]) : NaN;
+      if (setManual(App, row, id, lim[0], lim[1], la, lb)) done.push(id); else kept.push(id);
+    });
+    return { done, kept };
+  }
+  // +1 when a step of +1 in the band's frame moves the lane's region to the right on the screen now, -1 when it
+  // moves it to the left (a flip or a rotation past 90 degrees since the band was placed)
+  function screenSign(App, row, lid) {
+    const L = row.lanes && row.lanes[lid], fm = L && frameMapOf(App, row.frame); if (!fm) return 1;
+    const cm = curMap(App), y = (row.y0 + row.y1) / 2, p0 = fm.to(L.cx, y), p1 = fm.to(L.cx + 1, y), a = cm.from(p0.x, p0.y), b = cm.from(p1.x, p1.y);
+    return b.x >= a.x ? 1 : -1;
+  }
+  // back to the automatic background in one lane, keeping its integration limits and its other adjustments
+  function useAutoBackground(App, row, lid) {
+    const L = row.lanes && row.lanes[lid], m = manualOf(L); if (!m) return false;
+    delete L.manual; L.dy0 = m.a - row.y0; L.dy1 = m.b - row.y1; if (!L.dy0) delete L.dy0; if (!L.dy1) delete L.dy1;
+    return true;
+  }
+  // every adjustment of one lane (the list says what): back to the band's own region and background
+  const LANE_ADJ = { manual: 'drawn baseline', dx: 'horizontal shift', dy0: 'start', dy1: 'end', bg: 'lane background settings' };
+  function laneAdjustments(row, lid) { const L = row.lanes && row.lanes[lid]; return L ? Object.keys(LANE_ADJ).filter(k => L[k] != null).map(k => LANE_ADJ[k]) : []; }
+  function resetLaneAll(App, row, lid) { const L = row.lanes && row.lanes[lid]; if (!L) return []; const was = laneAdjustments(row, lid); Object.keys(LANE_ADJ).forEach(k => { delete L[k]; }); return was; }
+  /* What a bulk change would do, before doing it: the targets' values and quality now and after (the change is
+   * applied to the band's lanes, measured, and taken back; nothing is committed). */
+  function preview(App, row, targets, apply) {
+    const take = () => { const R = measure(App), k = App.S.quant.rows.indexOf(row), o = {}; targets.forEach(id => { const j = R.ids.indexOf(id), c = j >= 0 && k >= 0 ? R.cells[k][j] : null; o[id] = c ? { value: c.value, review: c.review || [], flags: c.flags || {}, unavailable: c.unavailable } : null; }); return o; };
+    const saved = JSON.stringify(row.lanes), before = take();
+    let res = null, after = {};
+    try { res = apply(); after = take(); } finally { row.lanes = JSON.parse(saved); }
+    return { before, after, result: res };
+  }
   /* ---------- the whole table ---------- */
   const OUTPUTS = ['corrected', 'normalized', 'fold'];
   function measure(App) {
@@ -441,7 +618,9 @@
     const cells = rows.map((r, k) => lanes.map((i, j) => Object.assign({ lane: i, k, j }, measureCell(App, r, ids[j]))));
     const normMode = q.norm === 'band' || q.norm === 'lane' ? q.norm : 'none';
     const nb = normMode === 'band' ? rows.findIndex(r => r.id === q.normBand) : -1;
-    const totals = normMode === 'lane' && rows.length ? lanes.map((i, j) => Object.assign({ lane: i, j }, laneTotalCell(App, rows[0], ids[j]))) : null;
+    // total-lane denominators come from each lane's own total-lane region (never from a band, so band order,
+    // deletion and renaming cannot change them)
+    const totals = normMode === 'lane' ? lanes.map((i, j) => Object.assign({ lane: i, j }, laneTotalCell(App, ids[j]))) : null;
     const output = OUTPUTS.includes(q.output) ? q.output : 'corrected';
     const divisorIssue = (d, what) => (!d ? `${what} not measured in this lane` : d.value == null ? `${what}: ${d.unavailable}` : d.flags.clip ? `${what} clipped in this lane` : !(d.value > 0) ? `${what} is not above zero in this lane` : d.flags.below ? `${what} below its 10σ noise threshold in this lane` : null);
     const corrected = cells.map(r => r.map(c => c.value)), whyC = cells.map(r => r.map(c => c.unavailable || null));
@@ -459,12 +638,14 @@
         normalized[k].push(v); whyN[k].push(why);
       });
     });
-    // a divisor or reference that needs review makes every ratio resting on it need review too (given, marked)
+    // a divisor or reference that needs review, or whose noise or clipping could not be checked, makes every ratio
+    // resting on it need review too (given, marked unverified, never an ordinary qualified result)
     const revOf = c => !!(c && c.review && c.review.length);
+    const unverified = (c, what) => (!c || !c.flags ? null : c.flags.noise && c.flags.noise !== 'estimated' ? `${what}'s noise could not be estimated (unverified)` : c.flags.clipState === 'unknown' ? `${what}'s clipping could not be checked (unverified)` : null);
     const caveatN = rows.map((r, k) => lanes.map((i, j) => {
       if (normMode === 'none' || normalized[k][j] == null) return null;
-      const d = normMode === 'band' ? cells[nb][j] : totals[j];
-      return revOf(d) ? (normMode === 'band' ? 'the reference band needs review in this lane' : 'the lane total needs review') : null;
+      const d = normMode === 'band' ? cells[nb][j] : totals[j], what = normMode === 'band' ? 'the reference band' : 'the lane total';
+      return [revOf(d) ? `${what} needs review in this lane` : null, unverified(d, what)].filter(Boolean).join('; ') || null;
     }));
     const refJ = q.ref != null ? ids.indexOf(q.ref) : -1;
     const base = normMode === 'none' ? corrected : normalized, baseWhy = normMode === 'none' ? whyC : whyN;
@@ -486,7 +667,7 @@
     const caveatF = rows.map((r, k) => lanes.map((i, j) => {
       if (fold[k][j] == null) return null;
       const own = normMode !== 'none' ? caveatN[k][j] : null, rc = refJ >= 0 ? cells[k][refJ] : null, rd = refJ >= 0 && normMode !== 'none' ? caveatN[k][refJ] : null;
-      return [own, j !== refJ && (revOf(rc) || rd) ? 'the reference lane needs review' : null].filter(Boolean).join('; ') || null;
+      return [own, j !== refJ && (revOf(rc) || rd) ? 'the reference lane needs review' : null, j !== refJ ? unverified(rc, 'the reference lane') : null].filter(Boolean).join('; ') || null;
     }));
     const values = { corrected, normalized, fold }, why = { corrected: whyC, normalized: whyN, fold: whyF };
     const caveat = { corrected: rows.map(() => lanes.map(() => null)), normalized: caveatN, fold: caveatF };
@@ -494,13 +675,16 @@
     if (totals) totals.forEach(c => { if (c.flags && c.flags.clip) satLanes.add(c.lane); });
     const reviewLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.review && c.review.length) reviewLanes.add(c.lane); }));
     const manualLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.flags && c.flags.manual) manualLanes.add(c.lane); }));
+    const noiseUnknownLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.flags && c.flags.belowUnknown) noiseUnknownLanes.add(c.lane); }));
+    const clipUnknown = cells.some(r => r.some(c => c.flags && c.flags.clipState === 'unknown'));
     const normLabel = nb >= 0 ? (rows[nb].name || `Band ${nb + 1}`) : normMode === 'lane' ? (q.laneTotal ? 'total protein (lane)' : 'total lane signal') : null;
     return {
       version: VERSION, lanes, ids, names: lanes.map(i => S.lanes[i].name || String(i + 1)), rows: rows.map((r, k) => ({ id: r.id, name: r.name || `Band ${k + 1}`, ref: k === nb })),
       cells, totals, values, why, caveat, output, shown: values[output], shownWhy: why[output], shownCaveat: caveat[output], vol: corrected, norm: normalized, rel: fold, refOk,
       normMode, normBand: nb, control: nb, normLabel, laneTotal: !!q.laneTotal, ref: refJ >= 0 ? lanes[refJ] : null, refId: q.ref, refJ,
       method: q.bg, mode: q.mode === 'band' ? 'band' : 'box', region: Object.assign({}, region(S)), halfWidthPx: rows.length ? rows[0].hw : boxHalfWidth(S),
-      saturatedLanes: [...satLanes], reviewLanes: [...reviewLanes], manualLanes: [...manualLanes].sort((x, y) => x - y), flags: cells.map(r => r.map(c => c.flags || {}))
+      saturatedLanes: [...satLanes], reviewLanes: [...reviewLanes], manualLanes: [...manualLanes].sort((x, y) => x - y), noiseUnknownLanes: [...noiseUnknownLanes].sort((x, y) => x - y), clipUnknown,
+      normRegions: normMode === 'lane' ? q.normRegions || null : null, flags: cells.map(r => r.map(c => c.flags || {}))
     };
   }
 
@@ -629,6 +813,7 @@
     q.version = VERSION; q.frames = {};
     q.rows.forEach(r => { delete r.frame; delete r.lanes; placeRow(App, r, r.y0, r.y1); });
     if (q.norm === 'control') { q.norm = ctl ? 'band' : 'none'; q.normBand = ctl; }
+    if (q.norm === 'lane') placeNormRegions(App);
     q.ref = q.ref >= 0 && S.lanes[q.ref] ? App.laneId(q.ref) : null;
     if (q.bg === 'edge') q.bg = 'local';
     q.output = q.ref != null ? 'fold' : q.norm !== 'none' ? 'normalized' : 'corrected';
@@ -703,46 +888,69 @@
   function normShort(R) { return R.normMode === 'band' ? `Normalized to ${R.normLabel || 'a reference band'}` : R.normMode === 'lane' ? `Normalized to the ${R.normLabel}` : 'No normalization'; }
   /* One description of what was measured, shared by the analysis window, the clipboard, the CSV, the methods
    * text, the processing log and the summary sent to Claude, so all of them say the same thing. */
+  // how a stored frame relates to the decoded image, in words
+  function frameText(f) {
+    if (!f) return 'an unknown frame';
+    const parts = [f.rot ? `rotated ${f.rot}°` : '', f.fh && f.fv ? 'rotated by 180°' : f.fh ? 'flipped horizontally' : f.fv ? 'flipped vertically' : '', f.grid ? `geometry-corrected (grid ${f.grid.nx} × ${f.grid.ny})` : ''].filter(Boolean);
+    return parts.length ? parts.join(', ') : 'as decoded';
+  }
+  // the pixel columns a lane's region spans in its placement frame (centre-inclusion rule), per band
+  function widthText(R) {
+    const ws = new Set(); R.cells.forEach(r => r.forEach(c => { const fc = c.prov && c.prov.signal && c.prov.signal.frameCols; if (fc) ws.add(fc[1] - fc[0] + 1); }));
+    const a = [...ws].sort((x, y) => x - y);
+    return a.length ? (a.length === 1 ? `${a[0]} px` : `${a[0]}–${a[a.length - 1]} px`) : `${Math.round(R.halfWidthPx * 2) + 1} px`;
+  }
+  /* One description of what was measured, shared by the analysis window, the clipboard, the CSV, the methods
+   * text, the processing log and the summary sent to Claude, so all of them say the same thing. The placement is
+   * read from each band's stored frame, never from how the image is shown now. */
   function describe(App, R) {
-    const S = App.S, q = S.quant, rot = !!S.rotation, geo = !!(S.geom && S.geom.grid), fl = S.flip && (S.flip.h || S.flip.v);
-    const v2 = R.version === VERSION;
-    const pixels = v2
-      ? `the original pixel values of the decoded file: each region was placed on the image as shown${rot || geo || fl ? ` (${[fl ? 'flipped' : '', rot ? 'rotated' : '', geo ? 'geometry-corrected' : ''].filter(Boolean).join(', ')})` : ''} and mapped back to the original pixels once; every original pixel whose centre lies inside it was counted once with weight 1 (no resampled value, no contrast setting); later display changes do not move it`
-      : (rot || geo ? `the original pixel values: each box outline was mapped back through the ${[rot ? 'rotation' : '', geo ? 'geometry correction' : ''].filter(Boolean).join(' and the ')} (no resampled value; no contrast setting)` : 'the original pixel values (no contrast setting)');
-    const g = R.region, refName = R.ref != null ? (S.lanes[R.ref].name || `lane ${R.ref + 1}`).replace(/\*/g, '') : null;
+    const S = App.S, q = S.quant, v2 = R.version === VERSION;
+    let pixels;
+    if (v2) {
+      const byFrame = new Map(); q.rows.forEach((r, k) => { const t = frameText(q.frames && q.frames[r.frame]); byFrame.set(t, (byFrame.get(t) || []).concat(R.rows[k] ? R.rows[k].name : r.name || `Band ${k + 1}`)); });
+      const where = byFrame.size <= 1 ? `on the image ${[...byFrame.keys()][0] || 'as decoded'}` : [...byFrame].map(([t, names]) => `${names.join(', ')} on the image ${t}`).join('; ');
+      pixels = `the original pixel values of the decoded file: each region was placed once (${where}) and mapped back to the original pixels; every original pixel whose centre lies inside it was counted once with weight 1 (no resampled value, no contrast setting); later display changes do not move it`;
+    } else {
+      const rot = !!S.rotation, geo = !!(S.geom && S.geom.grid);
+      pixels = rot || geo ? `the original pixel values: each box outline was mapped back through the ${[rot ? 'rotation' : '', geo ? 'geometry correction' : ''].filter(Boolean).join(' and the ')} (no resampled value; no contrast setting)` : 'the original pixel values (no contrast setting)';
+    }
+    const g = R.region, refName = R.ref != null ? (S.lanes[R.ref].name || `lane ${R.ref + 1}`).replace(/\*/g, '') : null, nr = q.normRegions;
     const norm = R.normMode === 'band'
       ? (R.normBand >= 0 ? `each band was divided by the ${R.normLabel} band of the same lane (a reference band: valid only if it is stable across the conditions and within its linear range)` : 'a reference band was to be chosen; no normalized value was given')
       : R.normMode === 'lane'
-        ? (R.laneTotal ? 'each band was divided by the total signal of its lane over the analysis area of this total-protein-stained (or stain-free) image (total-protein normalization)'
-          : 'each band was divided by the total signal of its lane over the analysis area of this image; this is total-protein normalization only if the image is a total-protein stain or stain-free image')
+        ? `each band was divided by its lane's total signal over that lane's total-lane region (rows ${nr ? `${nr.y0}–${nr.y1}` : '–'} of the frame they were placed in, ${nr ? frameText(q.frames && q.frames[nr.frame]) : '–'}; set from the analysis area, kept apart from the bands)` + (R.laneTotal ? '; the image is a total-protein stain or stain-free image (total-protein normalization)' : '; this is total-protein normalization only if the image is a total-protein stain or stain-free image')
         : 'values were not normalized';
     const summary = [R.mode === 'band' ? 'Thresholded signal (exploratory)' : 'Whole region', v2 ? bgLabel(q) : BG_SHORT[R.method] || R.method, normShort(R), `Output: ${OUTPUT_TEXT[R.output]}`].join(' · ');
     return {
       version: v2 ? `calculation version ${VERSION}` : 'calculation version 1 (an earlier method: background from the box\'s own edge rows, negative rows set to zero)',
+      build: (G.App && G.App.BUILD) || 'dev',
       summary,
       pixels,
       signal: S.bright ? 'bright bands: signal = pixel value on the file\'s full scale (0–1)' : 'dark bands: signal = 1 − pixel value on the file\'s full scale (0–1); the display inversion does not change it',
       measure: MODE_TEXT[R.mode] || R.mode,
       background: v2 && R.method === 'local' ? `local background regions ${SIDES_TEXT[q.bgSides || 'ab']} the band region, ${q.bgGap != null ? q.bgGap : 2} px from it (median of each; above and below: a straight line between the two along the lane)` : BG_TEXT[R.method] || R.method,
-      limits: v2 ? 'noise thresholds per lane (estimated, not assay limits): 3 σ and 10 σ of the region\'s sum, σ from the spread of the local background pixels (median absolute deviation), allowing for correlated neighbouring pixels; values below 10 σ are flagged and never used as a divisor or a reference'
+      limits: v2 ? 'noise thresholds per lane (estimated, not assay limits): 3 σ and 10 σ of the region\'s sum, σ from the spread of the local background pixels (median absolute deviation), allowing for correlated neighbouring pixels; values below 10 σ are flagged and never used as a divisor or a reference; where the noise could not be estimated no threshold check was made and the lane is flagged'
         : 'limits per box from the noise of its edge rows: LOD = 3 σ, LOQ = 10 σ of the box total; values below the LOQ are flagged',
-      area: `analysis area x ${Math.round(g.x)}–${Math.round(g.x + g.w)}, y ${Math.round(g.y)}–${Math.round(g.y + g.h)} px of the working frame, set apart from the figure crop`,
+      area: `analysis area x ${Math.round(g.x)}–${Math.round(g.x + g.w)} px of the working frame: it decides which lanes are measured; band regions and total-lane regions keep their own extent`,
       normalization: norm,
       output: OUTPUT_TEXT[R.output],
-      reference: R.output === 'fold' || R.refId != null ? (refName ? `fold changes are given against lane ${R.ref + 1}${refName !== String(R.ref + 1) ? ` (${refName})` : ''}` : 'no reference lane was chosen; no fold change was given') : 'no reference lane',
+      reference: R.refId != null ? (refName ? `fold changes are given against lane ${R.ref + 1}${refName !== String(R.ref + 1) ? ` (${refName})` : ''}` : 'the reference lane chosen is not measured; no fold change was given') : 'no reference lane was chosen; no fold change was given',
       saturation: App.satReport().text,
       units: 'arbitrary units of this image; compare lanes of this image only'
     };
   }
-  /* A methods paragraph for the manuscript, from what was actually done. */
+  /* A methods paragraph for the manuscript, from what was actually done (per band, per lane). */
   function methodsText(App, R) {
-    const S = App.S, A = G.App, bits = S.file.bits ? `${S.file.bits}-bit ` : '', D = describe(App, R), cap = t => t[0].toUpperCase() + t.slice(1);
-    const sat = R.saturatedLanes.length ? ` Lanes ${R.saturatedLanes.map(i => i + 1).join(', ')} contained clipped pixels; their values are underestimated and were not used as divisors or references.` : '';
-    const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${R.reviewLanes.map(i => i + 1).join(', ')} were flagged for review (region or background).` : '';
-    const man = R.manualLanes && R.manualLanes.length ? ` In lane${R.manualLanes.length > 1 ? 's' : ''} ${R.manualLanes.map(i => i + 1).join(', ')} the integration limits and a straight baseline were drawn by hand on the lane profile (manual integration; the background regions were not used there).` : '';
-    return `Band intensities were quantified in ${A.NAME} ${A.VERSION} (${D.version}) on the ${bits}image, from ${D.pixels}. ` +
-      `${cap(D.signal)}. Regions ${Math.round(R.halfWidthPx * 2)} px wide were placed at the same height in every analysed lane (${R.rows.map(r => r.name).join(', ')}); the value of a region is ${D.measure}, with ${D.background}. ` +
-      `${cap(D.limits)}. ${cap(D.normalization)}; ${D.reference}.${sat}${rev}${man} ${D.saturation} Values are ${D.units}; inverted or raw grey values are not calibrated optical density or amount.`;
+    const S = App.S, A = G.App, bits = S.file.bits ? `${S.file.bits}-bit ` : '', D = describe(App, R), cap = t => t[0].toUpperCase() + t.slice(1), lanesOf = a => a.map(i => i + 1).join(', ');
+    const sat = R.saturatedLanes.length ? ` Lanes ${lanesOf(R.saturatedLanes)} contained clipped pixels; their values are underestimated and were not used as divisors or references.` : '';
+    const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${lanesOf(R.reviewLanes)} were flagged for review (region, background or noise).` : '';
+    const man = R.manualLanes && R.manualLanes.length ? ` In lane${R.manualLanes.length > 1 ? 's' : ''} ${lanesOf(R.manualLanes)} the region was integrated relative to a user-defined baseline drawn on the lane profile (start and end rows and levels recorded); the noise estimate excludes the uncertainty in where that baseline was drawn.` : '';
+    const nz = R.noiseUnknownLanes && R.noiseUnknownLanes.length ? ` In lane${R.noiseUnknownLanes.length > 1 ? 's' : ''} ${lanesOf(R.noiseUnknownLanes)} the noise could not be estimated, so no threshold check was made.` : '';
+    const adj = new Set(); R.cells.forEach(r => r.forEach(c => { if (c.prov && c.prov.override && c.prov.override.some(k => k !== 'manual')) adj.add(c.lane); }));
+    const heights = adj.size ? `the band's rows in every lane except lane${adj.size > 1 ? 's' : ''} ${lanesOf([...adj].sort((a, b) => a - b))} (lane-specific start, end, shift or background)` : 'the band\'s rows in every lane';
+    return `Band intensities were quantified in ${A.NAME} ${A.VERSION} (build ${D.build}; ${D.version}) on the ${bits}image, from ${D.pixels}. ` +
+      `${cap(D.signal)}. Each band (${R.rows.map(r => r.name).join(', ')}) was measured over regions ${widthText(R)} wide and ${heights}; the value of a region is ${D.measure}, with ${D.background}.${man} ` +
+      `${cap(D.limits)}.${nz} ${cap(D.normalization)}; ${D.reference}.${sat}${rev} ${D.saturation} Values are ${D.units}; inverted or raw grey values are not calibrated optical density or amount.`;
   }
 
   // ---------- export helpers ----------
@@ -751,41 +959,43 @@
   // a cell's flags in words, for the table, the CSV and the clipboard
   function flagText(f, c) {
     f = f || {};
-    return [f.clip === 'limit' ? 'clipped (digital limit)' : f.clip === 'pileup' ? 'probably clipped (pile-up)' : '',
+    return [f.clip === 'limit' ? 'clipped (digital limit)' : f.clip === 'pileup' ? 'probably clipped (pile-up)' : '', f.clipState === 'unknown' ? 'clipping not checkable' : '',
       f.below === 't3' ? 'below 3σ noise threshold' : f.below === 't10' ? 'below 10σ noise threshold' : '',
-      f.boundary ? (f.edgeMethod ? 'band reaches the background rows' : 'band reaches region edge') : '',
-      f.contaminated ? 'background holds band' : '', f.uneven ? 'background not flat' : '', f.twoPeaks ? 'two peaks' : '', f.overlap ? 'background over another band' : '',
+      f.noise && f.noise !== 'estimated' ? `noise not estimated (${NOISE_TEXT[f.noise] || f.noise}; no threshold check)` : '',
+      f.boundary ? (f.manual ? 'band continues beyond the limits' : f.edgeMethod ? 'band reaches the background rows' : 'band reaches region edge') : '',
+      f.endpoints ? 'baseline end on band' : '', f.endpointsLow ? 'baseline end below background' : '', f.endpointsUnchecked ? 'baseline ends not checked' : '', f.baselineSensitive ? 'sensitive to the baseline' : '',
+      f.contaminated ? (f.manual ? 'band beyond the limits' : 'background holds band') : '', f.uneven ? 'background not flat' : '', f.twoPeaks ? 'two peaks' : '', f.overlap ? 'background over another band' : '',
       f.outside && f.outside.signal ? 'partly outside image' : '', f.unstable ? 'sensitive to region' : '', f.oneSide ? 'one background side' : '',
-      f.noise ? `noise not estimated (${f.noise})` : '', f.manual ? 'manual baseline (drawn)' : f.override ? 'lane-specific region' : '', f.unplaced ? 'no region' : '', f.legacy ? 'earlier method' : '',
+      f.manual ? 'user-defined baseline' : f.override ? 'lane-specific region' : '', f.unplaced ? 'no region' : '', f.legacy ? 'earlier method' : '',
       c && c.unavailable ? 'unavailable' : ''].filter(Boolean).join('; ');
   }
   const outLabel = (R, k) => (R.output === 'fold' ? `${R.rows[k].name} fold change vs lane ${R.ref != null ? R.ref + 1 : '?'}` : R.output === 'normalized' ? `${R.rows[k].name} / ${R.normLabel || 'divisor'}` : `${R.rows[k].name} corrected signal (a.u.)`);
-  // the rows of the table as data: one per lane, the same numbers everywhere (clipboard, CSV)
+  /* The rows of the table as data: one per lane. Every quantity has its own value, reason when it is not given and
+   * caveat, whatever output is selected for display (the selection changes what the window shows, never what is
+   * exported). Clipboard and CSV share it. */
   function tableRows(App, R, opts) {
-    const full = opts && opts.full, out = [];
+    const full = opts && opts.full, out = [], hasN = R.normMode !== 'none', hasF = R.refId != null;
     const head = ['Well', 'Lane', 'Lane id'];
-    R.rows.forEach((r, k) => {
+    R.rows.forEach(r => {
       head.push(`${r.name} corrected (a.u.)`);
-      if (full) head.push(`${r.name} uncorrected sum`, `${r.name} background sum`, `${r.name} signal px`, `${r.name} background px`, `${r.name} 3σ threshold`, `${r.name} 10σ threshold`, `${r.name} clipped px`);
-      if (R.normMode !== 'none') head.push(`${r.name} / ${R.normLabel || 'divisor'}`);
-      if (R.output === 'fold' || R.refId != null) head.push(`${r.name} fold vs lane ${R.ref != null ? R.ref + 1 : '?'}`);
-      head.push(`${r.name} flags`, `${r.name} unavailable because`);
+      if (full) head.push(`${r.name} uncorrected sum`, `${r.name} background sum`, `${r.name} signal px`, `${r.name} background px`, `${r.name} noise`, `${r.name} 3σ threshold`, `${r.name} 10σ threshold`, `${r.name} clipped px`, `${r.name} clipping`);
+      head.push(`${r.name} corrected unavailable because`, `${r.name} flags`);
+      if (hasN) head.push(`${r.name} / ${R.normLabel || 'divisor'}`, `${r.name} normalized unavailable because`, `${r.name} normalized caveat`);
+      if (hasF) head.push(`${r.name} fold vs lane ${R.ref != null ? R.ref + 1 : '?'}`, `${r.name} fold unavailable because`, `${r.name} fold caveat`);
     });
-    if (R.totals) head.push('Lane total (a.u.)');
+    if (R.totals) head.push('Lane total (a.u.)', 'Lane total unavailable because', 'Lane total flags');
     out.push(head);
     R.lanes.forEach((i, j) => {
       const line = [i + 1, R.names[j].replace(/\*/g, ''), R.ids[j]];
       R.rows.forEach((r, k) => {
-        const c = R.cells[k][j];
+        const c = R.cells[k][j], f = c.flags || {};
         line.push(num(R.values.corrected[k][j], 4));
-        if (full) line.push(num(c.U, 4), num(c.B, 4), c.n || 0, c.nb || 0, num(c.t3, 4), num(c.t10, 4), c.clip ? c.clip.n : 0);
-        if (R.normMode !== 'none') line.push(num(R.values.normalized[k][j], 5));
-        if (R.output === 'fold' || R.refId != null) line.push(num(R.values.fold[k][j], 4));
-        const reasons = [R.why.corrected[k][j], R.output !== 'corrected' ? R.shownWhy[k][j] : null].filter(Boolean);
-        const cav = R.shownCaveat ? R.shownCaveat[k][j] : null;
-        line.push([flagText(c.flags, c), cav].filter(Boolean).join('; '), [...new Set(reasons)].join('; '));
+        if (full) line.push(num(c.U, 4), num(c.B, 4), c.n || 0, c.nb || 0, f.noise || '', num(c.t3, 4), num(c.t10, 4), c.clip ? c.clip.n : 0, f.clipState === 'unknown' ? 'not checkable' : f.clipState ? 'checked' : '');
+        line.push(R.why.corrected[k][j] || '', flagText(f, c));
+        if (hasN) line.push(num(R.values.normalized[k][j], 5), R.why.normalized[k][j] || '', R.caveat.normalized[k][j] || '');
+        if (hasF) line.push(num(R.values.fold[k][j], 4), R.why.fold[k][j] || '', R.caveat.fold[k][j] || '');
       });
-      if (R.totals) line.push(num(R.totals[j].value, 4));
+      if (R.totals) { const t = R.totals[j]; line.push(num(t.value, 4), t.unavailable || '', flagText(t.flags, t)); }
       out.push(line);
     });
     return out;
@@ -793,6 +1003,7 @@
   function quantCSV(App, R) {
     const S = App.S, D = describe(App, R), out = [];
     out.push(['# GelGrapher densitometry', S.file.name, 'SHA-256 ' + S.file.sha256]);
+    out.push(['# build', `${G.App.NAME} ${G.App.VERSION} build ${D.build}`]);
     out.push(['# method', D.summary]);
     out.push(['# calculation', D.version]);
     out.push(['# signal', D.signal]);
@@ -802,22 +1013,48 @@
     out.push(['# thresholds', D.limits]);
     out.push(['# area', D.area]);
     out.push(['# normalization', D.normalization]);
-    out.push(['# output', D.output]);
+    out.push(['# output shown', D.output]);
     out.push(['# reference', D.reference]);
     out.push(['# saturation', D.saturation]);
     out.push(['# units', D.units]);
+    out.push(['# specification', 'the densitometry specification (JSON) holds every frame, region, lane adjustment, baseline and setting; with the original image it recomputes these values']);
     tableRows(App, R, { full: true }).forEach(r => out.push(r));
-    // where every region is, in original pixels (x, y of its corners), for the record
+    // where every region is: its rows and columns in its placement frame, its corners in original pixels
     out.push([]);
-    out.push(['# regions (original pixel coordinates, corners)', 'band', 'lane id', 'signal corners', 'signal px', 'background', 'frame', 'placed']);
-    R.cells.forEach((r, k) => r.forEach((c, j) => { const p = c.prov || {}; if (!p.signal) return; out.push(['', R.rows[k].name, R.ids[j], p.signal.corners.map(q => q.join(' ')).join('; '), p.signal.px, p.manual ? `manual baseline from row ${p.manual.rows[0]} (level ${p.manual.levels[0]}) to row ${p.manual.rows[1]} (level ${p.manual.levels[1]}) of the band's frame` : (p.background || []).map(b => `${b.side} ${b.px} px: ${b.corners.map(q => q.join(' ')).join('; ')}`).join(' | '), p.frame, p.placed]); }));
+    out.push(['# regions', 'band', 'lane id', 'frame', 'frame rows', 'frame columns', 'signal corners (original x y)', 'signal px', 'background or baseline', 'lane adjustments', 'placed']);
+    R.cells.forEach((r, k) => r.forEach((c, j) => { const p = c.prov || {}; if (!p.signal) return; out.push(['', R.rows[k].name, R.ids[j], p.frame, (p.signal.frameRows || []).join('–'), (p.signal.frameCols || []).join('–'), p.signal.corners.map(q => q.join(' ')).join('; '), p.signal.px, p.manual ? `user-defined baseline from row ${p.manual.rows[0]} (level ${p.manual.levels[0]}) to row ${p.manual.rows[1]} (level ${p.manual.levels[1]})` : (p.background || []).map(b => `${b.side} ${b.px} px: ${b.corners.map(q => q.join(' ')).join('; ')}`).join(' | '), (p.override || []).join(' '), p.placed]); }));
     return csv(out);
   }
-  // the clipboard: the table as shown, with units, flags and the reference, tab-separated
+  // the clipboard: the table with units, flags, reasons and the reference, tab-separated
   function quantTSV(App, R) {
     const D = describe(App, R), rows = tableRows(App, R, { full: false });
     const lines = [`# ${App.S.file.name} · ${D.summary}`, `# ${D.units}; ${D.reference}`].concat(rows.map(r => r.map(c => String(c == null ? '' : c).replace(/\t/g, ' ')).join('\t')));
     return lines.join('\n');
+  }
+  /* The reproducible analysis specification: everything the values depend on besides the image itself (frames in
+   * full, every band with its lanes' regions, adjustments and drawn baselines, the settings, the total-lane
+   * regions, the pixel rule). applySpec on the same image (checked by its SHA-256) gives the same values. */
+  const PIXEL_RULE = 'A region is a quadrilateral strip per row of its placement frame (columns round(cx + dx - hw) - 0.5 to round(cx + dx + hw) + 0.5, rows y0 - 0.5 to y1 + 0.5), mapped to the decoded image through the frame (inverse grid, then inverse rotation about ((W - 1) / 2, (H - 1) / 2), then flips) at points at most 6 px apart; every pixel whose centre lies inside (even-odd rule, half-open scanlines) is counted once with weight 1.';
+  function spec(App) {
+    const S = App.S, q = S.quant, copy = o => JSON.parse(JSON.stringify(o));
+    return { format: 'gelgrapher-densitometry-spec', specVersion: 1, calculationVersion: q.version, app: `${G.App.NAME} ${G.App.VERSION}`, build: (G.App && G.App.BUILD) || 'dev',
+      image: { name: S.file.name, sha256: S.file.sha256, width: App.src0.w, height: App.src0.h }, pixelRule: PIXEL_RULE, signal: S.bright ? 'bright: s = I' : 'dark: s = 1 - I', bright: !!S.bright,
+      settings: { mode: q.mode, bg: q.bg, bgSides: q.bgSides, bgGap: q.bgGap, bgSize: q.bgSize, wFrac: q.wFrac }, normalization: { norm: q.norm, normBand: q.normBand, laneTotal: !!q.laneTotal, normRegions: copy(q.normRegions || null) },
+      output: q.output, ref: q.ref, region: copy(q.region || null), frames: copy(q.frames || {}), bands: copy(q.rows),
+      lanes: S.lanes.map((l, i) => ({ id: App.laneId(i), well: i + 1, x: l.x, name: l.name, noMeasure: !!l.noMeasure, ladder: S.markers.some(m => m.lane === i) })) };
+  }
+  function applySpec(App, sp) {
+    const S = App.S, q = S.quant;
+    if (!sp || sp.format !== 'gelgrapher-densitometry-spec') throw new Error('Not a densitometry specification.');
+    if (sp.image && sp.image.sha256 && S.file.sha256 && sp.image.sha256 !== S.file.sha256) throw new Error('The specification belongs to another image (SHA-256 differs).');
+    const copy = o => JSON.parse(JSON.stringify(o));
+    S.bright = !!sp.bright;
+    // the lanes as specified (ladder lanes are never measured: they are left out of the analysis here)
+    S.lanes = sp.lanes.map(l => { const o = { x: l.x, name: l.name || '', hidden: false, id: l.id }; if (l.noMeasure || l.ladder) o.noMeasure = true; return o; });
+    S.markers = S.markers.filter(m => sp.lanes[m.lane] && sp.lanes[m.lane].ladder);
+    Object.assign(q, copy(sp.settings), { version: sp.calculationVersion, norm: sp.normalization.norm, normBand: sp.normalization.normBand, laneTotal: sp.normalization.laneTotal, normRegions: copy(sp.normalization.normRegions),
+      output: sp.output, ref: sp.ref, region: copy(sp.region), frames: copy(sp.frames), rows: copy(sp.bands) });
+    clearCache(App);
   }
   function sizesCSV(App, T) {
     const out = [['well', 'lane', 'band', `size (${App.baseUnit()})`, 'extrapolated', 'relative strength']];
@@ -883,7 +1120,7 @@
     els.push(`<g transform="translate(${ylx},${PH / 2}) rotate(-90)"><text x="0" y="0" font-size="${pt}" text-anchor="middle">${esc(yLabel)}</text></g>`);
     // title, legend of the targets, the method in a line or two above the plot and the marks used below it, both
     // wrapped to the plot's width (a long single line would widen the drawing and shrink the plot)
-    const D = describe(App, R), marks = [used.has('weak') ? 'open/dashed: below 10σ noise threshold' : '', used.has('clip') ? 'hatched ‡: clipped pixels' : '', used.has('rev') ? '?: region or background needs review' : '', used.has('na') ? 'n/a: not available' : ''].filter(Boolean).join('; ');
+    const D = describe(App, R), marks = [used.has('weak') ? 'open/dashed: below 10σ noise threshold' : '', used.has('clip') ? 'hatched ‡: clipped pixels' : '', used.has('rev') ? '?: needs review (region, background, noise or an unverified divisor)' : '', used.has('na') ? 'n/a: not available' : ''].filter(Boolean).join('; ');
     const fs = pt * 0.75, lh = fs * 1.3, maxW = Math.max(PW, 45 * MM);
     const wrap = text => { const out = []; let cur = ''; text.split(' ').forEach(w => { const t = cur ? cur + ' ' + w : w; if (cur && measure(t, fs) > maxW) { out.push(cur); cur = w; } else cur = t; }); if (cur) out.push(cur); return out; };
     const subLines = wrap(D.summary.replace(/ · Output: .*$/, '')), markLines = marks ? wrap(marks) : [];
@@ -928,5 +1165,6 @@
   }
 
   G.Quant = { VERSION, measure, measureCell, bandBox, bandSizes, quantCSV, quantTSV, sizesCSV, chartSVG, quantLanes, region, boxHalfWidth, methodsText, describe, flagText, tableRows,
-    placeRow, editRow, placeLane, ensurePlaced, rowSpan, laneDrift, outlines, updateToCurrent, pruneFrames, laneProfile, levelAt, setManual, manualAll, resetLane, BG_TEXT, BG_SHORT, MODE_TEXT, OUTPUT_TEXT, SIDES_TEXT, bgLabel, outLabel };
+    placeRow, editRow, placeLane, ensurePlaced, rowSpan, laneDrift, outlines, updateToCurrent, pruneFrames, laneProfile, levelAt, setManual, limitsOf, copyLimits, endpointBaseline,
+    useAutoBackground, resetLaneAll, screenSign, resetLane: resetLaneAll, laneAdjustments, preview, placementDropsManual, placeNormRegions, laneTotalCell, spec, applySpec, clearCache, cacheSize, frameText, NOISE_TEXT, PIXEL_RULE, BG_TEXT, BG_SHORT, MODE_TEXT, OUTPUT_TEXT, SIDES_TEXT, bgLabel, outLabel };
 })(window);

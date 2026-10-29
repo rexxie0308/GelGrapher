@@ -60,7 +60,7 @@ A labelled set of real gels is what the lane and ladder detection can be tuned a
 
 ## Densitometry on synthetic gels
 
-`node tools/quant-bench.mjs` measures a two-fold dilution series of one band (eight lanes, peak 0.0025 to 0.32 of full scale) at three noise levels, with and without an uneven haze, for the whole-region measure with local, end-row (edge) and rolling backgrounds and for the thresholded measure. It reports the log-log slope over the lanes at or above their 10σ noise threshold (1 = linear), the ratio of the two faintest lanes (2 = linear), how many lanes reach 10σ, how much the value moves when a region that holds the band is made wider (70 to 100 % of the lane spacing) or taller (up to 1.5 times), the mid-series value's own 3σ, the blank lane's mean, and the broad-band blot of the background lesson. The default (whole region, local background above and below) has pass / fail limits and the bench exits with 1 when one fails. Results on 2026-10-29 (calculation version 2):
+`node tools/quant-bench.mjs` measures a two-fold dilution series of one band (eight lanes, peak 0.0025 to 0.32 of full scale) at three noise levels, with and without an uneven haze, for the whole-region measure with local, end-row (edge) and rolling backgrounds and for the thresholded measure. It reports the log-log slope over the lanes at or above their 10σ noise threshold (1 = linear), the ratio of the two faintest lanes (2 = linear), how many lanes reach 10σ, how much the value moves when a region that holds the band is made wider (70 to 100 % of the lane spacing) or taller (up to 1.5 times), the mid-series value's own 3σ, the blank lane's mean, and the broad-band blot of the background lesson. The default (whole region, local background above and below) has pass / fail limits and the bench exits with 1 when one fails. Results on 2026-10-29 (calculation version 2, after the follow-up review):
 
 | measure, background | slope | faintest pair | wider region | taller region |
 | --- | --- | --- | --- | --- |
@@ -77,9 +77,24 @@ Blank lanes, whole region and local background: mean −0.09, sd 0.26 over the s
 | --- | --- | --- |
 | region fitted to a narrow band, background from its end rows (the default before version 2) | 0.74 × (the lowest lane) | yes (version 2); no flag before |
 | the same region, local background regions | 1.67 × | yes: the band reaches the region's edges, the background regions rise towards it |
-| local background regions, a region as tall as the band (57 px) | 2.68 × (the highest lane) | no |
+| local background regions, a region as tall as the band (57 px) | 2.68 × (the highest lane) | yes: its background regions still hold the band's faint tails (about 7 % of the value) |
 
-The few per cent still missing are the band's faint tails beyond the region and in the background regions; a taller region reaches the band above (61 px away) and is flagged for it.
+The 7 % still missing are the band's faint tails beyond the region and in the background regions; a taller region reaches the band above (61 px away) and is flagged for that instead. 2.68 × against 2.89 × is a useful recovery within the bench's 10 % tolerance, not an exact value, and the flag says so. Until the follow-up review the tall region was not flagged; the contamination test is now judged by its effect on the value (a model-corrected difference between the near and far background rows, flagged when it shifts the value by more than 3 %), which catches these tails.
+
+**Backgrounds and noise.** Part 3 of the bench draws 12 independent noise realisations of six cases (five lanes on a 360 × 300 image, a band of peak 0.15 and σ 4 rows in lanes 4 and 5, white noise of sd 0.004 per pixel unless stated) and measures the default. *Bias* is the band's value against its true sum in the region; *blank sd* the empirical scatter of the three blank lanes' values over the realisations; *est. σ* the mean estimated σ of a blank's sum; *emp/est* their ratio (1 = the noise model is right; below 1 it overstates the noise, which is conservative); *noise est.* how often the noise state was "estimated" (otherwise no 3σ / 10σ call is made); *flagged* how often the band was marked for review.
+
+| case | bias | blank sd | est. σ | emp/est | noise est. | flagged |
+| --- | --- | --- | --- | --- | --- | --- |
+| white noise, flat background | −0.2 % | 0.230 | 0.231 | 0.99 | 12 / 12 | 0 / 12 |
+| smooth gradient (vertical ramp + horizontal ripple) | 0.0 % | 0.431 | 1.507 | 0.29 | 12 / 12 | 0 / 12 |
+| spatially correlated noise (3 × 3 box filter) | −0.1 % | 0.572 | 0.664 | 0.86 | 11 / 12 | 1 / 12 |
+| a neighbouring band 16 rows above, in the background region | −51.9 % | 0.225 | 0.235 | 0.95 | 0 / 12 (contaminated) | 12 / 12 |
+| a smear below the band | −7.5 % | 0.230 | 0.231 | 0.99 | 0 / 12 (contaminated) | 12 / 12 |
+| a band 9 rows from the image's top edge | 0.0 % | 0.247 | 0.294 | 0.84 | 12 / 12 | 12 / 12 (one-sided background) |
+
+Pass / fail: bias within 3 % for white, gradient and correlated noise; emp/est 0.7–1.4 for white and correlated noise and at most 1.4 for the gradient (understating the noise is a failure, overstating it is not); the neighbour, smear and edge cases flagged in at least 10 of 12 realisations unless their bias is within 5 %. The gradient's structure is counted as noise by the robust (MAD) estimate, so its σ is overstated about 3.5 times there: thresholds are conservative on such backgrounds. Correlated noise is allowed for by a correlation factor from the background residuals' autocorrelation at lags up to two pixels (0.86 here). Neighbour and smear are flagged, not corrected: the value is wrong by the amount shown and the review reason says why.
+
+Before the follow-up review (calculation version 2 as merged in 21f16e6): a cell whose noise could not be estimated was not marked below 3σ, which read as a passed check in the table, chart and CSV; a drawn baseline with both ends on the band's tails read 407 a.u. with "no issues"; now it is flagged ("the baseline's start and end lie above the background beyond the limits").
 
 **Before and after (2026-10-29, the same synthetic images, the previous release against version 2).**
 

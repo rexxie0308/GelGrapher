@@ -23,7 +23,7 @@
   // apart from it afterwards, so a cosmetic change of the figure never changes a result
   // version 2: regions fixed in the original pixels, local background, signed sums (js/quant.js); a project
   // measured before keeps version 1 until the user updates it
-  const defaultQuant = () => ({ version: 2, rows: [], bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, mode: 'box', wFrac: 0.7, norm: 'none', normBand: null, laneTotal: false, output: 'corrected', ref: null, region: null, frames: {}, plot: defaultPlot() });
+  const defaultQuant = () => ({ version: 2, rows: [], bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, mode: 'box', wFrac: 0.7, norm: 'none', normBand: null, normRegions: null, laneTotal: false, output: 'corrected', ref: null, region: null, frames: {}, plot: defaultPlot() });
 
   const App = {
     S: null,            // serialisable state
@@ -67,6 +67,9 @@
 
   App.NAME = 'GelGrapher';
   App.VERSION = '1.1.0';
+  // the build: the commit the artifact, the Pages site or a release was made from (filled in by the build and the
+  // workflows); 'dev' when the files are served as they are in the repository
+  App.BUILD = '__BUILD__'.startsWith('__') ? 'dev' : '__BUILD__';
   App.prefs = prefs;
   App.setPref = function (k, v) { const p = prefs(); p[k] = v; writePrefs(p); };
   App.notify = function (msg) { if (G.UI && G.UI.alert) G.UI.alert(msg); else console.error(msg); };
@@ -396,10 +399,11 @@
     };
   };
   App.rotM = function (S) { S = S || App.S; const W = App.src.w, H = App.src.h; return E.M3.rotation(S.rotation, (W - 1) / 2, (H - 1) / 2); };
+  // the working frame's identity: the rotation and every value of the geometry grid (exact; a sampled checksum
+  // let two different grids share a key and the working image go stale)
   App.frameKey = function (S) {
     S = S || App.S; const g = App.geomGrid(S);
-    let sum = 0; if (g) for (let i = 0; i < g.pts.length; i += 7) sum += g.pts[i] * (i % 13 + 1);
-    return `${S.rotation}|${g ? g.nx + 'x' + g.ny + ':' + sum.toFixed(3) : ''}`;
+    return `${S.rotation}|${g ? `${g.nx}x${g.ny}@${g.W}x${g.H}:${E.hashNums(g.pts)}` : ''}`;
   };
   App.ensureRot = function () {
     App.applyFlip();
@@ -2084,6 +2088,14 @@
       A.quant = Object.assign(defaultQuant(), v1 ? { bg: 'edge', ref: -1, control: -1, output: undefined, norm: 'none' } : {}, A.quant || {});
       if (v1) A.quant.version = 1;
       A.quant.frames = A.quant.frames || {};
+      // total-lane regions: a version-2 analysis normalized to the lane total before 2026-10-30 took the first
+      // band's saved strip and frame; that same region becomes the lanes' own (its numbers do not change)
+      if (A.quant.version === 2 && A.quant.norm === 'lane' && !A.quant.normRegions && A.quant.rows.length && A.quant.rows[0].frame && A.quant.rows[0].lanes) {
+        const r = A.quant.rows[0], st = r.strip || [r.y0, r.y1], lanes = {};
+        Object.keys(r.lanes).forEach(id => { lanes[id] = { cx: r.lanes[id].cx }; if (r.lanes[id].dx != null) lanes[id].dx = r.lanes[id].dx; });
+        A.quant.normRegions = { frame: r.frame, y0: st[0], y1: st[1], hw: r.hw, lanes, placed: 1, from: 'the first band (earlier projects)' };
+      }
+      if (A.quant.normRegions === undefined) A.quant.normRegions = null;
       A.quant.plot = Object.assign(defaultPlot(), A.quant.plot || {});
       // saved before 2026-11: those defaults were the thresholded measure and loading-control normalization
       if (!hadMode && A.quant.rows.length) A.quant.mode = 'band';

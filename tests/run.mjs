@@ -97,7 +97,9 @@ const UI_CHECKS = [
   ['geometry correction: Auto at load corrects a keystoned gel (lanes parallel within 2 %) with every lane and the red box framed beside the outer lanes, seg / legend / log show it, rotation and undo carry it, Off restores, Manual box maps a trapezoid, a hand-placed lane survives a box change, the detection polarity can be overridden', r => r.keystone.ok, ['keystone']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']],
   ['densitometry regressions (software checks on synthetic images, not experimental validation): equal amounts read equal however wide the band; a broad band read low by the end-row background is flagged and restored by local regions and a region as tall as the band; signed blanks unbiased; a two-fold series reads two-fold; clipping flagged and hatched; neighbours and shifted targets flagged; dark = bright; display changes no value; regions fixed through rotation, geometry, flips, crop, hiding, lane order, save / reopen, undo / redo; explicit edits counted; one result in table, profile, CSV, clipboard, log, methods and chart; unavailable values explained; pixels counted once', r => r.densV2.ok, ['densV2']],
-  ['manual integration on the lane profile: a drawn baseline gives the area above it exactly, is marked and disclosed (table, CSV, log, methods, legend), Automatic and undo take it back, Apply to all lanes puts each lane\'s baseline on its own profile; a drag draws it and a handle moves an end; the profile\'s tools stay put; the chart fills the window', r => r.manualInt.ok, ['manualInt']],
+  ['manual integration on the lane profile: a user-defined baseline gives the area above it exactly, is marked and disclosed (table, CSV, log, methods, legend), a reset and undo take it back, copied limits with an endpoint baseline on each lane\'s own profile; a drag changes nothing until Edit baseline, then draws a draft, a handle moves an end, Apply sets it, Use automatic background keeps the limits; the editing row stays put; the chart fills the window', r => r.manualInt.ok, ['manualInt']],
+  ['measurement correctness (follow-up review): copying limits keeps each lane\'s background; an endpoint baseline whose ends hold band stays flagged with its reasons; existing drawn baselines kept unless replacing is asked; a drawn baseline keeps its own coverage checks and a sensitivity check; unknown noise is never a passed check (missing, too few, contaminated samples; ratios marked unverified; CSV and methods say so); frames keyed by their whole transform (save / reopen, undo / redo); warm and cold caches agree, overlaps seen across frames; total-lane denominators independent of band order, deletion, renaming, new bands and the analysis area; narrow and full lane resets; re-placements keep or announce drawn baselines; exports independent of the output shown; a specification that recomputes the values', r => r.correctness.ok, ['correctness']],
+  ['profile controls: manual integration only in Edit baseline mode, complete by keyboard, Escape from anywhere, a snap option, Use automatic background keeps the limits, a full reset says what it removes; bulk changes scoped, previewed and undone at once; comparison on the band\'s rows with a legend; total-lane regions stated; notifications over the image editor; touch scrolls the profile unless editing', r => r.profileUI.ok, ['profileUI']],
   ['densitometry workspace: an earlier-method analysis keeps its numbers until updated on request (adding a band asks); Measure bands as apart from Display; the lane table\'s columns and names; why a lane is not measured; the analysis area and band height edited explicitly; one instruction per tool; dialogs hold and return the focus; the broad-band lesson', r => r.workspace.ok, ['workspace']],
   ['less text, larger type: Size ladder and Lanes shown, finished steps folded to a summary (a lesson unfolds what it needs), a key to the lines on the image, the figure at printed size, one filled button in the export window with its resolution, the More menu', r => r.compact.ok, ['compact']]
 ];
@@ -225,6 +227,22 @@ async function runIn(name, base) {
           : fail('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs', JSON.stringify(r));
       } catch (e) { fail('phone layout', e.message.split('\n')[0]); }
       finally { await mctx.close(); }
+    }
+    // intermediate widths and 200 % zoom (720 × 450 CSS px at 2 device px): nothing wider than the window with the
+    // analysis window open on the Profile
+    {
+      const bad = [];
+      for (const [w, h, dpr] of [[860, 900, 1], [900, 800, 1], [1024, 768, 1], [1100, 800, 1], [1280, 800, 1], [1440, 900, 1], [720, 450, 2]]) {
+        const wctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: dpr }), page = await wctx.newPage();
+        try {
+          await page.goto(`${base}/index.html?example=western`);
+          await page.waitForFunction(() => window.App && window.App.S && document.body.classList.contains('has-gel'), null, { timeout: 60000 });
+          const sw = await page.evaluate(async () => { window.QuantUI.setView('quant'); window.QuantUI.setTab('prof'); await new Promise(f => setTimeout(f, 300)); return document.documentElement.scrollWidth - innerWidth; });
+          if (sw > 1) bad.push(`${w}px: ${sw}px too wide`);
+        } catch (e) { bad.push(`${w}px: ${e.message.split('\n')[0]}`); }
+        finally { await wctx.close(); }
+      }
+      bad.length ? fail('no horizontal overflow at 860, 900, 1024, 1100, 1280 and 1440 px and at 200 % zoom', bad.join('; ')) : pass('no horizontal overflow at 860, 900, 1024, 1100, 1280 and 1440 px and at 200 % zoom');
     }
     // a first visit: nothing starts by itself; "Practice with an example" opens the example and its lesson
     {

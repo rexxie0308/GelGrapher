@@ -148,6 +148,14 @@
       }
       ctx.globalAlpha = 1;
     };
+    // the total-lane regions (lane normalization), their own extent: a thin dashed outline per lane in the Measurement layer
+    const nr = S.quant.normRegions;
+    if (q && S.quant.norm === 'lane' && nr && nr.lanes) {
+      const pseudo = { frame: nr.frame, y0: nr.y0, y1: nr.y1, hw: nr.hw, lanes: nr.lanes };
+      ctx.strokeStyle = '#6d5bd0'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
+      Object.keys(nr.lanes).forEach(id => { const o = G.Quant.outlines(App, pseudo, id); if (o) poly(o.signal, false, true); });
+      ctx.setLineDash([]);
+    }
     const drawBoxes = () => S.quant.rows.forEach((r, k) => {
       if (r.frame) { drawRegions(r, k); return; }
       const ya = toScr(0, Math.min(r.y0, r.y1)).y, yb = toScr(0, Math.max(r.y0, r.y1)).y;
