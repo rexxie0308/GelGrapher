@@ -103,6 +103,19 @@
           <button data-dark="0"><span>Bright bands, dark background</span><small class="pol-note" data-k="0"></small></button><button data-dark="1"><span>Dark bands, light background</span><small class="pol-note" data-k="1"></small></button>
         </div>
         <p class="hint" id="invNote"></p>
+        <button class="btn sm ghost" id="btnPolDetect" title="Which way the detection reads the bands; change it when the lanes or ladders are found on the wrong features">Detection polarity</button>
+        <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span></div>
+        <div class="seg" id="geomSeg">
+          <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
+          <button data-geom="manual" title="A box with four free corners on the raw image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
+          <button data-geom="off" title="The uncorrected image; annotations follow">Off</button>
+        </div>
+        <div class="inline hidden" id="geomPlace">
+          <button class="btn sm primary" id="btnGeomApply" title="Map the gel inside the blue box to a rectangle, then detect the lanes and markers again">Apply</button>
+          <button class="btn sm ghost" id="btnGeomCancel" title="Leave the box without changing anything">Cancel</button>
+          <span class="h3-note">Drag the round corners onto the gel's corners (the square handles slide a whole side); nothing happens until Apply.</span>
+        </div>
+        <p class="hint" id="geomHint"><b>Auto</b> runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. <b>Manual</b>: drag the blue box onto the corners of the gel, then Apply.</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
@@ -123,14 +136,6 @@
             <button class="btn sm" id="btnFlipH" title="Mirrored image? Flip left to right">⇄ Flip horizontal</button>
             <span class="h3-note" id="flipNote"></span>
           </div>
-          <div class="cl-head" style="margin-top:10px">Perspective <span class="h3-note" id="ksNote">off</span></div>
-          <div class="inline mt">
-            <button class="btn sm" id="btnKsAuto" title="Measure the convergence of the lane lines (and of the ladder bands when two or more markers are matched) and correct it with one projective transform of the whole image">Auto</button>
-            <button class="btn sm ghost" id="btnKsOff" title="Back to the uncorrected image; annotations follow">Off</button>
-            <label class="inline-label" title="Lane spacing at the bottom of the red box relative to the top, in percent (+10 = 10 % wider at the bottom); typed values build a symmetric keystone"><span>lanes</span> <input type="number" id="ksLanes" step="0.5" class="num" style="width:58px"> %</label>
-            <label class="inline-label" title="Band spacing at the right of the red box relative to the left, in percent"><span>bands</span> <input type="number" id="ksBands" step="0.5" class="num" style="width:58px"> %</label>
-          </div>
-          <p class="hint">For a gel photographed at an angle: converging lanes (keystone) are made parallel by one projective transform of the whole image, applied together with the straightening in a single resampling. Off by default; stated in the legend notes, the log and the methods. Measurements use the same pixels as the figure.</p>
         </div>
         <div class="field"><label><span>Black point</span> <b id="lvBlackV"></b></label><input type="range" id="lvBlack" min="0" max="1000"></div>
         <div class="field"><label><span>White point</span> <b id="lvWhiteV"></b></label><input type="range" id="lvWhite" min="0" max="1000"></div>
@@ -160,26 +165,24 @@
         </div>
         <div class="field inline range-row">
           <span>Wells</span> <select id="rangeA"></select> – <select id="rangeB"></select>
-          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Auto</button>
+          <button class="btn sm ghost" id="btnRangeAuto" title="Keep only lanes with bands">Loaded only</button>
         </div>
-        <p class="hint">Or drag the red box on the image; its sides snap to the gaps between lanes (hold Alt to move freely). Names are never lost.</p>
+        <p class="hint">Or drag the red box on the image (its sides snap to the gaps between lanes; Alt moves freely).</p>
         <div class="field inline">
           <button class="btn sm" id="btnAddLane" title="Then click on the raw image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
-          <span class="h3-note">A lane missing? Click, then click its place on the raw image. Drag a blue line to move it, Delete removes the selected one.</span>
+          <span class="h3-note">then click where the lane runs. Drag a blue line to move it; Delete removes it.</span>
         </div>
         <details class="adv" id="fixLanes">
-          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect inside the red box, or space N lanes evenly</span></summary>
+          <summary><span>Lanes detected wrongly?</span><span class="h3-note">re-detect in the red box, space N lanes evenly, or spread between two</span></summary>
           <div class="crop-lanes">
             <div class="field inline">
-              <button class="btn sm" id="btnRedetectCrop">Re-detect in box</button>
-              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px"> <span>lanes</span></span>
-              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box">Space evenly</button>
+              <button class="btn sm" id="btnRedetectCrop" title="Find the lanes again inside the red box only; lanes you placed by hand stay">Re-detect in box</button>
+              <span class="inline-label"><span>or</span> <input type="number" id="cropLaneN" min="1" max="60" class="num" style="width:52px" title="How many lanes the red box holds"> <span>lanes</span></span>
+              <button class="btn sm" id="btnEvenCrop" title="Space this many lanes evenly inside the red box: put its sides on the outer edges of the outermost lanes first">Space evenly</button>
             </div>
-            <p class="hint">Put the sides of the red box on the outer edges of the outermost lanes, then “Space evenly”: this is almost always right. Only the image inside the box is used; names stay left to right.</p>
-            <div class="field inline"><button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image, drag them onto their lanes (every selected line moves together), then spread the lanes between them evenly">Spread between the two selected</button></div>
-            <p class="hint">Shift+click selects several lane lines on the image; a drag or the arrow keys move them together, Delete removes them. Select the first and the last line of a run, put them on their lanes, then <b>Spread</b>.</p>
             <div class="field inline">
-              <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect all lanes on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
+              <button class="btn sm" id="btnSpread" title="Shift+click two lane lines on the image (the first and the last of a run), drag them onto their lanes, then spread the lanes between them evenly">Spread between two selected</button>
+              <button class="btn sm ghost" id="btnAutoLanes" title="Re-detect every lane on the whole gel (overwrites adjustments)">Re-detect whole gel</button>
             </div>
           </div>
         </details>
@@ -188,7 +191,7 @@
           <div class="inline"><button class="btn sm primary" id="btnCutEmpty">Remove</button><button class="btn sm ghost" id="btnIgnoreEmpty">Keep (don’t ask again)</button></div>
         </div>
         <div class="cl-head" style="margin-top:10px">Lane names <span class="h3-note" id="laneCountNote"></span></div>
-        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter jumps to the next), or type it here. Untick “Show” (or press <code>H</code>) to leave a lane out; a splice gap marks the place. <code>*lacZ*</code> becomes italic.</p>
+        <p class="hint"><b>Click a lane name</b> on the figure and type (Enter: next lane). Untick “Show” or press <code>H</code> to leave a lane out. <code>*lacZ*</code> is italic.</p>
         <div id="laneList" class="list"></div>
         <textarea id="laneBulk" rows="1" placeholder="Paste a row of names: M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
         <details class="adv" id="laneAdv">
@@ -342,7 +345,7 @@
     <section class="pane-col" id="rawCol">
       <div class="col-head">
         <span class="col-title">Raw image</span>
-        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span>
+        <span class="col-sub">Red box = figure area · blue = lanes · yellow = marker bands · teal = strips · green = band boxes</span><span class="col-sub" id="rawNote"></span>
         <span class="flex"></span>
         <button class="btn sm ghost" id="fitFull" title="Show the whole image">Full</button>
         <button class="btn sm ghost" id="fitCrop" title="Zoom to the figure area">Crop</button>
@@ -403,7 +406,7 @@
               <canvas id="qProfile" height="130"></canvas>
               <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
             </details>
-            <p class="hint" id="quantNote">Integrated density of each box, from the raw pixel values (only rotation is applied; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+            <p class="hint" id="quantNote">Integrated density of each box, from the original pixel values (the box is mapped back through the rotation and the geometry correction and read at the original pixels; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
           </div>
           <div id="quantSize" class="hidden">
             <p class="lead">Every band in every lane of the figure, sized against the marker.</p>

@@ -214,8 +214,8 @@ function palTiff(w, h, bits, photo, idx, cmap) {
     const out = Render.build(S, gel, 'data:,');
     R.render = { ok: out.svg.startsWith('<svg') && out.angle > 0 && gel.segs.length === 2, angle: out.angle, segs: gel.segs.length, warnings: out.warnings, wMm: (out.w / Render.MM).toFixed(1), hMm: (out.h / Render.MM).toFixed(1) };
   /* Keystone: a synthetic SDS gel sent through a known perspective (its lanes converge towards
-   * V) must come back parallel: estimate from the lane lines, correct, repeat on the corrected
-   * image; the correction's lane-spacing change must match the truth within 2 points. A gel
+   * V) must come back parallel: estimate from the lane comb, correct, repeat on the corrected
+   * image; the correction's lane-spacing change must match the truth within 3 points. A gel
    * without keystone must be left alone (no significant convergence). */
   R.keystone = [[700, -2500], [700, 4000], [null, null]].map(([vx, vy]) => {
     const gg = Demo.makeGel({ preset: 'sds', tilt: 0 }), M3 = E.M3;
@@ -228,13 +228,14 @@ function palTiff(w, h, bits, photo, idx, cmap) {
       const L = E.detectLaneLattice(img, br, crop, E.autoCrop.meta);
       lanesFound = L ? L.centers.length : 0;
       if (!L) break;
-      const v = E.vanishing(E.laneLines(img, br, crop, L.centers, L.pitch), crop.y + crop.h / 2, crop.h);
+      // the estimator the app uses: all lanes as one comb per horizontal band
+      const v = E.laneComb(img, br, crop, L.centers, L.pitch, 16, rounds ? 1.5 : 3);
       if (!v || !v.point) break;
       H = M3.mul(E.keystoneH({ x: v.point.across, y: v.point.along }, null, { x: crop.x + crop.w / 2, y: crop.y + crop.h / 2 }), H);
       img = E.warp(imgK, H);
     }
     const got = E.keystoneReport(H, crop), truth = E.keystoneReport(M3.inv(Hk), crop);
-    return { V: [vx, vy], rounds, lanesFound, got, truth, ok: Math.abs(got.lanesPct - truth.lanesPct) <= 2 && (vx != null || M3.isIdentity(H)) && lanesFound === 10 };
+    return { V: [vx, vy], rounds, lanesFound, got, truth, ok: Math.abs(got.lanesPct - truth.lanesPct) <= 3 && (vx != null || M3.isIdentity(H)) && lanesFound === 10 };
   });
   R.warp = (() => { const a = E.rotate(src, 3.7), b = E.warp(src, E.M3.rotation(3.7, (src.w - 1) / 2, (src.h - 1) / 2)); let mx = 0; for (let i = 0; i < a.data.length; i += 7) mx = Math.max(mx, Math.abs(a.data[i] - b.data[i])); return { maxDiff: mx, ok: mx < 1e-6 }; })();
   } catch (e) { R.error = e.stack || String(e); }

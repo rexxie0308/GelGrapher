@@ -51,6 +51,10 @@
     const t = document.getElementById('busyText'); if (t && on) t.textContent = text || 'Working…';
   }
   App.busy = busy;
+  // progress text during a long automatic step (the interface shows it in the busy overlay) and a
+  // yield to the browser so that it is painted; both are no-ops outside the interface
+  App.progress = function (text) { const t = document.getElementById('busyText'); if (t && text) t.textContent = text; };
+  App.yield = () => new Promise(r => setTimeout(r, 0));
   App.defaultStyle = defaultStyle;
   App.onDropFile = null;   // set by the UI layer
 
@@ -68,6 +72,15 @@
   // true when the figure shows dark bands on a light background
   App.darkBands = function () { const S = App.S; return S.bright ? !!S.levels.invert : !S.levels.invert; };
   App.setDarkBands = function (dark) { App.S.levels.invert = !!dark === App.S.bright; };
+  /* Detection polarity by hand: bright = bands brighter than the background. Everything that reads the
+   * pixels (crop, lanes, bands, ladders, densitometry) runs on this, so it is detected again from the
+   * crop on; a geometry correction made with the wrong polarity is dropped. The figure keeps its look. */
+  App.setBright = async function (bright) {
+    const S = App.S, dark = S.levels.invert === S.bright;   // the figure shows dark bands?
+    S.bright = !!bright; S.levels.invert = dark === S.bright;
+    if (S.geom) App.setGeom(null);
+    await App.autoAll(false);
+  };
   function typeDefaults(type, bright) {
     const t = G.Gels.get(type), tp = typePrefs(t.id);
     const lad = G.Ladders.get(tp.ladderId);
@@ -136,7 +149,7 @@
   };
 
   // install a decoded image as the current source and run the automatic pipeline
-  function startFrom(input, gelType) {
+  async function startFrom(input, gelType) {
     App._libSkip = null;
     const img = input.img;
     App.src0 = App.src = { w: img.width, h: img.height, data: img.data };
@@ -157,13 +170,13 @@
       groups: [], conditions: [], arrows: [], strips: [],
       quant: defaultQuant(), markerImage: null, flip: { h: false, v: false },
       gelRows: null, gelRow: 0, rowStash: {},
-      keystone: null,
+      geom: null,
       style: Object.assign(defaultStyle(), p.style || {}),
       saturatedInCrop: 0
     };
     App.loadWarnings = img.warnings || [];
     App.hist = []; App.future = [];
-    App.autoAll(true);
+    await App.autoAll(true);
     // the state right after automatic processing: target of "reset everything"
     App.initial = App.snapshot();
     App.autoRotation = App.S.rotation;
@@ -180,7 +193,7 @@
       const input = await App.readInput(file);
       App.exposures = null;
       App.isExample = false;
-      startFrom(input, gelType);
+      await startFrom(input, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
@@ -219,7 +232,7 @@
       App.exposures = list;
       App.expIdx = bestInput.k;
       App.isExample = false;
-      startFrom(bestInput, gelType);
+      await startFrom(bestInput, gelType);
       App.emit('loaded');
     } catch (e) {
       console.error(e);
@@ -258,7 +271,7 @@
         return { ok: true, kept: true };
       }
       const names = App.figureLanes().map(i => S.lanes[i].name);
-      startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 }, S.gelType);
+      await startFrom({ name: ex.name, buffer: ex.buffer, img, sha256: ex.sha256 }, S.gelType);
       const fl = App.figureLanes();
       const same = fl.length === names.length;
       if (same) { fl.forEach((i, j) => { App.S.lanes[i].name = names[j]; }); App.commit(); }
@@ -324,32 +337,60 @@
     App.afterRotation();
   };
 
-  /* The working frame: the source rotated by S.rotation and, when the perspective correction is
-   * on, sent through S.keystone.H (a 3 x 3 homography in the rotated frame), composed into one
-   * matrix so the pixels are resampled once. Every annotation lives in this frame. */
-  App.keystoneH = function (S) { S = S || App.S; return S.keystone && S.keystone.on && S.keystone.H ? S.keystone.H : E.M3.I(); };
-  App.frameMatrix = function (S) {
-    S = S || App.S;
-    const W = App.src.w, H = App.src.h;
-    return E.M3.mul(App.keystoneH(S), E.M3.rotation(S.rotation, (W - 1) / 2, (H - 1) / 2));
+  /* The working frame: the source rotated by S.rotation and, when the geometry correction is on,
+   * sent through S.geom.grid (a displacement grid over the canvas, output -> rotated-frame
+   * source: a keystone, the per-lane straightening, or both composed), composed with the
+   * rotation so the pixels are resampled once. Every annotation lives in this frame. */
+  App.geomGrid = function (S) { S = S || App.S; return S.geom && S.geom.grid ? S.geom.grid : null; };
+  /* The original pixels for densitometry. sourceRegion() returns null when the working frame is the
+   * source itself (no rotation, no geometry); otherwise a function (xa, xb, ya, yb) -> rows that maps
+   * the working-frame rectangle [xa, xb) x [ya, yb) back to the source (geometry grid, then the
+   * inverse rotation) as a quadrilateral of its four corners and returns, for every source row the
+   * quadrilateral crosses, the raw values of the source pixels whose centres lie inside it
+   * ({ y, v: Float32Array }): every original pixel once, none resampled. */
+  App.sourceRegion = function () {
+    const S = App.S, g = App.geomGrid(S), R = App.rotM(S);
+    if (!g && E.M3.isIdentity(R)) return null;
+    App.applyFlip();
+    const Ri = E.M3.inv(R), src = App.src, w = src.w, h = src.h;
+    const map = (x, y) => { const s = g ? E.Grid.at(g, x, y) : { x, y }; return E.M3.apply(Ri, s.x, s.y); };
+    return (xa, xb, ya, yb) => {
+      const q = [map(xa, ya), map(xb, ya), map(xb, yb), map(xa, yb)];
+      const Y0 = Math.max(0, Math.floor(Math.min(...q.map(p => p.y)))), Y1 = Math.min(h - 1, Math.ceil(Math.max(...q.map(p => p.y))));
+      const rows = [];
+      for (let Y = Y0; Y <= Y1; Y++) {
+        // the quadrilateral's span on the line through the row's pixel centres
+        const yc = Y + 0.5; let xl = Infinity, xr = -Infinity;
+        for (let k = 0; k < 4; k++) {
+          const a = q[k], b = q[(k + 1) % 4];
+          if ((a.y <= yc && b.y > yc) || (b.y <= yc && a.y > yc)) { const x = a.x + (b.x - a.x) * (yc - a.y) / (b.y - a.y); xl = Math.min(xl, x); xr = Math.max(xr, x); }
+        }
+        if (xr < xl) continue;
+        const X0 = Math.max(0, Math.ceil(xl - 0.5)), X1 = Math.min(w - 1, Math.floor(xr - 0.5));
+        if (X1 < X0) continue;
+        rows.push({ y: Y, v: src.data.subarray(Y * w + X0, Y * w + X1 + 1) });
+      }
+      return rows;
+    };
   };
-  App.frameKey = function (S) { S = S || App.S; return `${S.rotation}|${S.keystone && S.keystone.on ? S.keystone.H.map(v => v.toFixed(9)).join(',') : ''}`; };
+  App.rotM = function (S) { S = S || App.S; const W = App.src.w, H = App.src.h; return E.M3.rotation(S.rotation, (W - 1) / 2, (H - 1) / 2); };
+  App.frameKey = function (S) {
+    S = S || App.S; const g = App.geomGrid(S);
+    let sum = 0; if (g) for (let i = 0; i < g.pts.length; i += 7) sum += g.pts[i] * (i % 13 + 1);
+    return `${S.rotation}|${g ? g.nx + 'x' + g.ny + ':' + sum.toFixed(3) : ''}`;
+  };
   App.ensureRot = function () {
     App.applyFlip();
     const key = App.frameKey(App.S);
     if (!App.rot || App.rotFor !== key) {
-      App.rot = E.warp(App.src, App.frameMatrix(App.S));
+      const g = App.geomGrid(App.S), R = App.rotM(App.S);
+      App.rot = g ? E.warpGrid(App.src, g, E.M3.inv(R)) : E.warp(App.src, R);
       App.rotFor = key;
       App.satCanvas = null;
       App._display = null;
     }
     return App.rot;
   };
-
-  /* ---------- marker image (Western blots) ----------
-   * Chemiluminescence images rarely show a prestained ladder. Imagers take a white-light /
-   * colorimetric picture of the same membrane in the same position: loaded here, it is used only to
-   * find the marker bands. The figure still shows the blot image. */
   App.markerSrc = null;
   App.hasMarkerImage = function () { return !!(App.markerSrc && App.S && App.S.markerImage); };
   App.setMarkerImage = function (input) {
@@ -440,16 +481,16 @@
     const Rd = E.M3.rotation(d, cx, cy);
     // with the perspective correction on, the homography follows the rotation (conjugated), so
     // the frame everything lives in turns by exactly Rd
-    if (S.keystone && S.keystone.on) S.keystone.H = E.M3.mul(Rd, E.M3.mul(S.keystone.H, E.M3.inv(Rd)));
+    if (S.geom && S.geom.grid) { S.geom.grid = E.Grid.conjugate(S.geom.grid, Rd); if (S.geom.corners) S.geom.corners = S.geom.corners.map(([x, y]) => { const q = E.M3.apply(Rd, x, y); return [q.x, q.y]; }); }
     App.carryFrame(Rd);
     S.rotation = deg;
     App.sortLanesIfNeeded();
     App.ensureRot();
   };
-  // move every annotation from the current working frame to a new one by the point map T (3 x 3)
+  // move every annotation from the current working frame to a new one by the point map T (a 3 x 3 matrix or a function (x, y) -> {x, y})
   App.carryFrame = function (T) {
     const S = App.S, W = App.src.w, H = App.src.h, cx = (W - 1) / 2;
-    const P = (x, y) => E.M3.apply(T, x, y);
+    const P = typeof T === 'function' ? T : (x, y) => E.M3.apply(T, x, y);
     // one set of annotations (the shown row, or a stashed one): everything moves with its crop
     const carry = A => {
       const c = A.crop, ccx = c.x + c.w / 2, ccy = c.y + c.h / 2;
@@ -459,48 +500,62 @@
       // strips and band boxes span the crop: carried at its horizontal centre like arrows
       A.strips.concat(A.quant.rows).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
       A.lanes.forEach(l => { l.x = P(l.x, ccy).x; });
-      const nc = P(ccx, ccy);
-      // the crop keeps its size: a homography scales the centre by 1, a rotation not at all
-      const w = Math.min(c.w, W), h = Math.min(c.h, H);
-      A.crop = { x: Math.round(Math.max(0, Math.min(W - w, nc.x - w / 2))), y: Math.round(Math.max(0, Math.min(H - h, nc.y - h / 2))), w: Math.round(w), h: Math.round(h) };
+      // the crop is carried by the midpoints of its four sides, so a keystone that spreads the lanes
+      // spreads the box with them (carried by its centre at a fixed size, its sides cut into the
+      // outer lanes after a correction); a rotation moves the midpoints hardly at all
+      const x0 = P(c.x, ccy).x, x1 = P(c.x + c.w, ccy).x, y0 = P(ccx, c.y).y, y1 = P(ccx, c.y + c.h).y;
+      const cx0 = Math.max(0, Math.min(x0, x1)), cx1 = Math.min(W, Math.max(x0, x1)), cy0 = Math.max(0, Math.min(y0, y1)), cy1 = Math.min(H, Math.max(y0, y1));
+      A.crop = { x: Math.round(cx0), y: Math.round(cy0), w: Math.max(10, Math.round(cx1 - cx0)), h: Math.max(10, Math.round(cy1 - cy0)) };
     };
     carry(S);
     Object.values(S.rowStash || {}).forEach(carry);
     if (S.gelRows) S.gelRows.forEach(r => { r.y0 = P(cx, r.y0).y; r.y1 = P(cx, r.y1).y; });
   };
 
-  /* ---------- perspective (keystone) correction ----------
-   * S.keystone = null (off) or { on: true, H: [9], source: 'auto' | 'manual', lanesPct, bandsPct, bands }:
-   * H maps the rotated frame to the working frame; lanesPct / bandsPct say how the raw image
-   * was distorted (lane spacing at the bottom of the box relative to the top, band spacing at
-   * the right relative to the left), for the panel, the legend notes and the log. */
-  App.setKeystone = function (next) {
-    const S = App.S, K0 = App.keystoneH(S), K1 = next && next.on ? next.H : E.M3.I();
-    App.carryFrame(E.M3.mul(K1, E.M3.inv(K0)));
-    S.keystone = next && next.on ? next : null;
+  /* ---------- geometry correction: perspective (keystone) and lane straightening ----------
+   * S.geom = null (off) or { mode: 'auto' | 'manual', grid, H, corners, lanesPct, bandsPct, bendPx, lanes, rows }:
+   * grid maps the working frame to the rotated frame (E.Grid); H is the keystone part (rotated
+   * frame -> working frame) for the report; corners the four slab corners of a manual box (rotated
+   * frame); bendPx the largest per-lane shift of the straightening; lanes / rows what it used. */
+  App.setGeom = function (next) {
+    const S = App.S, W = App.src.w, H = App.src.h;
+    const G0 = App.geomGrid(S), G1 = next && next.grid ? next.grid : null;
+    const f = (x, y) => {
+      const r = G0 ? E.Grid.at(G0, x, y) : { x, y };
+      return G1 ? E.Grid.inv(G1, r.x, r.y) : r;
+    };
+    App.carryFrame(f);
+    // the well line found by the auto crop follows the frame too (the comb and the traces stop above it)
+    if (App.cropMeta && App.cropMeta.wellY != null) App.cropMeta.wellY = f(S.crop.x + S.crop.w / 2, App.cropMeta.wellY).y;
+    S.geom = next && next.grid ? next : null;
     App.sortLanesIfNeeded();
     App.ensureRot();
   };
-  // after a change of the perspective: the same refresh as after a rotation
-  App.afterKeystone = function () { App.afterRotation(); };
-  App.keystoneReport = function () {
-    const S = App.S;
-    if (!S.keystone || !S.keystone.on) return { lanesPct: 0, bandsPct: 0 };
-    return E.keystoneReport(E.M3.inv(S.keystone.H), S.crop);
+  App.afterGeom = function () { App.afterRotation(); };
+  App.geomReport = function () {
+    const S = App.S, g = S.geom;
+    if (!g) return { lanesPct: 0, bandsPct: 0, bendPx: 0 };
+    const r = g.H ? E.keystoneReport(E.M3.inv(g.H), S.crop) : { lanesPct: 0, bandsPct: 0 };
+    return { lanesPct: r.lanesPct, bandsPct: r.bandsPct, bendPx: g.bendPx || 0 };
   };
   /* The band rows of the ladders: every size matched in two or more marker lanes gives a line
-   * y = a + b (x - xc) through those bands; their vanishing point (or null). */
-  App.bandRowVanishing = function () {
+   * y = a + b (x - xc) through those bands; their vanishing point (or null), and the rows
+   * themselves (for the straightening: {at: x => y, yc}). */
+  App.bandRows = function () {   // ladder band rows across the marker lanes (the vertical reference of the straightening)
     const S = App.S, c = S.crop, xc = c.x + c.w / 2;
-    const mk = S.markers.filter(m => S.lanes[m.lane]);
-    if (mk.length < 2) return null;
+    // only markers that fit their ladder well anchor the geometry
+    const mk = S.markers.filter(m => S.lanes[m.lane] && (m.score == null || m.score >= 0.6));
+    if (mk.length < 2) return { lines: [], rows: [] };
+    // the vertical levelling (rows) needs three ladders: a row through two points has no residual to
+    // judge it by, and one mis-assigned band would tilt every sample band between the ladders
+    const rowsOk = mk.length >= 3;
     const bySize = new Map();
     mk.forEach(m => m.bands.forEach(b => {
       if (!(b.matched || b.manual) || b.bp == null) return;
       if (!bySize.has(b.bp)) bySize.set(b.bp, []);
       bySize.get(b.bp).push({ x: S.lanes[m.lane].x, y: b.y });
     }));
-    const lines = [];
+    const lines = [], rows = [];
     bySize.forEach(pts => {
       if (pts.length < 2) return;
       let n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
@@ -509,51 +564,266 @@
       if (den <= 0) return;
       const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
       lines.push({ a, b, n });
+      if (!rowsOk) return;
+      const x0 = Math.min(...pts.map(q => q.x)), x1 = Math.max(...pts.map(q => q.x)), cl = x => Math.max(x0, Math.min(x1, x));   // held beyond the outermost marker
+      // a straight row through the markers (never an exact fit through three points); its residual is
+      // judged below against the spacing of the neighbouring rows
+      let res = 0; pts.forEach(q => { res = Math.max(res, Math.abs(q.y - (a + b * (q.x - xc)))); });
+      rows.push({ yc: a, res, at: x => a + b * (cl(x) - xc) });
     });
-    return E.vanishing(lines, xc, c.w);
+    // a row whose markers scatter by more than 0.3 of the local band spacing is a mis-assigned band, not a smile
+    rows.sort((p, q) => p.yc - q.yc);
+    const kept = rows.filter((r, i) => {
+      const sp = Math.min(i > 0 ? r.yc - rows[i - 1].yc : Infinity, i < rows.length - 1 ? rows[i + 1].yc - r.yc : Infinity);
+      return sp !== Infinity && r.res <= 0.3 * sp;
+    });
+    return { lines, rows: kept.length >= 3 ? kept : [] };
+
   };
-  /* Estimate the perspective from the lane lines (and the ladder bands when two or more markers
-   * are matched), apply it, and repeat on the corrected image until the lanes no longer converge
-   * (at most 4 rounds). Returns { applied, lanesPct, bandsPct, message }. */
-  App.autoKeystone = function () {
-    const S = App.S;
-    let applied = false, lines = 0, lastV = null;
-    for (let round = 0; round < 4; round++) {
-      const img = App.ensureRot(), c = S.crop, xs = S.lanes.map(l => l.x), P = S.lanePitch || (S.laneHalfW / 0.3);
-      if (xs.length < 5) return { applied, message: 'The perspective is measured on the lane lines: it needs at least five lanes' };
-      const L = E.laneLines(img, S.bright, c, xs, P);
-      lines = L.filter(Boolean).length;
-      const v = E.vanishing(L, c.y + c.h / 2, c.h), u = App.bandRowVanishing();
-      lastV = v;
-      if (!v) break;
-      const V = v.point ? { x: v.point.across, y: v.point.along } : null;
-      const U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
-      if (!V && !U) break;
-      const Hi = E.keystoneH(V, U, { x: c.x + c.w / 2, y: c.y + c.h / 2 });
-      App.setKeystone({ on: true, H: E.M3.mul(Hi, App.keystoneH(S)), source: 'auto', lanesPct: 0, bandsPct: 0, bands: !!U || !!(S.keystone && S.keystone.bands) });
+  /* The band rows' vanishing point from the slab's top and bottom edges (the four corners of the
+   * outline): the two edges meet where the band rows would; used when fewer than three ladders can
+   * give it. Null unless the gel's height differs by at least 2 % between the crop's left and right. */
+  App.slabRowVanishing = function (q, c) {
+    const [TL, TR, BR, BL] = q;
+    const top = x => TL[1] + (TR[1] - TL[1]) * (x - TL[0]) / Math.max(1e-9, TR[0] - TL[0]), bot = x => BL[1] + (BR[1] - BL[1]) * (x - BL[0]) / Math.max(1e-9, BR[0] - BL[0]);
+    const hL = bot(c.x) - top(c.x), hR = bot(c.x + c.w) - top(c.x + c.w), change = (hR - hL) / Math.max(1e-9, (hR + hL) / 2);
+    if (!(Math.abs(change) >= 0.02) || hL <= 0 || hR <= 0) return null;
+    // intersection of the two edge lines
+    const d1 = [TR[0] - TL[0], TR[1] - TL[1]], d2 = [BR[0] - BL[0], BR[1] - BL[1]], den = d1[0] * d2[1] - d1[1] * d2[0];
+    if (Math.abs(den) < 1e-9) return null;
+    const t = ((BL[0] - TL[0]) * d2[1] - (BL[1] - TL[1]) * d2[0]) / den;
+    return { change, point: { x: TL[0] + d1[0] * t, y: TL[1] + d1[1] * t } };
+  };
+  App.bandRowVanishing = function () { const r = App.bandRows(); return r.lines.length >= 3 ? E.vanishing(r.lines, App.S.crop.x + App.S.crop.w / 2, App.S.crop.w) : null; };
+  /* After the lanes are rebuilt (fn), find the marker lanes again but keep the ladder the user chose
+   * for a marker that is still at (about) the same position. Returns what fn returned. */
+  App.relaneMarkers = function (fn) {
+    const S = App.S, tol = (S.lanePitch || 40) * 0.5;
+    const prev = S.markers.map(m => ({ x: S.lanes[m.lane] ? S.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
+    const n = fn();
+    // the ladder already in use is the usual one for this search (no library-wide search again)
+    const keepPref = App.prefLadder; if (prev.length && prev[0].ladderId) App.prefLadder = prev[0].ladderId;
+    try { App.autoMarkers(); } finally { App.prefLadder = keepPref; }
+    let changed = false;
+    S.markers.forEach(m => {
+      const q = prev.find(q => Math.abs(q.x - S.lanes[m.lane].x) < tol);
+      if (q) { if (m.ladderId !== q.ladderId) changed = true; Object.assign(m, { ladderId: q.ladderId, unit: q.unit, side: q.side }); }
+    });
+    if (changed) App.matchMarkers(true);
+    return n;
+  };
+  /* Automatic geometry, recursive: in every round (at most 5) the keystone is estimated from the
+   * lane lines (and the ladder band rows across two or more markers) and applied when significant;
+   * then every lane is traced down the crop and the traces are made straight and vertical (the
+   * ladder band rows horizontal) by a smooth displacement grid; the lanes are detected again on
+   * the corrected image (names kept by position) and the round repeats until the lane count and
+   * positions settle and the lanes bend by less than 3 % of the pitch. The markers are then found
+   * again, keeping any ladder chosen by hand. Returns { applied, rounds, lanes, bendPx, lanesPct, bandsPct, converged, message }. */
+  /* Lane resolution in the column density over the crop: {peak, valley, ratio}. peak = the mean
+   * presence at the lanes, valley = the mean half-way between neighbouring lanes, ratio = valley /
+   * peak (lower = lanes better separated). Null with fewer than two lanes in the crop. */
+  App.laneContrast = function () {
+    const S = App.S, c = S.crop, img = App.ensureRot(), P = S.lanePitch || (S.laneHalfW / 0.3);
+    const xs = S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5).sort((a, b) => a - b);
+    if (xs.length < 2) return null;
+    const x0 = Math.max(0, Math.round(c.x - P)), band = E.cropImg(img, { x: x0, y: c.y, w: c.w + 2 * P, h: c.h });
+    const q = E.presenceProfile(E.signal(band, S.bright), c.w), at = x => { const i = Math.round(x - x0); return i >= 0 && i < q.length ? q[i] : 0; };
+    let pk = 0, va = 0; xs.forEach((x, k) => { pk += at(x); if (k) va += at((x + xs[k - 1]) / 2); });
+    pk /= xs.length; va /= xs.length - 1;
+    return { peak: pk, valley: va, ratio: pk > 0 ? va / pk : null };
+  };
+  App.autoGeometry = async function () {
+    App.autoGeometry.debug = []; const tStart = performance.now(); App.autoGeometry.debug.ms = () => Math.round(performance.now() - tStart);
+    // S is re-read after every restore of a snapshot (App.S is replaced by the restore)
+    let S = App.S;
+    const W = App.src.w, Hh = App.src.h, lanes0 = S.lanes.length;
+    let applied = false, rounds = 0, converged = false, lines = 0, bendBefore = 0, lastChange = null, roundSnap = null, Hk = (S.geom && S.geom.H) || E.M3.I();
+    let grid = App.geomGrid(S), slab = null, qSlab = null, rowsFrom = null;
+    const inCrop = () => { const c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3); return S.lanes.map(l => l.x).filter(x => x >= c.x - P * 0.5 && x <= c.x + c.w + P * 0.5); };
+    // the wells and their pockets (down to 1.5 pitch below the well line) are not lanes: their dark
+    // walls sit between the lanes and would offset the comb by half a pitch
+    // (2.5 pitches: on the sanity-check photograph the pockets are deep, and the band 1.5-3 pitches
+    // below the well row reads a pitch 6 % below the gel's, which no camera angle removes)
+    const yMin = () => { const P = S.lanePitch || (S.laneHalfW / 0.3); return App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 2.5 : null; };
+    // 32 bands for the comb: with 16 the estimate on that photograph swung between 12 and 24 % with
+    // the box's rows (which bands got a fit decided the slope); with 32, weighted by what each band
+    // knows, the four boxes tried agree within a point
+    const COMB_BANDS = 32;
+    const hook = async (l, text) => { App.autoGeometry.debug.push({ step: l, ms: App.autoGeometry.debug.ms() }); if (App.autoGeometry.onStep) App.autoGeometry.onStep(l); if (text) { App.progress(text); await App.yield(); } };
+    // the resolution of the lanes in the column density: the mean density half-way between
+    // neighbouring lanes divided by the mean at the lanes (lower = lanes better separated)
+    const contrast = () => { const r = App.laneContrast(); return r ? r.ratio : null; };
+    // convergence of the lane lines in the current frame (null when too few lanes are measurable)
+    const convergence = () => {
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
+      if (xs.length < 4) return null;
+      const v = E.laneComb(img, S.bright, c, xs, P, COMB_BANDS, 3, yMin());
+      return v ? v.change : null;
+    };
+    /* 0. the slab outline. A gel photographed at an angle may drift by a whole lane pitch over its
+     * height, which merges neighbouring lanes in the column profile before any lane line can be
+     * measured; the outline of the slab needs no lanes. Its four corners give a perspective that
+     * is kept only when it leaves the lane lines straighter than before (or straight enough when
+     * they could not be measured before). */
+    if (!grid) {
+      App.progress('Gel shape: measuring the slab outline…'); await App.yield();
+      const c = S.crop, q = E.slabQuad(App.ensureRot(), { x: c.x + c.w / 2, y: c.y + c.h / 2, win: { x0: c.x - c.w * 0.5, x1: c.x + c.w * 1.5, y0: c.y - c.h * 0.5, y1: c.y + c.h * 1.5 } });
+      qSlab = q;
+      const Hq = q && E.homographyFromQuad(q);
+      // a global homography that scales any cell by more than a fifth is not a camera angle
+      if (Hq && E.Grid.maxScale(E.Grid.fromH(Hq, W, Hh)) < 0.2) {
+        const before = convergence(), snap = App.snapshot();
+        App.setGeom({ mode: 'auto', grid: E.Grid.fromH(Hq, W, Hh), H: Hq, corners: q, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0 });
+        App.autoLanes();
+        const after = convergence();
+        // kept only when it fixes a real convergence: lanes that converged must converge less than half
+        // as much; lanes that were already parallel need nothing
+        // (the outline alone is no evidence: a gel whose lanes cannot be measured is left as it is)
+        const ok = before != null && after != null && Math.abs(before) >= 0.03 && Math.abs(after) < Math.abs(before) * 0.5;
+        App.autoGeometry.debug.push({ slab: true, before: before != null ? +before.toFixed(4) : null, after: after != null ? +after.toFixed(4) : null, ok, report: E.keystoneReport(Hq, c) });
+        if (ok) { applied = true; grid = App.geomGrid(S); Hk = Hq; slab = q; await hook('slab', 'Gel shape: slab outline mapped, lanes detected again…'); }
+        else { App.S = S = JSON.parse(snap); App.rot = null; App.ensureRot(); grid = null; }
+      }
+    }
+    /* 1. the keystone, iterated: the lane comb is measured on the corrected image after every
+     * round (the lanes detected again), until it reports the lanes parallel. A global transform
+     * first; the local straightening comes after it, never before (straightened lanes are parallel
+     * by construction, so a keystone fitted after them would only re-bend the gel). */
+    const centre = c => ({ x: c.x + c.w / 2, y: c.y + c.h / 2 });
+    for (; rounds < 4; rounds++) {
+      // only the lanes of the framed gel: a lane left outside the box is not part of its geometry
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
+      if (xs.length < 4) break;
+      // the first round must be sure (three standard errors: an undistorted gel gets nothing); the
+      // later ones refine a keystone already found and need less
+      // (three standard errors in every round: the refinement rounds once asked 1.5, and on the
+      // sanity-check photograph a 2 % residual at 2 standard errors then added a 5 % round)
+      const v = E.laneComb(img, S.bright, c, xs, P, COMB_BANDS, 3, yMin()), u = App.bandRowVanishing();
+      lines = v ? v.n : 0;
+      const V = v && v.point ? { x: v.point.across, y: v.point.along } : null;
+      let U = u && u.point ? { x: u.point.along, y: u.point.across } : null;
+      if (U) rowsFrom = 'ladder band rows';
+      // without three ladders the band rows' convergence is read from the slab's top and bottom
+      // edges (the well line and the slab bottom are straight lines of the gel, not sample bands)
+      // (tried at load and withheld: on the synthetic Western example the outline's top edge is fitted
+      // on the comb teeth and its tilt read as a 10 % row convergence on an undistorted gel; it needs a
+      // test that the two edges are straight and agree with the well line before it can be trusted)
+      if (!U && !rounds && qSlab && App.slabRowsFromOutline) { const su = App.slabRowVanishing(qSlab, c); if (su) { U = su.point; rowsFrom = 'slab edges'; } }
+      App.autoGeometry.debug.push({ round: rounds, keystone: true, frame: App.frameKey(S), xs: xs.map(Math.round), P: +P.toFixed(1), crop: c, bands: lines, combDbg: E.laneComb.debug, lanes: v && +v.change.toFixed(4), lanesSig: v && v.se ? +(Math.abs(v.change) / v.se).toFixed(1) : null, rows: u && +u.change.toFixed(4) });
+      // a first-round keystone must move the far lane by at least 0.1 pitch over the crop (a smaller
+      // one is within the comb's own noise and would only put a spurious line into the legend)
+      if (V && Math.abs(v.change) < 0.2 / Math.max(1, xs.length - 1)) { converged = true; break; }
+      if (!V && !U) { converged = true; break; }
+      // a spacing that would more than double over the crop is not a camera angle
+      if (v && v.point && Math.abs(v.change) > 0.6) { converged = true; break; }
+      // the remaining convergence must shrink from round to round and keep its sign: an estimate that
+      // grows, or flips its sign by more than half of the last one, says the gel is not a keystone
+      // (torn, locally compressed), and the rounds stop
+      // ...and a round after which the lanes converge no less than before (or the other way, by more
+      // than half) made things worse, not better: it is taken back, not kept
+      if (v && v.point && lastChange != null && (Math.abs(v.change) >= Math.abs(lastChange) || (Math.sign(v.change) !== Math.sign(lastChange) && Math.abs(v.change) > Math.abs(lastChange) * 0.5))) {
+        if (roundSnap) { App.S = S = JSON.parse(roundSnap.snap); App.rot = null; App.ensureRot(); grid = roundSnap.grid; Hk = roundSnap.Hk; applied = roundSnap.applied; rounds--; App.autoGeometry.debug.push({ round: rounds, reverted: true, before: +lastChange.toFixed(4), after: +v.change.toFixed(4) }); }
+        converged = true; break;
+      }
+      lastChange = v && v.point ? v.change : null;
+      roundSnap = { snap: App.snapshot(), grid, Hk, applied };
+      const Hi = E.keystoneH(V, U, centre(c)), step = E.Grid.fromH(Hi, W, Hh);
+      Hk = E.M3.mul(Hi, Hk); grid = grid ? E.Grid.compose(grid, step) : step;
+      App.setGeom({ mode: 'auto', grid, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0, slab: !!slab });
       applied = true;
+      App.autoLanes();   // the lanes again on the corrected image
+      await hook('keystone ' + (rounds + 1), `Gel shape: camera angle round ${rounds + 1} (${v && v.change > 0 ? '+' : ''}${v ? (v.change * 100).toFixed(1) : '?'} %), lanes detected again…`);
     }
-    if (S.keystone && S.keystone.on) Object.assign(S.keystone, App.keystoneReport());
-    if (!applied) {
-      const msg = !lastV ? `Too few lanes with a clear, straight line to measure the perspective (${lines} of ${S.lanes.length})`
-        : `No keystone found: the lane lines do not converge consistently (${lines} lanes measured; spacing change ${(lastV.change * 100).toFixed(1)} % is within the scatter). Lanes that drift on their own are the gel's own distortion, which a perspective correction must not touch.`;
-      return { applied: false, message: msg };
+    /* 2. per-lane straightening, once, on the keystone-corrected image: traces that scatter more
+     * than a tenth of the pitch (a faint ladder under a smear, a torn lane) are not trusted and
+     * follow their neighbours' shift; the bend of the gel is the median over lanes, so one bad lane
+     * neither drives nor hides the correction; the round is kept only when the median bend falls. */
+    if (!S.markers.length) { App.progress('Gel shape: finding the ladders…'); await App.yield(); App.autoMarkers(); }   // once per load: the ladders (for the row levelling and the figure)
+    {
+      App.progress('Gel shape: tracing the lanes…'); await App.yield();
+      const img = App.ensureRot(), c = S.crop, xs = inCrop(), P = S.lanePitch || (S.laneHalfW / 0.3);
+      const trusted = T => T.map(t => (t && t.res <= P * 0.1 ? t : null));
+      const bendOf = T => { const b = T.filter(Boolean).map(t => Math.max(Math.abs(t.at(c.y + c.h * 0.1) - t.a), Math.abs(t.at(c.y + c.h * 0.9) - t.a))).sort((p, q) => p - q); return b.length ? b[b.length >> 1] : 0; };
+      const tr = xs.length >= 3 ? trusted(E.laneTraces(img, S.bright, c, xs, P, 16, yMin())) : [];
+      bendBefore = bendOf(tr);
+      const rows = App.bandRows().rows;
+      // a bend worth straightening is more than noise: 5 % of the pitch and at least 3 px
+      // the grid's nodes sit closer than half a lane pitch, so the field between lanes is realised and
+      // not blurred over a lane (33 x 33 over a photograph is 60 px apart)
+      const nx = Math.max(33, Math.min(129, Math.ceil(2 * W / P) + 1)), ny = Math.max(33, Math.min(65, Math.ceil(2 * Hh / P) + 1));
+      // a gel with several rows of wells: the correction fades out within this row's band, never into the next
+      const band = S.gelRows ? App.rowBand(S.gelRow) : null;
+      let sg = tr.filter(Boolean).length >= 3 && bendBefore > Math.max(3, P * 0.05) ? E.straightenGrid(W, Hh, c, tr, rows, nx, ny, band) : null;
+      if (sg && sg.maxShift > P) sg = null;   // a shift of more than a lane pitch is a wrong trace, not a bend
+      if (sg && (sg.folded || sg.scaleMax > 0.25)) { App.autoGeometry.debug.push({ straighten: true, rejected: 'fold or local scale', scaleMax: sg.scaleMax, folded: sg.folded }); sg = null; }
+      if (sg) {
+        const cBefore = contrast();
+        const snapRound = App.snapshot(), gridBefore = grid, g = grid ? E.Grid.compose(grid, sg.grid) : sg.grid;
+        App.setGeom({ mode: 'auto', grid: g, H: Hk, corners: slab, lanesPct: 0, bandsPct: 0, bendPx: sg.maxShift, dyPx: sg.maxDy, lanes: tr.filter(Boolean).length, rows: rows.length, slab: !!slab });
+        const tr2 = trusted(E.laneTraces(App.ensureRot(), S.bright, S.crop, inCrop(), P, 16, yMin()));
+        const bendAfter = bendOf(tr2);
+        App.autoGeometry.debug.push({ round: rounds, straighten: true, widthLanes: E.straightenGrid.widthLanes, bendBefore: +bendBefore.toFixed(1), bendAfter: +bendAfter.toFixed(1), shift: +sg.maxShift.toFixed(1), traces: tr.filter(Boolean).length, traces2: tr2.filter(Boolean).length,
+          before: tr.map(t => t ? [Math.round(t.a), +(t.at(c.y + c.h * 0.1) - t.a).toFixed(1), +(t.at(c.y + c.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null), after: tr2.map(t => t ? [Math.round(t.a), +(t.at(S.crop.y + S.crop.h * 0.1) - t.a).toFixed(1), +(t.at(S.crop.y + S.crop.h * 0.9) - t.a).toFixed(1), t.n, +t.res.toFixed(1), Math.round(t.w0), t.wTrend] : null) });
+        // kept only when the median bend falls AND the lanes come out better separated in the
+        // column density (an independent test: a warp built from the chains always flattens the
+        // chains, but only a real straightening sharpens the lanes)
+        const cAfter = contrast();
+        App.autoGeometry.debug[App.autoGeometry.debug.length - 1].contrast = [cBefore, cAfter];
+        if (bendAfter > bendBefore * 0.9 || (cBefore != null && cAfter != null && cAfter > cBefore - 0.005)) { App.S = S = JSON.parse(snapRound); App.rot = null; App.ensureRot(); grid = gridBefore; }
+        else { grid = g; applied = true; rounds++; App.autoLanes(); await hook('straighten', 'Gel shape: lanes straightened, lanes detected again…'); }
+      }
     }
-    const k = S.keystone;
-    return { applied: true, lanesPct: k.lanesPct, bandsPct: k.bandsPct, message: `Perspective corrected: the lane spacing at the bottom of the box was ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top${k.bands ? `, the band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left` : ''} (from ${lines} lane lines${k.bands ? ' and the ladder bands' : ''})` };
+    // after a straightening the lanes are cleaner: the ladders are looked for once more, which is
+    // cheap now that the gel's ladder is known (a lane that fits it names itself); otherwise re-fitted
+    if (applied && S.geom) {
+      if (slab) S.geom.slab = true;
+      if (rowsFrom) S.geom.rowsFrom = rowsFrom;
+      if (S.markers.length && !(S.geom.bendPx > 0)) App.matchMarkers(true); else App.relaneMarkers(() => 0);
+      Object.assign(S.geom, App.geomReport());
+      // disclosed with the correction: what remains of the lane convergence, and the largest local scale of the map
+      const P = S.lanePitch || (S.laneHalfW / 0.3), vf = inCrop().length >= 4 ? E.laneComb(App.ensureRot(), S.bright, S.crop, inCrop(), P, COMB_BANDS, 3, yMin()) : null;
+      S.geom.residualPct = vf ? +(vf.change * 100).toFixed(1) : null;
+      S.geom.scaleMax = +(E.Grid.maxScale(S.geom.grid) * 100).toFixed(1);
+      // the box is framed again on the lanes it holds: the lanes were detected again on the corrected
+      // image, and a side of the box must sit in the gap beside the outer lane, never on the lane
+      App.reframeCrop();
+    }
+    S.geomChecked = true;   // the panel says "checked, none needed" rather than "off" when nothing was applied
+    const k = S.geom, dl = S.lanes.length - lanes0;
+    if (!applied) return { applied: false, rounds, lanes: S.lanes.length, converged, message: S.lanes.length < 3 ? 'Geometry needs at least three lanes (add them with "+ Add lane" or "Space evenly", then try again)' : `No correction needed: the lanes run straight and parallel (${lines} bands of lanes measured, largest bend ${bendBefore.toFixed(1)} px).` };
+    const parts = [];
+    if (Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5) parts.push(`perspective${k.slab ? ' from the slab outline' : ''}: lane spacing at the bottom ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} % of the top, band spacing at the right ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} % of the left`);
+    if (k.bendPx >= 0.5) parts.push(`lanes straightened (largest shift ${k.bendPx.toFixed(1)} px, ${k.lanes} lane traces${k.rows ? `, ${k.rows} ladder band rows` : ''})`);
+    return { applied: true, rounds, lanes: S.lanes.length, bendPx: k.bendPx, lanesPct: k.lanesPct, bandsPct: k.bandsPct, converged,
+      message: `Geometry corrected in ${rounds} round${rounds === 1 ? '' : 's'}: ${parts.join('; ')}; lanes detected again: ${S.lanes.length} wells${dl ? ` (${dl > 0 ? '+' : ''}${dl})` : ''}, markers re-fitted${converged ? '' : ' (not fully settled after 4 rounds)'}` };
   };
-  /* A keystone typed by hand, symmetric about the box: lanesPct = lane spacing at the bottom of
-   * the box relative to the top (+10 = 10 % wider), bandsPct = band spacing at the right relative
-   * to the left. Built from the rotated frame, so typing replaces an automatic estimate. */
-  App.setKeystoneManual = function (lanesPct, bandsPct) {
+  /* Manual geometry: four slab corners (TL, TR, BR, BL) in the working frame are mapped to a
+   * rectangle of the same centre and mean side lengths (one projective transform). Corners are
+   * kept in the rotated frame so a later rotation carries them. */
+  App.setGeomCorners = function (cornersWork) {
+    const S = App.S, W = App.src.w, Hh = App.src.h, G0 = App.geomGrid(S);
+    const rot = cornersWork.map(([x, y]) => { const r = G0 ? E.Grid.at(G0, x, y) : { x, y }; return [r.x, r.y]; });
+    const H = E.homographyFromQuad(rot);
+    if (!H) return false;
+    App.setGeom({ mode: 'manual', grid: E.Grid.fromH(H, W, Hh), H, corners: rot, lanesPct: 0, bandsPct: 0, bendPx: 0, lanes: 0, rows: 0 });
+    Object.assign(S.geom, App.geomReport());
+    return true;
+  };
+  // the corners of the manual box in the working frame (for the editor): the box being placed, else
+  // the corners of the correction in force, else the crop's corners
+  App.pendingCorners = null;
+  App.geomCornersWork = function () {
+    const S = App.S, g = S.geom;
+    if (App.pendingCorners) return App.pendingCorners.map(c => c.slice());
+    if (g && g.corners && g.grid) return g.corners.map(([x, y]) => { const q = E.Grid.inv(g.grid, x, y); return [q.x, q.y]; });
+    const c = S.crop; return [[c.x, c.y], [c.x + c.w, c.y], [c.x + c.w, c.y + c.h], [c.x, c.y + c.h]];
+  };
+  // after the crop was dragged, the geometry settled or a manual box was placed: lanes inside the
+  // crop and the markers again, keeping names (by position) and chosen ladders
+  App.redetectAll = function () {
     const S = App.S;
-    App.setKeystone(null);
-    const c = S.crop, xc = c.x + c.w / 2, yc = c.y + c.h / 2;
-    const rL = 1 + (+lanesPct || 0) / 100, rB = 1 + (+bandsPct || 0) / 100;
-    const V = Math.abs(rL - 1) < 1e-4 ? null : { x: xc, y: (rL * c.y - (c.y + c.h)) / (rL - 1) };
-    const U = Math.abs(rB - 1) < 1e-4 ? null : { x: (rB * c.x - (c.x + c.w)) / (rB - 1), y: yc };
-    if (!V && !U) return;
-    App.setKeystone({ on: true, H: E.keystoneH(V, U, { x: xc, y: yc }), source: 'manual', lanesPct: +lanesPct || 0, bandsPct: +bandsPct || 0, bands: !!U });
+    if (!S.lanes.length) return;
+    App.relaneMarkers(() => App.redetectLanesInCrop());
   };
   // after a rotation is committed: refresh things that depend on pixels
   App.afterRotation = function () {
@@ -729,6 +999,7 @@
     n = Math.max(1, Math.min(60, Math.round(n || S.lanes.filter(l => l.x >= c.x && l.x <= c.x + c.w).length || 1)));
     const p = c.w / n;
     replaceInCrop(Array.from({ length: n }, (_, k) => c.x + (k + 0.5) * p), p);
+    S.lanes.forEach(l => { if (l.x >= c.x && l.x <= c.x + c.w) l.manual = true; });   // spaced by hand
     return n;
   };
 
@@ -744,6 +1015,78 @@
     const nb = l[a + dir];
     const x = nb ? (l[a].x + nb.x) / 2 : l[a].x + dir * p * 0.5;
     return Math.max(0, Math.min(App.ensureRot().w, x));
+  };
+  // the box's sides moved to the gaps beside the outer lanes whose centres it holds (y untouched)
+  App.reframeCrop = function () {
+    const S = App.S, c = S.crop, inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
+    if (inside.length) App.setLaneRange(inside[0], inside[inside.length - 1]);
+    return inside.length;
+  };
+  // the box's top and bottom moved to the bands: just above the highest band and just below the
+  // lowest over the loaded lanes it holds (the ladders' assigned bands and each lane's clear peaks),
+  // with 0.6 lane spacing of margin; the wells and the empty gel above and below are left out, as
+  // a box drawn by hand would. Kept as it is when fewer than a lane spacing of bands is found.
+  App.reframeCropRows = function () {
+    const S = App.S, c = S.crop, P = S.lanePitch || (S.laneHalfW / 0.3), H = App.ensureRot().h;
+    const strip = App.bandStrip();
+    const inside = S.lanes.map((l, i) => (l.x >= c.x && l.x <= c.x + c.w ? i : -1)).filter(i => i >= 0);
+    // per lane: the ladder's assigned bands when the lane is a marker, plus the lane's own clear
+    // peaks, from below the well pockets (2.5 spacings under the well row)
+    const yMin = App.cropMeta && App.cropMeta.wellY != null ? App.cropMeta.wellY + P * 2.5 : -Infinity;
+    // only the lane's own peaks (App.laneLocalPeaks: an outline or the dye front is as dark in the gaps)
+    const peaksOf = inside.map(i => App.laneLocalPeaks(strip, S.bright, S.lanes[i].x, S.laneHalfW, P).filter(q => c.y + q.y >= yMin));
+    const mx = Math.max(0, ...peaksOf.flat().map(q => q.v));
+    // a ladder's assigned band counts when it sits on one of the lane's own peaks (the matcher may
+    // have put a size on an outline), and, with several marker lanes, when it does so in at least
+    // two of them: the marker lanes carry the same ladder, so a size that sits on a peak in one lane
+    // only is the outline of that lane's pocket, which a list with one band too many (the ladder
+    // chosen on the wide box of the detection is not final) took for a band
+    const onPeak = (m, b) => { const k = inside.indexOf(m.lane); return k >= 0 && b.y != null && peaksOf[k].find(q => Math.abs(c.y + q.y - b.y) <= P * 0.1); };
+    const support = new Map();
+    S.markers.forEach(m => m.bands.forEach(b => { if (onPeak(m, b)) support.set(b.bp, (support.get(b.bp) || 0) + 1); }));
+    const need = Math.min(2, S.markers.filter(m => inside.includes(m.lane)).length);
+    let top = Infinity, bot = -Infinity;
+    const lanes = [];
+    inside.forEach((i, k) => {
+      const pk = peaksOf[k], lm = Math.max(0, ...pk.map(q => q.v));
+      // a lane counts when loaded (its strongest band a sixth of the gel's); only its clear bands (a
+      // third of its own strongest) count: the faint tail of a smear or the foot of a heavy band is not a band
+      const cand = lm >= mx * 0.15 ? pk.filter(q => q.v >= lm * 0.3).map(q => ({ y: c.y + q.y, v: q.v / lm })) : [];
+      S.markers.forEach(m => { if (m.lane === i) m.bands.forEach(b => { const q = onPeak(m, b); if (q && (support.get(b.bp) || 0) >= need) cand.push({ y: b.y, v: q.v / Math.max(1e-9, lm) }); }); });
+      cand.sort((p, q) => p.y - q.y);
+      // the same row from the ladder's assignment and the lane's own peak counts once
+      for (let j = cand.length - 1; j > 0; j--) if (cand[j].y - cand[j - 1].y < P * 0.1) cand.splice(j, 1);
+      // bands come in a run; the outline of a pocket's bottom (above the first band, with nothing
+      // above it and a long empty stretch below it) and the dye front far below the last band do
+      // not. An end candidate is dropped when its gap to its neighbour is over 2.2 times the next
+      // gap along the lane and over 1.5 lane spacings (the top two bands of a ladder are spaced
+      // like the bands below them), and when it is no stronger than the lane's typical band (a
+      // heavy band standing alone at the bottom of a sparse lane stays); two close peaks both stay
+      const dropped = [];
+      const weak = k => { const others = cand.filter((q, j) => j !== k).map(q => q.v).sort((p, q) => p - q); return cand[k].v <= 0.8 * others[others.length >> 1]; };
+      // (at the top an isolated candidate goes whatever its strength: the outline of a pocket's bottom
+      // can be the darkest line of a photographed lane; at the bottom only a weak one goes, since a
+      // heavy band can stand alone at the foot of a sparse lane)
+      for (let pass = 0; pass < 2 && cand.length >= 3; pass++) {
+        const n = cand.length, ys = cand.map(q => q.y), g0 = ys[1] - ys[0], g1 = ys[2] - ys[1], gN = ys[n - 1] - ys[n - 2], gM = ys[n - 2] - ys[n - 3];
+        if (g0 > Math.max(2.2 * g1, 1.5 * P)) dropped.push(cand.shift().y);
+        else if (gN > Math.max(2.2 * gM, 1.5 * P) && weak(n - 1)) dropped.push(cand.pop().y);
+        else break;
+      }
+      lanes.push({ lane: i, n: cand.length, rows: cand.map(q => Math.round(q.y)), dropped: dropped.map(Math.round) });
+    });
+    // lanes with a run of three or more bands set the extent; a lane with fewer (two peaks, one of
+    // which may be an outline that passed every test) cannot extend it. Only when no lane has a
+    // run (a blot with one or two bands per lane) do all lanes count.
+    const runs = lanes.filter(l => l.n >= 3), use = runs.length ? runs : lanes;
+    use.forEach(l => { if (l.n) { top = Math.min(top, l.rows[0]); bot = Math.max(bot, l.rows[l.n - 1]); } });
+    App.reframeCropRows.debug = { top: Math.round(top), bot: Math.round(bot), lanes };
+    if (!isFinite(top) || bot - top < P) return false;
+    const m = P * 0.6, y0 = Math.round(Math.max(0, top - m)), y1 = Math.round(Math.min(H, bot + m));
+    if (y1 - y0 < 10) return false;
+    S.crop = { x: c.x, y: y0, w: c.w, h: y1 - y0 };
+    App.updateSaturation();
+    return true;
   };
   // show lanes a..b: crop x follows the lane boundaries, y untouched
   App.setLaneRange = function (a, b) {
@@ -796,7 +1139,7 @@
 
   App.addLane = function (x) {
     const S = App.S;
-    S.lanes.push({ x, name: '', hidden: false });
+    S.lanes.push({ x, name: '', hidden: false, manual: true });   // placed by hand: a red-box drag never replaces it
     const order = S.lanes.map((l, i) => i).sort((a, b) => S.lanes[a].x - S.lanes[b].x);
     App.reorderLanes(order);
     return S.lanes.findIndex(l => l.x === x);
@@ -846,6 +1189,51 @@
     return { lane, ladderId: ladderId || G.Ladders.favorites(kind)[0] || App.prefLadder || App.gelType().ladder, unit: App.prefUnit || App.baseUnit(), side: 'auto', bands: [] };
   };
 
+  /* The bands of a lane: the peaks of its profile that are the lane's own. A band is strong at the
+   * lane and weak in the gaps between the lanes; the dark outlines of the well pockets, the gel's
+   * edges and the dye front run across the whole gel and are as dark in the gaps. The gaps are
+   * judged together (the lower quartile over every gap of the gel at that row: three quarters of
+   * them must show the feature), so a wide ladder band that smears into its own two gaps, or a
+   * row where lysate smears fill some gaps, still counts, while a line across the gel does not. A peak whose
+   * baseline-corrected height at the lane is not twice the gaps' figure at that row is left
+   * out, once the gaps show a real feature (a sixth of the lane's strongest), so the framing of the
+   * box does not take an outline for a band. */
+  const gapCache = new WeakMap();
+  App.laneLocalPeaks = function (strip, bright, x, halfW, P) {
+    const S = App.S, prof = E.laneProfile(strip, bright, x, halfW), h = prof.length, r = Math.round(h / 12);
+    const resid = p => { const b = E.baseline(p, r), q = new Float32Array(p.length); for (let y = 0; y < p.length; y++) q[y] = Math.max(0, p[y] - b[y]); return q; };
+    const q = resid(prof), gw = Math.max(2, halfW * 0.5);
+    // the gaps of the gel: half-way between neighbouring lanes, and half a spacing beyond the outer ones
+    let gaps = gapCache.get(strip);
+    if (!gaps || gaps.bright !== bright) {
+      const xs = S.lanes.map(l => l.x).sort((p, q) => p - q), at = [];
+      for (let k = 1; k < xs.length; k++) if (xs[k] - xs[k - 1] < P * 1.6) at.push((xs[k] + xs[k - 1]) / 2);
+      if (xs.length) { at.push(xs[0] - P / 2); at.push(xs[xs.length - 1] + P / 2); }
+      if (at.length < 3) at.push(x - P / 2, x + P / 2);
+      gaps = { bright, profiles: at.map(g => resid(E.laneProfile(strip, bright, g, gw))) };
+      gapCache.set(strip, gaps);
+    }
+    const win = (g, y) => { let m = 0; for (let k = Math.max(0, y - 2); k <= Math.min(h - 1, y + 2); k++) m = Math.max(m, g[k]); return m; };
+    // a line across the gel is dark in nearly every gap; a lysate's smear in some: the lower quartile
+    // over the gaps (three quarters of them must show the feature) is what a peak is held against
+    const gapAt = y => { const v = gaps.profiles.map(g => win(g, y)).sort((p, q) => p - q); return v[Math.floor((v.length - 1) * 0.25)]; };
+    let qmax = 0; for (let y = 0; y < h; y++) qmax = Math.max(qmax, q[y]);
+    // (a faint top band of a ladder is a twentieth of its strongest: the gaps must show more than a
+    // sixth of the lane's strongest before they can disqualify a peak, and then the lane must show
+    // twice what they do: on the sanity-check photograph the outline of the pocket bottoms is 0.8
+    // to 1.4 times the gaps' figure at the lanes, the real bands 2.7 times and more)
+    const pk = E.detectBands(prof).filter(k => { const g = gapAt(k.y); return g < qmax * 0.15 || q[k.y] > 2 * g; }).sort((a, b) => a.y - b.y);
+    // bands come in a run. The outline of a pocket's bottom sits above the first band with nothing
+    // above it and a long empty stretch below it (on a photograph the comb's fingers cover only part
+    // of the gel, so the gaps alone do not always tell it): a topmost peak whose gap to the next is
+    // over 2.2 times the following gap and over 1.5 lane spacings is not a band. The top two bands
+    // of a ladder are spaced like the bands below them, so a ladder keeps its top band.
+    // (judged on the clear peaks, a sixth of the lane's strongest or more: the faint ripples of the
+    // pocket region between the outline and the first band are not a run of bands)
+    const vmax = Math.max(0, ...pk.map(k => k.v)), clear = pk.filter(k => k.v >= vmax * 0.15);
+    if (clear.length >= 3 && clear[1].y - clear[0].y > Math.max(2.2 * (clear[2].y - clear[1].y), 1.5 * P)) return pk.filter(k => k.y > clear[0].y);
+    return pk;
+  };
   App.lanePeaks = function (i) {
     const S = App.S, c = App._peakCrop || App.bandStrip();
     return E.detectBands(E.laneProfile(c, S.bright, S.lanes[i].x, S.laneHalfW));
@@ -855,6 +1243,10 @@
     const r = App.hasMarkerImage() && App.ensureMarkerRot();
     return r ? E.cropImg(r, { x: 0, y: App.S.crop.y, w: r.w, h: App.S.crop.h }) : App.bandStrip();
   };
+  // the ladder is matched on every peak of the lane (not the lane-local ones): with the outline of
+  // the pocket bottoms removed from the ladder lanes of the sanity-check photograph, the library's
+  // ladder no longer fit them (the gel's ladder shows twelve bands to the library's eleven) and a
+  // single other lane won; the framing of the box uses the lane-local list instead
   App.markerPeaks = function (i) {
     const S = App.S, c = App._mkCrop || App.markerStrip();
     return E.detectBands(E.laneProfile(c, App.hasMarkerImage() ? App.markerBright : S.bright, S.lanes[i].x, S.laneHalfW));
@@ -866,7 +1258,10 @@
     App._mkCrop = App.markerStrip();
     try {
       const peaks = S.lanes.map((l, i) => App.markerPeaks(i));
-      const counts = peaks.map(p => E.sharpBandCount(p));
+      // only loaded lanes are candidates: an empty lane's noise peaks look like bands to a count
+      // that is relative to the lane's own strongest
+      const gmax = Math.max(0, ...peaks.map(p => Math.max(0, ...p.map(q => q.v))));
+      const counts = peaks.map(p => (Math.max(0, ...p.map(q => q.v)) >= gmax * 0.1 ? E.sharpBandCount(p) : 0));
       const rg = App.laneRange() || [0, S.lanes.length - 1];
       // only lanes that will be in the figure
       let lanes = counts.map((c, i) => i).filter(i => i >= rg[0] && i <= rg[1] && counts[i] >= App.gelType().minMarkerBands);
@@ -878,26 +1273,81 @@
        * marker. A ladder lane (1) fits a likely ladder (the preferred ones and the type's usual one),
        * (2) has about as many clear bands as that ladder, not many more, and (3) has bands of similar
        * strength, while a lysate's bands vary a lot. Lanes far below the best on all three drop out. */
+      let starLib = null;
       if (lanes.length > 1) {
-        const likely = [...new Set(prefer.concat([App.gelType().ladder]))].map(G.Ladders.get).filter(l => l && l.kind === kind);
-        const ladderness = i => {
-          const r = likely.length ? E.jointLadders([peaks[i]], likely, h, prefer) : null;
-          if (!r) return 0;
+        // every ladder of the kind is a candidate (the preferred ones first): a gel run with a ladder
+        // the user has not used before must still find its ladder lanes
+        const memo = new Map();
+        // (fair: without the bonus the usual ladders get, so a tie can go against them)
+        const ladderness = (i, lib, fair) => {
+          const key = i + '|' + (fair ? 'fair|' : '') + lib.map(l => l.id).join(',');
+          if (memo.has(key)) return memo.get(key);
+          const v = ladderness0(i, lib, fair); memo.set(key, v); return v;
+        };
+        const ladderness0 = (i, lib, fair) => {
+          const r = lib.length ? E.jointLadders([peaks[i]], lib, h, fair ? [] : prefer) : null;
+          if (!r) return { v: 0, id: null, frac: 0 };
           const vmax = Math.max(0, ...peaks[i].map(p => p.v));
           const clear = peaks[i].filter(p => p.v >= vmax * 0.08), top = clear.filter(p => p.v >= vmax * 0.12).map(p => p.v / vmax);
           const mean = top.reduce((a, b) => a + b, 0) / Math.max(1, top.length);
           const cv = Math.sqrt(top.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, top.length)) / Math.max(1e-9, mean);
-          return r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.max(0, cv - 0.45));
+          return { v: r.score * Math.min(1, G.Ladders.get(r[0].id).sizes.length / Math.max(1, clear.length)) * (1 - Math.min(0.2, Math.max(0, cv - 0.45))), id: r[0].id, frac: r[0].frac || 0, s: r.score };
         };
-        const fit = new Map(lanes.map(i => [i, ladderness(i)]));
+        // one ladder per gel: the lane that looks most like a ladder of the whole library names the
+        // ladder, and the other lanes are kept only when they fit THAT ladder about as well. A lysate
+        // lane that happens to resemble some other ladder is not a marker; a ladder the user has not
+        // used before is still found.
+        // the usual ladders (preferred, the type's default) name it when one of them fits a lane well;
+        // otherwise the whole library does
+        const likely = [...new Set(prefer.concat([App.gelType().ladder]))].map(G.Ladders.get).filter(l => l && l.kind === kind);
+        // the whole library is only tried when no usual ladder fits (it costs a second per lane)
+        const fitL = new Map(lanes.map(i => [i, ladderness(i, likely)])), fitAll = new Map(), allOf = i => { if (!fitAll.has(i)) fitAll.set(i, ladderness(i, all)); return fitAll.get(i); };
+        let bestL = lanes[0];
+        lanes.forEach(i => { if (fitL.get(i).v > fitL.get(bestL).v) bestL = i; });
+        let starId = null; App.autoMarkers.alt = null;
+        if (fitL.get(bestL).v >= 0.7) {
+          starId = fitL.get(bestL).id;
+          // a usual ladder that fits well but not perfectly, or only with a band left outside the
+          // box, is checked against the whole library on the three lanes it fits best: the ladder
+          // remembered from the last gel, with one band more than the gel's, fits it at 0.9, or in
+          // full with its extra band pushed out of the box and every size one band off; the right
+          // ladder fits every band with every band inside. A library ladder takes over when it fits
+          // 0.95 or more (the fit itself; the ladder-likeness below it also weighs the lane's band
+          // strengths) with nine tenths of its own bands matched, and is either 0.05 more
+          // ladder-like or as much with a larger share of its bands matched; the user is told
+          // (App.ladderNotice).
+          const u = fitL.get(bestL);
+          if (u.v < 0.97 || u.frac < 1) {
+            const top = lanes.slice().sort((a, b) => fitL.get(b).v - fitL.get(a).v).slice(0, 3);
+            let alt = null;
+            top.forEach(i => { const a = ladderness(i, all, true); if (a.id && a.id !== starId && a.s >= 0.95 && a.frac >= 0.9 && (a.v >= u.v + 0.05 || (a.v >= u.v - 1e-6 && a.frac > u.frac + 0.02)) && (!alt || a.v > alt.v || (a.v === alt.v && a.frac > alt.frac))) alt = a; });
+            App.autoMarkers.alt = { top: top.map(i => { const a = ladderness(i, all, true); return [i, a.id, +a.v.toFixed(3), +a.s.toFixed(3), +a.frac.toFixed(2)]; }), usual: [starId, +u.v.toFixed(3), +u.s.toFixed(3), +u.frac.toFixed(2)], took: alt ? alt.id : null };
+            if (alt) starId = alt.id;
+          }
+        } else {
+          // the ladder that explains the candidate lanes jointly: every lane's own best ladder is tried,
+          // and the one with the most clear fits (above 0.45) across lanes wins, so three ladder lanes
+          // of one product beat one lane that happens to fit another product a little better
+          const ids = [...new Set(lanes.map(i => allOf(i).id).filter(Boolean))];
+          // the excess over 0.55, squared: two lanes fitting one ladder well beat five lysate lanes
+          // that loosely resemble another
+          let bestSum = -1; App.autoMarkers.sums = {};
+          ids.forEach(id => { const lib = [G.Ladders.get(id)]; let sum = 0; lanes.forEach(i => { sum += Math.max(0, ladderness(i, lib).v - 0.55) ** 2; }); App.autoMarkers.sums[id] = +sum.toFixed(3); if (sum > bestSum) { bestSum = sum; starId = id; } });
+        }
+        const star = starId ? [G.Ladders.get(starId)] : [];
+        const fit = new Map(lanes.map(i => [i, star.length ? ladderness(i, star).v : allOf(i).v]));
         const best = Math.max(...fit.values());
+        App.autoMarkers.debug = { sums: App.autoMarkers.sums, candidates: lanes.slice(), fitL: lanes.map(i => [i, +fitL.get(i).v.toFixed(2), fitL.get(i).id]), starId, fit: lanes.map(i => [i, +fit.get(i).toFixed(2)]), counts: lanes.map(i => counts[i]) };
         if (best >= 0.45) lanes = lanes.filter(i => fit.get(i) >= best * 0.8);
+        if (best >= 0.45 && starId) starLib = [G.Ladders.get(starId)];
       }
       // keep at most 3 (the lanes with the most bands), in lane order
       lanes = lanes.sort((a, b) => counts[b] - counts[a]).slice(0, 3).sort((a, b) => a - b);
       const pk = lanes.map(i => peaks[i]);
       let picks = null;
       App.ladderNotice = null;
+      // the ladder the lanes agreed on is fitted jointly on its own first: trying every ladder of the
+      // library in every combination of three lanes takes seconds
       if (lanes.length) {
         if (favs.length && prefs().onlyFavLadders) {
           picks = E.jointLadders(pk, favs.map(G.Ladders.get), h, favs);
@@ -907,7 +1357,7 @@
           if (full && (!picks || picks.score < 0.55 || full.score > picks.score + 0.08)) {
             picks = full; App.ladderNotice = `None of your favourite ladders fits; using ${full.map(p => G.Ladders.get(p.id).name).join(', ')}`;
           }
-        } else picks = E.jointLadders(pk, all, h, prefer);
+        } else picks = (starLib && E.jointLadders(pk, starLib, h, prefer)) || E.jointLadders(pk, all, h, prefer);
       }
       if (picks && lanes.length === 1) {
         // a single lane cannot tell ladders apart well: stay with a preferred ladder unless it clearly misfits
@@ -917,9 +1367,17 @@
       }
       if (picks && favs.length && picks.some(p => !favs.includes(p.id)) && !App.ladderNotice)
         App.ladderNotice = `Detected ladder is not among your favourites: ${picks.filter(p => !favs.includes(p.id)).map(p => G.Ladders.get(p.id).name).join(', ')} — please check`;
+      const alt = App.autoMarkers.alt;
+      if (picks && alt && alt.took && picks.some(p => p.id === alt.took) && !App.ladderNotice)
+        App.ladderNotice = `${G.Ladders.get(alt.took).name} fits the marker lanes better than the usual ${G.Ladders.get(alt.usual[0]).name} and is used — please check`;
       S.markers = lanes.map((ln, k) => App.newMarker(ln, picks ? picks[k].id : prefer[0]));
-      S.markers.forEach(m => { if (!S.lanes[m.lane].name) S.lanes[m.lane].name = 'M'; });
       App.matchMarkers(true);
+      // a lane that fits its ladder poorly next to one that fits well is a sample lane, not a marker
+      if (S.markers.some(m => m.score >= 0.7)) S.markers = S.markers.filter(m => m.score == null || m.score >= 0.45);
+      // the name M follows the markers: a lane in the range named M by an earlier detection that is no
+      // longer one loses it (lanes outside the figure keep their names for when the range widens again)
+      S.lanes.forEach((l, i) => { if (l.name === 'M' && i >= rg[0] && i <= rg[1] && !S.markers.some(m => m.lane === i)) l.name = ''; });
+      S.markers.forEach(m => { if (!S.lanes[m.lane].name) S.lanes[m.lane].name = 'M'; });
     } finally { App._mkCrop = null; }
   };
 
@@ -986,7 +1444,7 @@
     return Math.max(1, S.crop.w - hidden);
   };
 
-  App.autoAll = function (fresh) {
+  App.autoAll = async function (fresh) {
     const S = App.S;
     const T = (s) => { if (App.debug) document.title = 'STAGE ' + s; };
     T('deskew');
@@ -1006,7 +1464,57 @@
     const loaded = App.loadedLaneRange();
     if (loaded) App.setLaneRange(loaded[0], loaded[1]);
     T('marker');
-    App.autoMarkers();
+    // the ladder search runs once: inside the geometry (after the keystone rounds) when that runs
+    const geometry = fresh && !App.noAutoGeometry;
+    if (!geometry) App.autoMarkers();
+    T('geometry');
+    if (geometry) {
+      try { await App.autoGeometry(); } catch (e) { console.error(e); }
+      // the lanes were detected again on the corrected image: the box is framed again on the lanes
+      // that carry bands (a ladder that the first box missed is in now)
+      const loaded2 = App.loadedLaneRange();
+      if (loaded2) App.setLaneRange(loaded2[0], loaded2[1]);
+    }
+    if (!S.markers.length && geometry) App.autoMarkers();
+    // and its rows on the bands (the well row served the detection; the figure starts at the bands);
+    // the geometry's figures are stated over the box, so they are worked out again for the new rows
+    if (fresh && App.reframeCropRows()) {
+      // the ladders are looked for once more on the framed box, as the Re-detect button does: a
+      // ladder in a torn corner that the wide box missed is found on the tight one, and the ladder
+      // is chosen afresh there: on the wide box the outlines of the pockets and the gel's edge add
+      // peaks to every lane, and a list with one band more than the gel's ladder fits them better
+      // than the right one (the sanity-check photograph: a 12-band list on an 11-band ladder, every
+      // size one band high). The new ladder is taken when it fits the lanes clearly better;
+      // otherwise the search may only add ladder lanes: every lane the wide box took stays (a faint
+      // ladder the tight box no longer sees, or trades for a lysate lane, on the synthetic Western)
+      // (only when the wide box found a ladder: with none found, the search that follows the load
+      // in the interface keeps its own pick, which a low-scoring pick here would spoil)
+      T('marker2');
+      if (S.markers.length) App.matchMarkers(true);   // the scores on the framed box, to compare with
+      const before = JSON.parse(JSON.stringify(S.markers));
+      if (before.length && App.secondLadderSearch !== false) {
+        const mean = ms => ms.reduce((a, m) => a + (m.score || 0), 0) / Math.max(1, ms.length);
+        // the share of the ladder's own bands matched: a 12-band list whose twelfth band falls below
+        // the box scores as well as the gel's 11-band ladder, and explains the lanes with one band
+        // left over
+        const frac = ms => ms.reduce((a, m) => a + m.bands.filter(b => b.matched).length / Math.max(1, m.bands.length), 0) / Math.max(1, ms.length);
+        App.autoMarkers();
+        const fresh = S.markers, d = mean(fresh) - mean(before);
+        const better = fresh.length > 0 && fresh[0].ladderId !== before[0].ladderId && (d >= 0.05 || (d > -0.02 && frac(fresh) > frac(before) + 0.02));
+        App.autoAll.ladderChanged = better ? [before[0].ladderId, fresh[0].ladderId, +mean(before).toFixed(3), +mean(fresh).toFixed(3)] : null;
+        if (!better) {
+          const added = fresh.filter(m => !before.some(q => q.lane === m.lane)).map(m => Object.assign(m, { ladderId: before[0].ladderId, unit: before[0].unit }));
+          S.markers = before.concat(added).sort((a, b) => a.lane - b.lane);
+          if (added.length) {
+            App.matchMarkers(true);
+            // an added lane that fits the ladder in use poorly is a sample lane
+            S.markers = S.markers.filter(m => m.score == null || m.score >= 0.45 || before.some(q => q.lane === m.lane));
+          }
+        } else if (App.reframeCropRows()) App.matchMarkers(true);   // the rows framed again with the right ladder's bands (its faint top band)
+      }
+      // the geometry's figures are stated over the box: worked out again for the new rows
+      if (S.geom) Object.assign(S.geom, App.geomReport());
+    }
     T('fix');
     App.fixIndices();
     App.updateSaturation();
@@ -1078,7 +1586,7 @@
     const S = App.S, a = Math.min(i, j), b = Math.max(i, j), n = b - a;
     if (n < 2) return false;
     const x0 = S.lanes[a].x, x1 = S.lanes[b].x;
-    for (let k = 1; k < n; k++) S.lanes[a + k].x = x0 + (x1 - x0) * k / n;
+    for (let k = 1; k < n; k++) { S.lanes[a + k].x = x0 + (x1 - x0) * k / n; S.lanes[a + k].manual = true; }
     return true;
   };
   App.estimateBp = function (yAbs) { const r = App.estimateInfo(yAbs); return r ? r.bp : null; };
@@ -1395,7 +1903,9 @@
     if (S.gelRows === undefined) S.gelRows = null;
     if (S.gelRow == null) S.gelRow = 0;
     S.rowStash = S.rowStash || {};
-    if (!S.keystone || !S.keystone.on || !Array.isArray(S.keystone.H) || S.keystone.H.length !== 9) S.keystone = null;
+    const g = S.geom && S.geom.grid;
+    if (!g || !Array.isArray(g.pts) || g.pts.length !== g.nx * g.ny * 2) S.geom = null;
+    delete S.keystone;
     return S;
   }
   App.normalizeState = normalize;

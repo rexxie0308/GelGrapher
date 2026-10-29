@@ -9,3 +9,5 @@ Thumbs.db
 *.tif
 *.tiff
 *.gelfig
+# real gel images for tools/real-bench.mjs stay on your machine (docs/benchmark.md)
+bench/real/

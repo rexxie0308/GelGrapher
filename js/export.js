@@ -131,7 +131,7 @@
     const A = G.App, k = A.clipStats();
     return JSON.stringify({
       tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
-      rotationDeg: S.rotation, flip: flipText(S), keystone: keystoneText(S) || null, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
+      rotationDeg: S.rotation, flip: flipText(S), geometry: keystoneText(S) || null, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
       sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
       disclosure: legendHints(S).join(' ')
@@ -252,7 +252,7 @@
     ctx.fillText('Uncropped image (same processing as figure)', fs * 0.5, fs * 1.3);
     ctx.font = `${fs * 0.8}px Arial`;
     const lv = S.levels;
-    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}°${flipText(S) ? ' · ' + flipText(S) : ''}${keystoneText(S) ? ' · perspective-corrected' : ''} · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
+    const info = `${S.file.name} · SHA-256 ${String(S.file.sha256 || '').slice(0, 16)}… · ${S.file.bits}-bit · rotation ${S.rotation}°${flipText(S) ? ' · ' + flipText(S) : ''}${keystoneText(S) ? ' · geometry-corrected' : ''} · levels ${(lv.black * 100).toFixed(2)}–${(lv.white * 100).toFixed(2)}% (linear${lv.gamma !== 1 ? ', gamma ' + lv.gamma : ''})${lv.invert ? ' · inverted' : ''}`;
     ctx.fillText(info, fs * 0.5, H + top + fs * 1.2, W - fs);
     const key = S.lanes.map((l, i) => `${l.hidden ? 'X' : i + 1}: ${l.name || '—'}`).join('   ');
     ctx.fillText(key, fs * 0.5, H + top + fs * 2.4, W - fs);
@@ -283,7 +283,7 @@
       source: { file: S.file.name, sha256: S.file.sha256, bytes: S.file.size, width: A.src.w, height: A.src.h, bitDepth: S.file.bits, dpi: S.file.dpi || null },
       markerImage: A.hasMarkerImage() ? { file: S.markerImage.name, sha256: S.markerImage.sha256, use: 'marker band positions only; not shown in the figure' } : null,
       rotationDeg: S.rotation, autoRotationDeg: A.autoRotation, flip: Object.assign({ description: flipText(S) }, S.flip),
-      keystone: S.keystone && S.keystone.on ? { description: keystoneText(S), source: S.keystone.source, lanesPct: S.keystone.lanesPct, bandsPct: S.keystone.bandsPct, H: S.keystone.H.map(v => +v.toPrecision(8)), note: 'H maps the rotated image to the working image (row-major 3 x 3, pixels); rotation and H are composed and the pixels are resampled once, bilinear' } : null,
+      geometry: S.geom && S.geom.grid ? { description: keystoneText(S), mode: S.geom.mode, lanesPct: S.geom.lanesPct, bandsPct: S.geom.bandsPct, bendPx: S.geom.bendPx, corners: S.geom.corners, H: S.geom.H ? S.geom.H.map(v => +v.toPrecision(8)) : null, grid: { nx: S.geom.grid.nx, ny: S.geom.grid.ny, pts: S.geom.grid.pts.map(v => +v.toFixed(2)) }, note: 'grid: source coordinate (rotated frame, pixels) of every node of a nx x ny lattice over the working image; H: the keystone part; rotation and geometry are composed and the pixels are resampled once, bilinear' } : null,
       crop: S.crop, figureWells: r ? [r[0] + 1, r[1] + 1] : null,
       wellRows: S.gelRows ? { count: S.gelRows.length, shown: S.gelRow + 1, rows: S.gelRows.map(x => ({ yFrom: Math.round(x.y0), yTo: Math.round(x.y1) })) } : null,
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
@@ -324,12 +324,18 @@
 
   // 'rotated by 180°' / 'flipped horizontally' / 'flipped vertically' / '' (as imaged)
   function flipText(S) { const f = S.flip || {}; return f.h && f.v ? 'rotated by 180°' : f.h ? 'flipped horizontally' : f.v ? 'flipped vertically' : ''; }
-  // the perspective correction, in words, for the legend notes, the log and the methods
+  // the geometry correction, in words, for the legend notes, the log and the methods
   function keystoneText(S) {
-    const k = S.keystone;
-    if (!k || !k.on) return '';
-    const pct = v => `${v > 0 ? '+' : ''}${v} %`;
-    return `one projective (perspective) transform of the whole image, ${k.source === 'manual' ? 'set by hand' : `estimated from the lane lines${k.bands ? ' and the ladder bands' : ''}`}: the lane spacing at the bottom of the figure area was ${pct(k.lanesPct)} of the top${k.bands || k.bandsPct ? `, the band spacing at the right ${pct(k.bandsPct)} of the left` : ''}`;
+    const g = S.geom;
+    if (!g || !g.grid) return '';
+    const pct = v => `${v > 0 ? '+' : ''}${v} %`, parts = [];
+    if (g.mode === 'manual') parts.push(`one projective (perspective) transform of the whole image from four slab corners marked by hand: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
+    else {
+      if (Math.abs(g.lanesPct) >= 0.5 || Math.abs(g.bandsPct) >= 0.5) parts.push(`one projective (perspective) transform of the whole image ${g.slab ? 'from the outline of the slab, checked against the lane lines' : `estimated from the lane lines${g.rows ? ' and the ladder bands' : ''}`}: the lane spacing at the bottom of the figure area was ${pct(g.lanesPct)} of the top, the band spacing at the right ${pct(g.bandsPct)} of the left`);
+      if (g.rowsFrom === 'slab edges') parts.push('the band rows\' convergence read from the slab\'s top and bottom edges');
+      if (g.bendPx >= 0.5) parts.push(`a smooth displacement field that straightens the traced lanes (${g.lanes} lanes, largest horizontal shift ${g.bendPx.toFixed(1)} px)${g.rows ? ` and levels ${g.rows} ladder band rows across the marker lanes (largest vertical shift ${(g.dyPx || 0).toFixed(1)} px, capped at 0.3 of the row spacing)` : ''}; sample bands were not used as anchors`);
+    }
+    return parts.join(', and ') + (g.residualPct != null || g.scaleMax != null ? `; after it the lanes converge by ${g.residualPct != null ? g.residualPct : '?'} % and the map scales no cell by more than ${g.scaleMax != null ? g.scaleMax : '?'} %` : '');
   }
   const KIND_LADDER = { dna: 'DNA ladders', rna: 'RNA ladders', protein: 'protein molecular-weight markers', native: 'native protein markers' };
   function legendHints(S) {
@@ -340,13 +346,14 @@
     const strips = (S.strips || []).filter(t => Math.abs(t.y1 - t.y0) >= 2);
     if (strips.length > 1) h.push(`The ${strips.length} panels are regions of the same ${what} image${strips.some(t => t.label) ? ` (${strips.map(t => t.label || '–').join(', ')})` : ''}; intervening regions were omitted and are shown in the uncropped image.`);
     if (flipText(S)) h.push(`The image was ${flipText(S)} (orientation only; lane order follows the figure).`);
-    if (keystoneText(S)) h.push(`Perspective-corrected: ${keystoneText(S)}; applied together with the straightening in one resampling and stated in the processing log.`);
+    if (keystoneText(S)) h.push(`Geometry-corrected: ${keystoneText(S)}; applied together with the straightening in one resampling and stated in the processing log.`);
     if (S.levels.invert) h.push('Image colours were inverted for display.');
     if (S.levels.gamma !== 1) h.push(`A non-linear gamma adjustment (γ = ${S.levels.gamma}) was applied to the whole image.`);
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
-    const names = [...new Set(lads.map(l => l.name.replace(/\s*\(.*\)/, '')))];
+    const short = n => n.replace(/\s*\([^()]*\)\s*$/, '');   // the name without its trailing catalogue numbers
+    const names = [...new Set(lads.map(l => short(l.name)))];
     if (names.length === 1) h.push(`M, ${names[0]}.`);
-    else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${G.Ladders.get(m.ladderId).name.replace(/\s*\(.*\)/, '')}`).join('; ')}).`);
+    else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${short(G.Ladders.get(m.ladderId).name)}`).join('; ')}).`);
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
     if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {

@@ -49,49 +49,73 @@
   }
 
   /* Integrated density of one box. Returns {vol, raw, bg, sat, n, px (band pixels counted), floor}. */
+  /* The pixels of a working-frame rectangle as rows of original pixel values. When the working frame
+   * is the original image (no rotation, no geometry) the rows are its own; otherwise the rectangle's
+   * outline is mapped back through the geometry grid and the inverse rotation (in chunks of 32 rows,
+   * so a bent lane's strip follows the bend) and every original pixel inside the mapped outline is
+   * read once: an exact integral over the original pixels, no resampled value. Each row is
+   * { y, v: Float32Array of raw values }. */
+  function regionReader(App, full) {
+    const smp = App.sourceRegion ? App.sourceRegion() : null;
+    return (xa, xb, ya, yb) => {
+      xa = E.clamp(xa, 0, full.w - 1); xb = E.clamp(xb, 0, full.w - 1); ya = E.clamp(ya, 0, full.h - 1); yb = E.clamp(yb, 0, full.h - 1);
+      if (xb < xa || yb < ya) return [];
+      if (!smp) { const rows = []; for (let y = ya; y <= yb; y++) rows.push({ y, v: full.data.subarray(y * full.w + xa, y * full.w + xb + 1) }); return rows; }
+      const rows = [];
+      for (let y = ya; y <= yb; y += 32) rows.push(...smp(xa, xb + 1, y, Math.min(yb, y + 31) + 1));
+      return rows;
+    };
+  }
+
   function measureBox(App, lane, row, method, mode) {
-    const S = App.S, img = App.ensureRot(), bright = S.bright;
+    const S = App.S, full = App.ensureRot(), bright = S.bright;
     const hw = boxHalfWidth(S), cx = S.lanes[lane].x;
-    const x0 = E.clamp(Math.round(cx - hw), 0, img.w - 1), x1 = E.clamp(Math.round(cx + hw), 0, img.w - 1);
-    const y0 = E.clamp(Math.round(Math.min(row.y0, row.y1)), 0, img.h - 1), y1 = E.clamp(Math.round(Math.max(row.y0, row.y1)), 0, img.h - 1);
-    let sat = 0;
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const v = img.data[y * img.w + x]; if (bright ? v >= SAT : v <= 1 - SAT) sat++; }
-    const p = profile(img, bright, x0, x1, y0, y1);
-    let bl;
+    const x0 = E.clamp(Math.round(cx - hw), 0, full.w - 1), x1 = E.clamp(Math.round(cx + hw), 0, full.w - 1);
+    const y0 = E.clamp(Math.round(Math.min(row.y0, row.y1)), 0, full.h - 1), y1 = E.clamp(Math.round(Math.max(row.y0, row.y1)), 0, full.h - 1);
+    const reg = regionReader(App, full), val = v => (bright ? v : 1 - v);
+    const box = reg(x0, x1, y0, y1);
+    if (!box.length) return { vol: 0, raw: 0, bg: 0, sat: 0, n: 0, px: 0, floor: 0 };
+    let sat = 0; box.forEach(r => { for (let i = 0; i < r.v.length; i++) { const v = r.v[i]; if (bright ? v >= SAT : v <= 1 - SAT) sat++; } });
+    // per row: the sum of the band signal and the number of pixels
+    const p = box.map(r => { let t = 0; for (let i = 0; i < r.v.length; i++) t += val(r.v[i]); return t; }), nr = box.map(r => r.v.length);
+    const perPx = k => (nr[k] ? p[k] / nr[k] : 0);
+    let bl;   // background of row k, as a sum over the row's pixels
     if (method === 'none') bl = () => 0;
     else if (method === 'border') {
       // median of the pixels in a 3-px border around the box (top, bottom and both sides), as one level
-      const vals = [], B = 3, add = (xa, xb, ya, yb) => { for (let y = Math.max(0, ya); y <= Math.min(img.h - 1, yb); y++) for (let x = Math.max(0, xa); x <= Math.min(img.w - 1, xb); x++) { const v = img.data[y * img.w + x]; vals.push(bright ? v : 1 - v); } };
-      add(x0, x1, y0 - B, y0 - 1); add(x0, x1, y1 + 1, y1 + B); add(x0 - B, x0 - 1, y0, y1); add(x1 + 1, x1 + B, y0, y1);
+      const B = 3, vals = [];
+      [reg(x0, x1, y0 - B, y0 - 1), reg(x0, x1, y1 + 1, y1 + B), reg(x0 - B, x0 - 1, y0, y1), reg(x1 + 1, x1 + B, y0, y1)].forEach(rows => rows.forEach(r => { for (let i = 0; i < r.v.length; i++) vals.push(val(r.v[i])); }));
       vals.sort((a, b) => a - b);
-      const med = vals.length ? vals[vals.length >> 1] : 0, lvl = med * (x1 - x0 + 1);
-      bl = () => lvl;
+      const med = vals.length ? vals[vals.length >> 1] : 0;
+      bl = k => med * nr[k];
     } else if (method === 'rolling') {
-      // baseline of the lane over the analysis region (crop rows), radius ~ 1.5 box heights
-      const ca = E.clamp(Math.round(Math.min(S.crop.y, y0)), 0, img.h - 1), cb = E.clamp(Math.round(Math.max(S.crop.y + S.crop.h - 1, y1)), 0, img.h - 1);
-      const full = Float32Array.from(profile(img, bright, x0, x1, ca, cb));
-      const b = E.baseline(full, Math.max(5, Math.round(1.5 * (y1 - y0 + 1))));
-      bl = y => b[y - ca];
+      // baseline of the lane over the analysis region (crop rows), radius ~ 1.5 box heights, on the per-pixel row means
+      const ca = Math.min(Math.round(S.crop.y), y0), cb = Math.max(Math.round(S.crop.y + S.crop.h - 1), y1);
+      const strip = reg(x0, x1, ca, cb), prof = Float32Array.from(strip.map(r => { let t = 0; for (let i = 0; i < r.v.length; i++) t += val(r.v[i]); return r.v.length ? t / r.v.length : 0; }));
+      const b = E.baseline(prof, Math.max(5, Math.round(1.5 * (y1 - y0 + 1))));
+      // the box's rows within the strip: matched by their y (the strip's rows are the same source rows)
+      const at = new Map(strip.map((r, i) => [r.y, b[i]]));
+      bl = k => (at.has(box[k].y) ? at.get(box[k].y) : perPx(k)) * nr[k];
     } else {
-      const e0 = mean(p, 0, 1), e1 = mean(p, p.length - 2, p.length - 1), n = Math.max(1, y1 - y0);
-      bl = y => e0 + (e1 - e0) * (y - y0) / n;
+      // a straight line between the two rows at each box edge (per pixel)
+      const e0 = (perPx(0) + perPx(Math.min(1, box.length - 1))) / 2, e1 = (perPx(box.length - 1) + perPx(Math.max(0, box.length - 2))) / 2, n = Math.max(1, box.length - 1);
+      bl = k => (e0 + (e1 - e0) * k / n) * nr[k];
     }
-    let vol = 0, raw = 0, bg = 0, px = 0, floor = 0;
-    const w = x1 - x0 + 1;
+    let vol = 0, raw = 0, bg = 0, px = 0, floor = 0, n = 0;
     if (mode === 'box') {
-      for (let y = y0; y <= y1; y++) { const v = p[y - y0], b = bl(y); raw += v; bg += b; vol += Math.max(0, v - b); }
+      box.forEach((r, k) => { const b = bl(k); raw += p[k]; bg += b; vol += Math.max(0, p[k] - b); n += nr[k]; });
     } else {
       // noise floor from the two rows at each box edge: the spread of their pixels around the row's background
-      const edges = [y0, Math.min(y1, y0 + 1), Math.max(y0, y1 - 1), y1];
+      const edges = [0, Math.min(1, box.length - 1), Math.max(0, box.length - 2), box.length - 1];
       let ss = 0, m = 0;
-      edges.forEach(y => { const b = bl(y) / w; for (let x = x0; x <= x1; x++) { const v = img.data[y * img.w + x], d = (bright ? v : 1 - v) - b; ss += d * d; m++; } });
+      edges.forEach(k => { const b = nr[k] ? bl(k) / nr[k] : 0; const r = box[k]; for (let i = 0; i < r.v.length; i++) { const d = val(r.v[i]) - b; ss += d * d; m++; } });
       floor = 3 * Math.sqrt(ss / Math.max(1, m)) + 0.004;
-      for (let y = y0; y <= y1; y++) {
-        const b = bl(y), bp = b / w; raw += p[y - y0]; bg += b;
-        for (let x = x0; x <= x1; x++) { const v = img.data[y * img.w + x], d = (bright ? v : 1 - v) - bp; if (d > floor) { vol += d; px++; } }
-      }
+      box.forEach((r, k) => {
+        const b = bl(k), bp = nr[k] ? b / nr[k] : 0; raw += p[k]; bg += b; n += nr[k];
+        for (let i = 0; i < r.v.length; i++) { const d = val(r.v[i]) - bp; if (d > floor) { vol += d; px++; } }
+      });
     }
-    return { vol, raw, bg, sat, n: (x1 - x0 + 1) * (y1 - y0 + 1), px, floor };
+    return { vol, raw, bg, sat, n, px, floor };
   }
 
   /* Whole table: rows x lanes, plus normalisation to the loading-control row and the reference lane. */
@@ -126,7 +150,7 @@
     const normS = R.control >= 0 ? `Each band was normalized to the ${R.rows[R.control].name} band of the same lane (loading control)` : R.normMode === 'lane' ? 'Each band was normalized to the total density of its lane inside the figure area (total-protein normalization)' : 'Values were not normalized';
     const relS = R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}${R.names[R.lanes.indexOf(R.ref)] && R.names[R.lanes.indexOf(R.ref)] !== String(R.ref + 1) ? ` (${R.names[R.lanes.indexOf(R.ref)].replace(/\*/g, '')})` : ''}, set to 1.00` : '';
     const sat = R.saturatedLanes.length ? ` Lanes ${R.saturatedLanes.map(i => i + 1).join(', ')} contained saturated pixels and are underestimated.` : ' No pixel in the measured boxes was saturated.';
-    const geom = S.keystone && S.keystone.on ? 'straightened and perspective-corrected in one resampling of the whole image' : 'rotation only';
+    const geom = S.geom && S.geom.grid || S.rotation ? `each box's outline mapped back through the ${S.rotation ? 'rotation' : ''}${S.rotation && S.geom && S.geom.grid ? ' and the ' : ''}${S.geom && S.geom.grid ? 'geometry correction stated in the legend' : ''}, and every original pixel inside it summed once, so no resampled value entered the measurement` : 'no rotation or geometry correction: the original pixels'
     return `Band intensities were quantified in ${A.NAME} ${A.VERSION} on the raw ${bits}image (${geom}; no contrast adjustment entered the measurement). ` +
       `Boxes ${Math.round(R.halfWidthPx * 2)} px wide (${Math.round((S.quant.wFrac || 0.7) * 100)} % of the lane spacing) were placed at the same height in every lane (${R.rows.map(r => r.name).join(', ')}); the value of a box is ${how}, with ${BG_TEXT[R.method] || R.method}. ` +
       `${normS}${relS}.${sat} Values are arbitrary units and compare lanes of this image only.`;
@@ -184,7 +208,7 @@
     const S = App.S, out = [];
     out.push(['# GelGrapher densitometry', S.file.name, 'SHA-256 ' + S.file.sha256]);
     out.push(['# background', R.method, 'measure', R.mode === 'box' ? 'whole box' : 'band pixels above the noise floor', 'box width (px)', num(R.halfWidthPx * 2, 1), 'reference lane', R.ref + 1, 'normalized to', R.normLabel || 'nothing']);
-    out.push(['# integrated density of raw pixel values (rotation only, no contrast) after background subtraction; arbitrary units']);
+    out.push(['# integrated density of the original pixel values (each box outline mapped back through the rotation and the geometry correction, every original pixel inside it summed once; no contrast) after background subtraction; arbitrary units']);
     const head = ['well', 'lane'];
     R.rows.forEach(r => { head.push(`${r.name} volume`); head.push(`${r.name} saturated px`); });
     R.rows.forEach((r, k) => { if (R.normLabel && k !== R.control) head.push(`${r.name} / ${R.normLabel}`); });

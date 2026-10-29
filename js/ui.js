@@ -438,6 +438,12 @@
 
   /* ---------- 1 image ---------- */
   document.querySelectorAll('#polSeg button').forEach(b => b.onclick = done(() => { App.setDarkBands(b.dataset.dark === '1'); App.invertInherited = false; }));
+  // detection polarity by hand (the auto-detected one can be wrong on a dark tray or a white frame)
+  $('btnPolDetect').onclick = () => {
+    if (needImage()) return;
+    App.busy(true, 'Detecting again…');
+    setTimeout(async () => { try { await App.setBright(!S().bright); await App.autoGeometry(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); } finally { App.busy(false); } toast(`Detection reads ${S().bright ? 'bright bands on a dark background' : 'dark bands on a light background'}; lanes, ladders and geometry found again`); }, 20);
+  };
   $('lvBlack').addEventListener('input', live(e => { S().levels.black = Math.min(fromSlider(+e.target.value), S().levels.white - 0.0005); $('lvBlackV').textContent = pct(S().levels.black); drawHisto(); updateClipLine(); }));
   $('lvWhite').addEventListener('input', live(e => { S().levels.white = Math.max(fromSlider(+e.target.value), S().levels.black + 0.0005); $('lvWhiteV').textContent = pct(S().levels.white); drawHisto(); updateClipLine(); }));
   $('lvBlack').addEventListener('change', done()); $('lvWhite').addEventListener('change', done());
@@ -464,25 +470,75 @@
     }, 20);
   };
   $('btnResetRot').onclick = () => { if (!S()) return; App.resetRotation(); App.commit(); toast(`Back to the automatic angle ${S().rotation}°`); };
-  // perspective (keystone): automatic from the lane lines, typed percentages, or off
-  $('btnKsAuto').onclick = () => {
-    if (!S()) return;
-    App.busy(true, 'Measuring the perspective…');
+  // geometry: automatic (perspective + lane straightening, recursive), a manual four-corner box, or off
+  function geomMode() { const g = S() && S().geom; return g ? g.mode : 'off'; }
+  let placing = false;
+  const AUTO_TITLE = { off: 'Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle', on: 'Measure again from the current lanes and ladders (after you corrected a lane or a marker)' };
+  function geomSeg() {
+    document.querySelectorAll('#geomSeg button').forEach(b => b.classList.toggle('on', b.dataset.geom === (placing ? 'manual' : geomMode())));
+    const auto = document.querySelector('#geomSeg button[data-geom="auto"]');
+    if (auto) auto.title = geomMode() === 'auto' ? AUTO_TITLE.on : AUTO_TITLE.off;
+    $('geomPlace').classList.toggle('hidden', !placing);
+    G.Editor.setCorners(placing);
+  }
+  // the box is only shown while it is being placed; the image changes on Apply, not on every drag
+  function startPlacing() { placing = true; App.pendingCorners = App.geomCornersWork(); geomSeg(); G.Editor.fitCrop(); }
+  function stopPlacing() { placing = false; App.pendingCorners = null; geomSeg(); }
+  document.querySelectorAll('#geomSeg button').forEach(b => b.onclick = () => {
+    if (needImage()) return;
+    const m = b.dataset.geom;
+    if (m === 'manual') { if (!placing) { startPlacing(); toast('Drag the round corners of the blue box onto the corners of the gel (the square handles slide a side), then click Apply', 6000); } return; }
+    stopPlacing();
+    if (m === 'auto') {
+      App.busy(true, 'Measuring the geometry…');
+      setTimeout(async () => {
+        if (S().geom && S().geom.mode === 'manual') App.setGeom(null);
+        const r = await App.autoGeometry(); App.busy(false);
+        if (r.applied) { App.afterGeom(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); }
+        geomSeg(); toast(r.message, 6000);
+      }, 20);
+    } else if (S().geom) { App.setGeom(null); App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); G.Editor.fitCrop(); geomSeg(); toast('Geometry correction off; lanes and markers detected again'); }
+    else geomSeg();
+  });
+  $('btnGeomApply').onclick = () => {
+    if (!S() || !placing) return;
+    const q = App.pendingCorners;
+    App.busy(true, 'Mapping the gel…');
     setTimeout(() => {
-      const r = App.autoKeystone(); App.busy(false);
-      if (r.applied) { App.afterKeystone(); App.commit(); G.Editor.fitCrop(); }
-      toast(r.message, r.applied ? 5000 : 6000);
+      if (S().geom && S().geom.mode === 'auto') App.setGeom(null);
+      const ok = App.setGeomCorners(q);
+      App.pendingCorners = null;
+      if (ok) { App.afterGeom(); App.redetectAll(); App.afterRangeChange(); App.commit(); }
+      App.busy(false); stopPlacing(); G.Editor.fitCrop();
+      toast(ok ? `Gel mapped to a rectangle: lanes ${S().geom.lanesPct > 0 ? '+' : ''}${S().geom.lanesPct} %, bands ${S().geom.bandsPct > 0 ? '+' : ''}${S().geom.bandsPct} %; lanes and markers detected again` : 'The box is not a convex quadrilateral');
     }, 20);
   };
-  $('btnKsOff').onclick = () => { if (!S() || !S().keystone) return; App.setKeystone(null); App.afterKeystone(); App.commit(); G.Editor.fitCrop(); toast('Perspective correction off; annotations followed'); };
-  const ksTyped = () => {
-    if (!S()) return;
-    const a = +$('ksLanes').value || 0, b = +$('ksBands').value || 0;
-    if (!a && !b) { if (S().keystone) { App.setKeystone(null); App.afterKeystone(); App.commit(); } return; }
-    App.setKeystoneManual(a, b); App.afterKeystone(); App.commit(); G.Editor.fitCrop();
-    toast(`Perspective set by hand: lanes ${a > 0 ? '+' : ''}${a} %, bands ${b > 0 ? '+' : ''}${b} % (stated in the legend notes)`);
+  $('btnGeomCancel').onclick = () => { stopPlacing(); G.Editor.draw(); };
+  // the red box: lanes and markers are detected again once the box has been still for a moment, in
+  // a timeout, so grabbing the next side right away is never held up by the previous side's detection
+  let cropJob = 0;
+  App.onCropStart = () => { cropJob++; };
+  App.onCropDone = () => {
+    const id = ++cropJob, note = $('rawNote');
+    if (note) note.textContent = 'Detecting lanes and markers…';
+    setTimeout(() => {
+      if (id !== cropJob || !S()) return;
+      try {
+        // lanes inside the box again (fast); the ladder search (slow) only when the box gained lanes,
+        // otherwise the markers there follow their lanes and are only re-fitted
+        const c = S().crop, byHand = S().lanes.some(l => l.manual && l.x >= c.x && l.x <= c.x + c.w);
+        if (byHand) { App.afterRangeChange(); if (note) note.textContent = 'Lanes placed by hand are kept (Re-detect in box replaces them)'; }
+        else {
+          const n0 = S().lanes.length;
+          App.redetectLanesInCrop();
+          if (S().lanes.length > n0) App.relaneMarkers(() => 0); else App.afterRangeChange();
+        }
+        App.commit();
+      } finally { if (note) note.textContent = ''; }
+    }, 350);
   };
-  $('ksLanes').addEventListener('change', ksTyped); $('ksBands').addEventListener('change', ksTyped);
+  G.UI_geomSeg = geomSeg;
+  G.UI_placing = () => placing;
   const flipBtn = (id, axis) => { $(id).onclick = () => {
     if (!S()) return;
     App.busy(true, 'Flipping…');
@@ -536,21 +592,7 @@
   $('btnAutoLanes').onclick = done(() => { App.autoLanes(); App.afterRangeChange(); toast(`Detected ${S().lanes.length} wells on the whole gel`); });
   // "+ Add lane": the next click on the raw image places a lane line there (js/editor.js, mode 'lane')
   $('btnAddLane').onclick = () => { if (needImage()) return; G.FigEdit.setMode(App.mode === 'lane' ? null : 'lane'); };
-  // after lanes inside the crop are rebuilt, find the marker lanes again but keep the ladder the
-  // user chose for a marker that is still at (about) the same position
-  function relaneMarkers(fn) {
-    const st = S(), tol = (st.lanePitch || 40) * 0.5;
-    const prev = st.markers.map(m => ({ x: st.lanes[m.lane] ? st.lanes[m.lane].x : -1e9, ladderId: m.ladderId, unit: m.unit, side: m.side }));
-    const n = fn();
-    App.autoMarkers();
-    let changed = false;
-    st.markers.forEach(m => {
-      const p = prev.find(q => Math.abs(q.x - st.lanes[m.lane].x) < tol);
-      if (p) { if (m.ladderId !== p.ladderId) changed = true; Object.assign(m, { ladderId: p.ladderId, unit: p.unit, side: p.side }); }
-    });
-    if (changed) App.matchMarkers(true);
-    return n;
-  }
+  const relaneMarkers = App.relaneMarkers;
   $('btnRedetectCrop').onclick = done(() => {
     const n = relaneMarkers(() => App.redetectLanesInCrop());
     toast(n ? `Found ${n} lanes in the box` : 'No lanes found in the box; enter the number and click "Space evenly"');
@@ -860,7 +902,7 @@
       + (st.levels.invert ? 'inverted' : 'raw')
       + (st.saturatedInCrop ? ' · saturated' : ''), st.saturatedInCrop ? 'warn' : '');
     const p1 = v => (v * 100).toFixed(1);
-    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.keystone && st.keystone.on ? ' · perspective' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
+    $('imgAdvNote').textContent = `${st.rotation ? st.rotation + '°' : '0°'}${st.flip && (st.flip.h || st.flip.v) ? ' · flipped' : ''}${st.geom ? ' · geometry' : ''} · levels ${p1(st.levels.black)}–${p1(st.levels.white)} %${st.levels.gamma && st.levels.gamma !== 1 ? ' · γ ' + st.levels.gamma : ''}`;
     set('stRange', (App.rowCount() > 1 ? `row ${st.gelRow + 1} of ${App.rowCount()} · ` : '') + (r ? `wells ${r[0] + 1}–${r[1] + 1} · ${named}/${fl.length} named` : ''));
     set('stMarker', visMk.length ? (lowMk.length ? 'check ladder' : String(visMk.length)) : 'none', lowMk.length || !visMk.length ? 'warn' : '');
     const secs = document.querySelectorAll('#sections .sec');
@@ -890,17 +932,16 @@
     document.querySelectorAll('#polSeg button').forEach(b => b.classList.toggle('on', (b.dataset.dark === '1') === dark));
     // which of the two looks is the image as it came from the imager
     document.querySelectorAll('#polSeg .pol-note').forEach(n => { n.textContent = (n.dataset.k === '1') === !st.bright ? 'as imaged' : 'inverted'; });
+    $('btnPolDetect').textContent = `Detection: ${st.bright ? 'bright bands on dark' : 'dark bands on light'} · change`;
     $('lvBlack').value = toSlider(st.levels.black); $('lvWhite').value = toSlider(st.levels.white);
     $('lvBlackV').textContent = pct(st.levels.black); $('lvWhiteV').textContent = pct(st.levels.white);
     $('rot').value = st.rotation; $('rotNum').value = st.rotation; $('rotV').textContent = st.rotation + '°';
     $('rotAuto').textContent = App.autoRotation != null ? `auto ${App.autoRotation}°` : '';
     const ft = G.Export.flipText(st);
     $('flipNote').textContent = ft ? ft : '';
-    const k = st.keystone && st.keystone.on ? st.keystone : null;
-    $('ksNote').textContent = k ? `${k.source === 'manual' ? 'typed' : 'auto'} · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.bands || k.bandsPct ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : 'off';
-    if (document.activeElement !== $('ksLanes')) $('ksLanes').value = k ? k.lanesPct : '';
-    if (document.activeElement !== $('ksBands')) $('ksBands').value = k ? k.bandsPct : '';
-    $('btnKsOff').disabled = !k;
+    const k = st.geom;
+    $('ksNote').textContent = !k ? (st.geomChecked ? 'checked · none needed' : 'off') : `${k.mode}${Math.abs(k.lanesPct) >= 0.5 || Math.abs(k.bandsPct) >= 0.5 ? ` · lanes ${k.lanesPct > 0 ? '+' : ''}${k.lanesPct} %${k.rows || k.mode === 'manual' ? ` · bands ${k.bandsPct > 0 ? '+' : ''}${k.bandsPct} %` : ''}` : ''}${k.bendPx >= 0.5 ? ` · bend ${k.bendPx.toFixed(1)} px` : ''}${st.geom && st.geom.residualPct != null ? ` · residual ${st.geom.residualPct} %` : ''}`;
+    geomSeg();
     $('btnFlipV').classList.toggle('on', !!st.flip.v); $('btnFlipH').classList.toggle('on', !!st.flip.h);
     $('invNote').textContent = App.invertInherited ? `${dark ? 'Dark' : 'Bright'} bands, as you last chose for this experiment` : '';
     $('stripGap').value = y.stripGapPt != null ? y.stripGapPt : 3;

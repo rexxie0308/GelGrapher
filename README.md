@@ -62,7 +62,7 @@ From GelFigure:
 
 Added in GelGrapher:
 
-- **Seven experiment types** with 62 built-in ladders (25 DNA, 5 RNA, 30 protein, 2 native protein), each from the manufacturer's datasheet or product page.
+- **Seven experiment types** with 85 built-in ladders (45 DNA, 5 RNA, 33 protein, 2 native protein), each checked against the manufacturer's datasheet (sources in [docs/ladder-sources.md](docs/ladder-sources.md)).
 - **Densitometry**: band boxes, three background methods, normalization to a loading control, relative values, saturation flags, lane profiles, CSV and a publication bar chart.
 - **Band-size table**: every band in every lane sized against the ladder, as a table and CSV.
 - **Strips**: show only chosen regions of a blot (e.g. the target and the loading control), stacked with a gap, each labelled on the right.
@@ -143,7 +143,7 @@ Inside Claude, each export asks you to confirm the save. Claude accepts PNG, PDF
 
 ## Image integrity
 
-A gel photographed at an angle can be **perspective-corrected** (step 1 → *Perspective*): one projective transform of the whole image, found automatically from the converging lane lines (and ladder bands) or typed as percentages, composed with the straightening so the pixels are resampled once. It is off by default, refused when the lanes do not converge consistently (that is the gel's own distortion, not perspective), carried through rotation and undo, and stated in the legend notes, the processing log (with the matrix) and the methods paragraph. `docs/geometry-correction.md` has the design, the artefact rules and the literature.
+A photographed gel is **geometry-corrected** automatically when it opens (step 1 → *Gel shape*, Auto / Manual / Off): a camera angle (converging lanes) by one projective transform found from the lane lines and the ladder bands, and bent lanes by a smooth displacement field that straightens the traced lanes and levels the ladder band rows, never using sample bands as anchors; lanes and markers are detected again on the corrected image until they settle. *Manual* is a box with four free corners dragged onto the gel's corners; *Off* shows the raw image. Rotation and geometry are composed into one resampling, the correction is carried through undo and project files, and it is stated in the legend notes, the processing log (with the displacement grid) and the methods paragraph. `docs/geometry-correction.md` has the design, the artefact rules and the literature.
 
 GelGrapher follows common journal image policies (e.g. Nature, PLOS, JBC; Rossner & Yamada, *J Cell Biol* 2004):
 
@@ -157,9 +157,9 @@ GelGrapher helps you comply, but **you remain responsible** for following your j
 
 ## Built-in ladders
 
-- **DNA**: Thermo GeneRuler 1 kb, 1 kb Plus, 100 bp, 100 bp Plus, 50 bp, DNA Ladder Mix, Low Range, Ultra Low Range, Express · NEB 1 kb, 100 bp, 1 kb Plus, Low Molecular Weight · Invitrogen 1 Kb Plus · Bioline HyperLadder 1kb · Lambda DNA/HindIII · Takara DL2000, DL5000, DL15000 · TransGen Trans2K, Trans2K Plus, Trans2K Plus II, Trans5K, Trans15K · Tiangen Marker D2000.
+- **DNA**: Thermo GeneRuler 1 kb, 1 kb Plus, 100 bp, 100 bp Plus, 50 bp, DNA Ladder Mix, Low Range, Ultra Low Range, Express · NEB 1 kb, 1 kb Plus, 100 bp, 50 bp and Low Molecular Weight (each also as Quick-Load, Quick-Load Purple, TriDye or for Safe Stains where NEB sells it), Quick-Load 1 kb Extend, Fast, PCR Marker, TriDye Ultra Low Range, Supercoiled Extend, Lambda DNA-HindIII, pBR322-BstNI and pBR322-MspI digests · Invitrogen 1 Kb Plus · Bioline HyperLadder 1kb · Takara DL2000, DL5000, DL15000 · TransGen Trans2K, Trans2K Plus, Trans2K Plus II, Trans5K, Trans15K · Tiangen D2000.
 - **RNA**: Thermo RiboRuler High Range, Low Range · NEB ssRNA Ladder, Low Range ssRNA Ladder, microRNA Marker.
-- **Protein**: Thermo PageRuler Plus Prestained, PageRuler Prestained, PageRuler Unstained, PageRuler Unstained Broad Range, Spectra Multicolor Broad Range · Bio-Rad Precision Plus Dual Color, All Blue, Kaleidoscope, Unstained, WesternC · NEB Color Prestained Broad Range, Unstained Broad Range · Invitrogen Novex Sharp Pre-stained, SeeBlue Plus2 (Tris-glycine, Bis-Tris MES, Bis-Tris MOPS), MagicMark XP, BenchMark.
+- **Protein**: Thermo PageRuler Plus Prestained, PageRuler Prestained, PageRuler Unstained, PageRuler Unstained Broad Range, PageRuler Unstained Low Range, Spectra Multicolor Broad, High and Low Range · Bio-Rad Precision Plus Dual Color, All Blue, Kaleidoscope, Unstained, WesternC · NEB Color Prestained Broad Range (10-250 and 11-245 kDa), Blue Prestained Broad Range, Unstained Broad Range, Protein Ladder 10-250 kDa · Invitrogen Novex Sharp Pre-stained, SeeBlue Plus2 (Tris-glycine, Bis-Tris MES, Bis-Tris MOPS), MagicMark XP, BenchMark · Epizyme WJ101, WJ102, WJ103, WJ106, WJ107, WJ402 · Yeasen GoldBand 26616ES, 20350ES, 20352ES.
 - **Native protein**: Invitrogen NativeMark · Cytiva HMW Native Marker Kit.
 
 Apparent sizes of prestained protein ladders depend on the gel and buffer system; check them against your lot's datasheet. Any other ladder can be added under **Marker → Custom ladder** (in the unit of the current experiment type); custom ladders travel inside style and project files. To add a ladder for everyone, see [CONTRIBUTING.md](CONTRIBUTING.md).
