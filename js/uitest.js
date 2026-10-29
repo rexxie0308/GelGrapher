@@ -876,6 +876,30 @@
       App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.ladderRecheck = { got, kept, notice, quiet, ok: got.length === 2 && got.every(id => id === 'neb100') && /fits the marker lanes better/.test(notice) && kept.length === 2 && kept.every(id => id === 'neb100') && !quiet };
     }
+    // 52. the ladder library is well formed: unique ids, sizes strictly largest first, every reference band one of
+    // the sizes, the ids of earlier versions still open the ladder they name now
+    {
+      const all = G.Ladders.all().filter(l => !l.custom), ids = new Set(), bad = [];
+      all.forEach(l => {
+        if (ids.has(l.id)) bad.push(l.id + ': duplicate id'); ids.add(l.id);
+        if (!l.sizes.every((v, k) => k === 0 || v < l.sizes[k - 1])) bad.push(l.id + ': sizes not strictly descending');
+        if (!l.ref.every(r => l.sizes.includes(r))) bad.push(l.id + ': reference band not among the sizes');
+        if (!/\(.+\)/.test(l.name) && l.id !== 'lambdahind') bad.push(l.id + ': no catalogue number');
+      });
+      const alias = { nebp7719: 'nebp7712', nebp7718: 'nebp7719s', nebp7717: 'nebp7703' };
+      Object.entries(alias).forEach(([o, n]) => { const l = G.Ladders.get(o); if (!l || l.id !== n) bad.push(o + ' does not open ' + n); });
+      const lmw = G.Ladders.get('neblmw'), p7717 = G.Ladders.get('nebp7717u');
+      // the loading formats of one ladder count once in the search, and a starred one stands for them
+      const fmt = all.filter(l => l.sizes.join() === G.Ladders.get('neb1kbplus').sizes.join()).map(l => l.id);
+      const once = G.Engine.uniqueLadders(all).filter(l => fmt.includes(l.id)).map(l => l.id), starred = G.Engine.uniqueLadders(all, ['nebqlp1kbplus']).filter(l => fmt.includes(l.id)).map(l => l.id);
+      // the legend keeps a protein standard's range and drops only the catalogue numbers
+      const keepM = App.S.markers.map(m => m.ladderId);
+      if (App.S.markers[0]) App.S.markers[0].ladderId = 'nebp7719s';
+      const legend = App.S.markers[0] ? G.Export.legendHints(App.S).join(' ') : 'M, NEB Color Prestained Protein Standard, Broad Range (10-250 kDa).';
+      App.S.markers.forEach((m, k) => { m.ladderId = keepM[k]; });
+      R.ladderLibrary = { n: all.length, bad, fmt: fmt.length, once, starred, legend: legend.slice(0, 200),
+        ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)\./.test(legend) };
+    }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
       const $ = id => document.getElementById(id), v = () => G.QuantUI.view();

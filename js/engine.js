@@ -1976,7 +1976,16 @@
   const FAV_BONUS = 0.05;
   function jointLadders(peaksList, ladders, h, preferIds) {
     matchMulti.fast = true;
-    try { return jointLaddersFast(peaksList, ladders, h, preferIds); } finally { matchMulti.fast = false; }
+    try { return jointLaddersFast(peaksList, uniqueLadders(ladders, preferIds), h, preferIds); } finally { matchMulti.fast = false; }
+  }
+  /* Ladders with the same band list are one ladder to the search (a product sold in several loading
+   * formats: NEB's 1 kb Plus as plain, Quick-Load, Quick-Load Purple, TriDye and for Safe Stains): the
+   * favourite among them stands for the rest, else the first listed. Without this, five copies of one
+   * list fill the shortlist of seven and push other ladders out of it. */
+  function uniqueLadders(ladders, preferIds) {
+    const fav = new Set(Array.isArray(preferIds) ? preferIds : preferIds ? [preferIds] : []), seen = new Map();
+    ladders.forEach(l => { const k = l.sizes.join(','), p = seen.get(k); if (!p || (fav.has(l.id) && !fav.has(p.id))) seen.set(k, l); });
+    return [...seen.values()];
   }
   function jointLaddersFast(peaksList, ladders, h, preferIds) {
     const fav = new Set(Array.isArray(preferIds) ? preferIds : preferIds ? [preferIds] : []);
@@ -2018,7 +2027,7 @@
 
   // Rank ladder presets by fit to the detected peaks of one lane
   function rankLadders(peaks, ladders, h) {
-    return ladders.map(l => {
+    return uniqueLadders(ladders).map(l => {
       const m = matchLadder(peaks, l.sizes, h);
       return { id: l.id, score: m.score, matched: m.matchedCount };
     }).sort((a, b) => (b.score - a.score) || (b.matched - a.matched));
@@ -2099,6 +2108,6 @@
 
   G.Engine = {
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
-    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
+    toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore,sharpBandCount, rankLadders, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
 })(window);

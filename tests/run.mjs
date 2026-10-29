@@ -91,6 +91,7 @@ const UI_CHECKS = [
   ['a gel small in a large frame: the red box is found coarse to fine on the gel with every lane, its rows framed on the bands', r => r.smallInFrame.ok, ['smallInFrame']],
   ['a strip of two or three lanes finds exactly its lanes; the lane-fix fold is two rows of titled tools', r => r.strip.ok, ['strip']],
   ['a remembered ladder with one band more than the gel\'s does not stick: the library is checked and the ladder fitting every band wins; a perfect usual ladder stays', r => r.ladderRecheck.ok, ['ladderRecheck']],
+  ['the ladder library is well formed: unique ids, sizes largest first, reference bands among the sizes, catalogue numbers, earlier ids still open; one ladder\'s loading formats count once in the search, a starred one stands for them; legends keep a standard\'s range', r => r.ladderLibrary.ok, ['ladderLibrary']],
   ['geometry correction: Auto at load corrects a keystoned gel (lanes parallel within 2 %) with every lane and the red box framed beside the outer lanes, seg / legend / log show it, rotation and undo carry it, Off restores, Manual box maps a trapezoid, a hand-placed lane survives a box change, the detection polarity can be overridden', r => r.keystone.ok, ['keystone']],
   ['densitometry results open in the figure column', r => r.quantView.ok, ['quantView']]
 ];

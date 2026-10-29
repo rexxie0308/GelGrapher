@@ -350,9 +350,10 @@
     if (S.levels.invert) h.push('Image colours were inverted for display.');
     if (S.levels.gamma !== 1) h.push(`A non-linear gamma adjustment (γ = ${S.levels.gamma}) was applied to the whole image.`);
     const lads = S.markers.map(m => G.Ladders.get(m.ladderId)).filter(Boolean);
-    const names = [...new Set(lads.map(l => l.name.replace(/\s*\(.*\)/, '')))];
+    const short = n => n.replace(/\s*\([^()]*\)\s*$/, '');   // the name without its trailing catalogue numbers
+    const names = [...new Set(lads.map(l => short(l.name)))];
     if (names.length === 1) h.push(`M, ${names[0]}.`);
-    else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${G.Ladders.get(m.ladderId).name.replace(/\s*\(.*\)/, '')}`).join('; ')}).`);
+    else if (names.length > 1) h.push(`M, ${KIND_LADDER[A.kind()]} (${S.markers.map(m => `lane ${m.lane + 1}: ${short(G.Ladders.get(m.ladderId).name)}`).join('; ')}).`);
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
     if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
