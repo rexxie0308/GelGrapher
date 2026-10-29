@@ -44,8 +44,9 @@
       const r = y0 != null ? { y0, y1 } : G.Quant.bandBox(App, x, yClick);
       if (!r) return;
       st.quant.rows.push({ y0: r.y0, y1: r.y1, name: '' });
-      // the second box is usually the loading control: suggest it
-      if (st.quant.rows.length === 2 && st.quant.control < 0) st.quant.control = 1;
+      // the first box fixes the analysis area: from now on the figure box can change without changing a result
+      if (!st.quant.region) st.quant.region = Object.assign({}, st.crop);
+      // no loading control is suggested: dividing by a box is a choice the user makes (and must justify)
       App.boxAdded = true;   // a box drawn by the user opens the Densitometry view (quantui.js)
       App.commit();
       const d = $('quantDetails'); if (d && !d.open) d.open = true;

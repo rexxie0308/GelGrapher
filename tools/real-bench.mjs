@@ -64,8 +64,30 @@ const res = await pg.evaluate(async (gels) => {
     // is scaled to the rows the app framed
     if (r.keystoneWant != null && g.keystoneRows) r.keystoneWant = +(r.keystoneWant * S.crop.h / g.keystoneRows).toFixed(1);
     const okKeystone = r.keystoneWant == null || r.keystone == null || Math.abs(r.keystone - r.keystoneWant) <= (g.keystoneTol || 4);
-    r.ok = okLanes && okLadders && okLadderId && okKeystone;
-    r.miss = [!okLanes && 'lanes', !okLadders && 'ladders', !okLadderId && 'ladder id', !okKeystone && 'keystone'].filter(Boolean).join(' ');
+    // a dilution series: known relative amounts in some wells, one band row (y in original-image pixels); the
+    // log-log slope of the measured values against the amounts over the wells at or above their LOQ (1 = linear)
+    let okDilution = true;
+    if (g.dilution && g.dilution.wells && g.dilution.amounts) {
+      const D = g.dilution, q = S.quant, keepQ = JSON.stringify(q);
+      const lanesAt = D.wells.map(w => { const x0 = toWork(g.laneX ? g.laneX[w - 1] : 0, D.y).x; return g.laneX ? S.lanes.reduce((b, l, i) => (Math.abs(l.x - x0) < Math.abs(S.lanes[b].x - x0) ? i : b), 0) : w - 1; });
+      const yW = toWork(g.laneX ? g.laneX[D.wells[D.wells.length - 1] - 1] : App.src.w / 2, D.y).y;
+      const box = Quant.bandBox(App, S.lanes[lanesAt[lanesAt.length - 1]].x, yW);
+      q.rows = [{ y0: box.y0, y1: box.y1, name: 'dilution' }]; q.region = q.region || Object.assign({}, S.crop); q.norm = 'none';
+      lanesAt.forEach(i => { delete S.lanes[i].noMeasure; });
+      const fit = (xs, ys) => { const n = xs.length, mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; } return { slope: sxy / sxx, r2: sxx && syy ? sxy * sxy / (sxx * syy) : 0 }; };
+      r.dilution = {};
+      for (const mode of ['box', 'band']) {
+        q.mode = mode;
+        const M = Quant.measure(App), cells = lanesAt.map(i => M.cells[0][M.lanes.indexOf(i)]).map(c => c || { vol: 0, loq: Infinity });
+        const k = cells.map((c, j) => (c.vol > 0 && c.vol >= c.loq ? j : -1)).filter(j => j >= 0);
+        const f = k.length >= 2 ? fit(k.map(j => Math.log(D.amounts[j])), k.map(j => Math.log(cells[j].vol))) : { slope: NaN, r2: NaN };
+        r.dilution[mode] = { slope: +f.slope.toFixed(3), r2: +f.r2.toFixed(3), quantifiable: `${k.length}/${cells.length}` };
+      }
+      Object.assign(S.quant, JSON.parse(keepQ));
+      okDilution = Math.abs(r.dilution.box.slope - 1) <= (D.tol || 0.15);
+    }
+    r.ok = okLanes && okLadders && okLadderId && okKeystone && okDilution;
+    r.miss = [!okLanes && 'lanes', !okLadders && 'ladders', !okLadderId && 'ladder id', !okKeystone && 'keystone', !okDilution && 'dilution linearity'].filter(Boolean).join(' ');
     out.push(r);
   }
   return out;
@@ -77,6 +99,7 @@ for (const r of res) {
   if (r.error) { allOk = false; console.log(`FAIL ${pad(r.file, 28)} ${r.error}`); continue; }
   if (!r.ok) allOk = false;
   if (process.env.GEOM_DEBUG) console.log('  geometry steps:', JSON.stringify(r.geomSteps));
+  if (r.dilution) console.log(`     dilution: whole box slope ${r.dilution.box.slope} (R² ${r.dilution.box.r2}, ${r.dilution.box.quantifiable} at or above LOQ); thresholded slope ${r.dilution.band.slope} (R² ${r.dilution.band.r2})`);
   console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${pad(r.file, 28)} lanes ${pad(r.lanes, 3)}${r.lanesWant != null ? `(want ${r.lanesWant}) ` : ''}${r.laneHits ? `at ${r.laneHits} ` : ''} ladders ${pad(r.ladders || '-', 8)}${r.laddersWant ? `(want ${r.laddersWant}) ` : ''} keystone ${pad(r.keystone != null ? r.keystone + '%' : 'none', 7)}${r.keystoneWant != null ? `(want ${r.keystoneWant}%) ` : ''} bend ${pad(r.bendPx != null ? r.bendPx + 'px' : '-', 6)} ${r.ms} ms${r.miss ? '   missed: ' + r.miss : ''}`);
 }
 console.log(allOk ? `${res.length} gels as labelled` : 'some gels differ from their labels');

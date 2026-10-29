@@ -143,7 +143,8 @@
         const mid = st.lanes[fl[Math.floor(fl.length / 2)]].x;
         const t = G.Quant.bandBox(App, mid, yOf(g.truth.target.size)), c = G.Quant.bandBox(App, mid, yOf(g.truth.control.size));
         st.quant.rows = [{ y0: t.y0, y1: t.y1, name: g.truth.target.name }, { y0: c.y0, y1: c.y1, name: g.truth.control.name }];
-        st.quant.control = 1; st.quant.ref = fl[1];
+        // the worked example divides by its known loading control (a choice, stated as such in the methods)
+        st.quant.control = 1; st.quant.norm = 'control'; st.quant.ref = fl[1]; st.quant.region = Object.assign({}, st.crop);
         const ty = (t.y0 + t.y1) / 2, cy = (c.y0 + c.y1) / 2;
         st.strips = [{ y0: ty - 58, y1: ty + 26, label: g.truth.target.name }, { y0: cy - 24, y1: cy + 24, label: g.truth.control.name }];
         st.markers.forEach(m => App.thinMarkerLabels(m, false));
@@ -230,7 +231,7 @@
     }).join('');
     box.querySelectorAll('.expo-item').forEach(el => el.onclick = async () => {
       const r = await App.switchExposure(+el.dataset.k);
-      if (r.kept) toast(`Switched to ${S().file.name}; all annotations kept`);
+      if (r.kept) { const sh = App.exposureShift, off = sh && sh.confident && (Math.abs(sh.dx) > Math.max(2, sh.step) || Math.abs(sh.dy) > Math.max(2, sh.step)); toast(off ? `Switched to ${S().file.name}; annotations kept, but ${App.alignText(sh, 'two exposures').replace(/^The /, 'the ')}` : `Switched to ${S().file.name}; all annotations kept`, off ? 6000 : undefined); }
       else if (r.namesCarried) toast('This image has a different size and was re-detected; lane names were carried over in order — please check');
       else if (r.kept === false) toast('This image is framed differently and was re-detected; annotations were not carried over', 4200);
     });
@@ -552,8 +553,9 @@
     if (!S()) return;
     const k = App.clipStats(), bc = App.bandClipFrac();
     const p = v => (v * 100).toFixed(v < 0.001 ? 3 : 2) + '%';
-    $('clipLine').innerHTML = `${'Camera saturation'} <span class="${k.sensorFrac > 0.0005 ? 'bad' : 'ok'}">${p(k.sensorFrac)}</span> · ${'Contrast clipping'} <span class="${bc > 0.001 ? 'bad' : 'ok'}">${p(bc)}</span>`;
-    $('clipLine').title = `Of ${k.n} pixels in the crop: ${k.sensor} saturated by the camera; clipped by the contrast setting: ${k.high} bright, ${k.low} dark`;
+    const sr = App.satReport();
+    $('clipLine').innerHTML = `${'Clipped band pixels'} <span class="${sr.kind === 'unknown' ? '' : k.sensor > 0 ? 'bad' : 'ok'}">${sr.kind === 'unknown' ? 'cannot tell' : p(k.sensorFrac)}</span> · ${'Contrast clipping'} <span class="${bc > 0.001 ? 'bad' : 'ok'}">${p(bc)}</span>`;
+    $('clipLine').title = `${sr.text}\nContrast setting (display only): ${k.high} pixels pushed to the bright end, ${k.low} to the dark end of ${k.n} in the crop.`;
   }
   $('showSat').addEventListener('change', () => G.Editor.draw());
   $('gammaUnlock').addEventListener('change', e => {
@@ -695,6 +697,7 @@
   });
   $('btnMarkerImgDel').onclick = done(() => { App.clearMarkerImage(); App.matchMarkers(false); toast('Marker image removed; marker bands are read from the blot itself again'); });
   $('mkOverlay').addEventListener('change', () => G.Editor.draw());
+  $('mkOpacity').addEventListener('input', () => G.Editor.draw());
 
   $('btnSaveLadder').onclick = () => {
     const name = $('customName').value.trim();
@@ -949,8 +952,9 @@
     const hasMk = App.hasMarkerImage();
     $('btnMarkerImgDel').classList.toggle('hidden', !hasMk); $('mkOverlayWrap').classList.toggle('hidden', !hasMk);
     $('btnMarkerImg').textContent = hasMk ? 'Replace marker image…' : 'Load marker image…';
-    $('mkImageText').textContent = hasMk ? `Marker bands are read from: ${st.markerImage.name}`
+    $('mkImageText').textContent = hasMk ? `Marker bands are read from: ${st.markerImage.name}. ${App.alignText(App.markerAlign, 'blot and marker images')} It goes through the same rotation and geometry correction as the blot.`
       : 'Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.';
+    $('mkImageText').classList.toggle('warn-t', hasMk && App.markerAligned() === false);
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
     updateClipLine(); updateDpiLine(); updateEmptyBar();

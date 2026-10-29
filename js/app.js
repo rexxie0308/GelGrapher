@@ -15,8 +15,13 @@
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
   const defaultPlot = () => ({ type: 'bar', values: false, refLine: true, ylabel: '', title: '' });
-  // mode: 'band' = pixels above the noise floor only, 'box' = the whole box; norm: 'control' | 'lane' | 'none'
-  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'band', wFrac: 0.7, control: -1, ref: -1, norm: 'control', plot: defaultPlot() });
+  // mode: 'box' = every pixel of the box after background subtraction (linear), 'band' = only the
+  // pixels above a noise threshold (thresholded signal; loses the faint part of a band);
+  // norm: 'none' until chosen | 'control' (divide by the ticked box) | 'lane' (divide by the lane's
+  // signal over the analysis area; laneTotal: the image is a total-protein stain or stain-free image);
+  // region: the analysis area, set from the figure box when the first band box is drawn and kept
+  // apart from it afterwards, so a cosmetic change of the figure never changes a result
+  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'box', wFrac: 0.7, control: -1, ref: -1, norm: 'none', laneTotal: false, region: null, plot: defaultPlot() });
 
   const App = {
     S: null,            // serialisable state
@@ -148,11 +153,19 @@
     return { name: file.name, buffer, img, sha256: await App.sha256(buffer) };
   };
 
+  // where the loaded image's values are clipped (read from the values: E.clipLevels), and whether it is a
+  // colour image converted to grey; derived from the pixels, so not part of the state
+  function setAcq(img) {
+    App.acq = E.clipLevels({ data: img.data }, { bits: img.bits, fmt: img.fmt, lossy: img.lossy });
+    App.acq.colour = !!img.colour;
+  }
+  App.setAcq = setAcq;
   // install a decoded image as the current source and run the automatic pipeline
   async function startFrom(input, gelType) {
     App._libSkip = null;
     const img = input.img;
     App.src0 = App.src = { w: img.width, h: img.height, data: img.data };
+    setAcq(img);
     App._flipKey = '';
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
@@ -259,7 +272,11 @@
       const S = App.S;
       App.expIdx = k;
       if (img.width === App.src.w && img.height === App.src.h) {
+        // same pixel size is not proof of the same framing: the shift between the two exposures is measured
+        const prev = App.src0;
+        App.exposureShift = E.alignmentShift(prev, { w: img.width, h: img.height, data: img.data });
         App.src0 = { w: img.width, h: img.height, data: img.data };
+        setAcq(img);
         App._flipKey = null; App.applyFlip();
         App.srcBuffer = ex.buffer;
         App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null;
@@ -318,11 +335,13 @@
       if (axis === 'h') {
         A.lanes.forEach(l => { l.x = W - 1 - l.x; });
         A.crop = { x: Math.round(Math.max(0, W - (c.x + c.w))), y: c.y, w: c.w, h: c.h };
+        const g = A.quant.region; if (g) A.quant.region = { x: Math.round(Math.max(0, W - (g.x + g.w))), y: g.y, w: g.w, h: g.h };
       } else {
         A.markers.forEach(m => m.bands.forEach(b => { b.y = H - 1 - b.y; }));
         A.arrows.forEach(a => { a.y = H - 1 - a.y; });
         A.strips.concat(A.quant.rows).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
         A.crop = { x: c.x, y: Math.round(Math.max(0, H - (c.y + c.h))), w: c.w, h: c.h };
+        const g = A.quant.region; if (g) A.quant.region = { x: g.x, y: Math.round(Math.max(0, H - (g.y + g.h))), w: g.w, h: g.h };
       }
     };
     mirror(S);
@@ -403,18 +422,35 @@
     App.markerBuffer = input.buffer;
     App.markerBright = E.detectBright(App.markerSrc);
     App.markerRot = null; App._markerDisplay = null;
+    // equal pixel size does not prove the two images line up: the offset between them is measured
+    App.markerAlign = E.alignmentShift(App.src, App.markerSrc);
     App.S.markerImage = { name: input.name, sha256: input.sha256, bits: img.bits };
   };
+  /* The measured offset between two images of the same gel (E.alignmentShift), in words. Equal pixel
+   * size is not proof of alignment; this is a check, not a correction. */
+  App.alignText = function (sh, what) {
+    if (!sh) return '';
+    const tol = Math.max(2, sh.step || 1);
+    if (!sh.confident) return `The offset between the ${what} could not be measured (too little shared structure): check the overlay by eye.`;
+    if (Math.abs(sh.dx) <= tol && Math.abs(sh.dy) <= tol) return `The ${what} line up (offset under ${tol} px).`;
+    return `The ${what} look offset by ${sh.dx > 0 ? '+' : ''}${sh.dx}, ${sh.dy > 0 ? '+' : ''}${sh.dy} px (x, y): bands may sit at the wrong height. Check the overlay; use images from the same acquisition and position.`;
+  };
+  App.markerAligned = function () { const sh = App.markerAlign; if (!sh || !sh.confident) return null; const tol = Math.max(2, sh.step || 1); return Math.abs(sh.dx) <= tol && Math.abs(sh.dy) <= tol; };
   // quiet: only drop the pixels (a new main image is being loaded)
   App.clearMarkerImage = function (quiet) {
-    App.markerSrc = App.markerSrc0 = null; App.markerBuffer = null; App.markerRot = null; App._markerDisplay = null;
+    App.markerSrc = App.markerSrc0 = null; App.markerBuffer = null; App.markerRot = null; App._markerDisplay = null; App.markerAlign = null;
     if (!quiet && App.S) App.S.markerImage = null;
   };
+  // the marker image is sent through exactly the transform of the blot (rotation and the geometry
+  // grid, resampled once), so the two stay in one frame whatever correction is on
   App.ensureMarkerRot = function () {
     if (!App.markerSrc) return null;
-    if (!App.markerRot || App.markerRotFor !== App.S.rotation) {
-      App.markerRot = E.rotate(App.markerSrc, App.S.rotation);
-      App.markerRotFor = App.S.rotation;
+    App.applyFlip();
+    const key = App.frameKey(App.S);
+    if (!App.markerRot || App.markerRotFor !== key) {
+      const g = App.geomGrid(App.S), R = App.rotM(App.S);
+      App.markerRot = g ? E.warpGrid(App.markerSrc, g, E.M3.inv(R)) : E.warp(App.markerSrc, R);
+      App.markerRotFor = key;
       App._markerDisplay = null;
     }
     return App.markerRot;
@@ -442,21 +478,76 @@
     App._gelKey = null;
   };
 
+  // shown in red on the working image (display only: the counts come from the original pixels)
   App.getSatCanvas = function () {
     if (App.satCanvas) return App.satCanvas;
-    const rot = App.ensureRot();
+    const rot = App.ensureRot(), test = App.satPredicate() || (() => false);
     const c = document.createElement('canvas'); c.width = rot.w; c.height = rot.h;
     const id = new ImageData(rot.w, rot.h);
-    for (let i = 0; i < rot.data.length; i++) if (rot.data[i] >= SAT) { id.data[i * 4] = 255; id.data[i * 4 + 3] = 255; }
+    for (let i = 0; i < rot.data.length; i++) if (test(rot.data[i], 2 / 65535)) { id.data[i * 4] = 255; id.data[i * 4 + 3] = 255; }
     c.getContext('2d').putImageData(id, 0, 0);
     return (App.satCanvas = c);
   };
 
   App.cropImg = function () { return E.cropImg(App.ensureRot(), App.S.crop); };
 
+  /* The pixels of a working-frame rectangle as rows of ORIGINAL pixel values: when the working frame
+   * is the source (no rotation, no geometry) its own rows; otherwise the rectangle's outline is mapped
+   * back through the geometry grid and the inverse rotation (in chunks of 32 rows, so a bent strip
+   * follows the bend) and every original pixel whose centre lies inside the mapped outline is read
+   * once: no resampled value. Pixels are whole: one cut by the outline counts when its centre is
+   * inside. Each row is { y, v: Float32Array of raw values }. Returns a reader (xa, xb, ya, yb). */
+  App.readRegion = function () {
+    const full = App.ensureRot(), smp = App.sourceRegion ? App.sourceRegion() : null;
+    return (xa, xb, ya, yb) => {
+      xa = E.clamp(xa, 0, full.w - 1); xb = E.clamp(xb, 0, full.w - 1); ya = E.clamp(ya, 0, full.h - 1); yb = E.clamp(yb, 0, full.h - 1);
+      if (xb < xa || yb < ya) return [];
+      if (!smp) { const rows = []; for (let y = ya; y <= yb; y++) rows.push({ y, v: full.data.subarray(y * full.w + xa, y * full.w + xb + 1) }); return rows; }
+      const rows = [];
+      for (let y = ya; y <= yb; y += 32) rows.push(...smp(xa, xb + 1, y, Math.min(yb, y + 31) + 1));
+      return rows;
+    };
+  };
+
+  /* Is an original pixel value clipped at the band end of the scale? Bright bands clip at the top,
+   * dark bands (Coomassie, silver, film) at the bottom; the level is where this file clips (its digital
+   * limit, or a pile-up below it: E.clipLevels). Null when it cannot be told (floating-point data with
+   * no pile-up). */
+  App.satPredicate = function () {
+    const a = App.acq, S = App.S;
+    if (!a || !S) return v => v >= SAT;
+    const side = S.bright ? a.hi : a.lo;
+    if (side.kind === 'none' && a.float) return null;
+    if (S.bright) { const L = side.level != null ? side.level : 1; return (v, tol) => v >= L - (tol || 1e-6); }
+    const L = side.level != null ? side.level : 0; return (v, tol) => v <= L + (tol || 1e-6);
+  };
+
   App.updateSaturation = function () {
-    const c = App.cropImg();
-    App.S.saturatedInCrop = E.saturation(c, SAT);
+    const S = App.S, c = S.crop, test = App.satPredicate();
+    if (!test) { S.saturatedInCrop = 0; App._satPixels = 0; return; }
+    const rows = App.readRegion()(Math.round(c.x), Math.round(c.x + c.w - 1), Math.round(c.y), Math.round(c.y + c.h - 1));
+    let n = 0, tot = 0;
+    rows.forEach(r => { for (let i = 0; i < r.v.length; i++) if (test(r.v[i])) n++; tot += r.v.length; });
+    S.saturatedInCrop = n; App._satPixels = tot; App.satCanvas = null;
+  };
+
+  /* What can be said about saturation, in words: { kind: 'clipped' | 'probable' | 'none' | 'unknown',
+   * n (pixels in the figure area), text }. Three different things: pixels at the file's digital limit;
+   * pixels piling up below it (probable clipping, e.g. 12-bit data in a 16-bit file); and detector
+   * saturation before digitisation, which no file records and which is never claimed checked. */
+  App.satReport = function () {
+    const a = App.acq || { hi: { kind: 'none' }, lo: { kind: 'none' } }, S = App.S, n = S.saturatedInCrop || 0;
+    const side = S.bright ? a.hi : a.lo, end = S.bright ? 'top' : 'bottom';
+    const raw = side.level != null && !a.float ? Math.round(side.level * (Math.pow(2, a.bits || 8) - 1)) : null;
+    let kind, text;
+    if (a.float && side.kind === 'none') { kind = 'unknown'; text = 'Floating-point data have no digital limit, so whether bands are clipped cannot be told from the pixel values.'; }
+    else if (n > 0 && side.kind === 'pileup') { kind = 'probable'; text = `${n} pixels in the figure area pile up at the ${end} value ${raw != null ? raw : side.level.toFixed(4)}${a.effBits ? ` (the data look ${a.effBits}-bit in a 16-bit file)` : ''}: those band cores are probably clipped, so their intensities are underestimated.`; }
+    else if (n > 0) { kind = 'clipped'; text = `${n} pixels in the figure area reach the digital limit of the file at the ${end} of the scale${raw != null ? ` (value ${raw})` : ''}: those band cores are clipped, so their intensities are underestimated.`; }
+    else { kind = 'none'; text = `No pixel in the figure area reaches the clipping level at the band end of the scale.`; }
+    text += ' Whether the detector saturated before the image was written is not recorded in the file and cannot be checked here.';
+    if (a.lossy) text += ' JPEG compression can smooth a clipped band core, so clipping may be missed.';
+    if (a.colour) text += ' Colour image: converted to grey by luminance; the channels are not checked one by one.';
+    return { kind, n, text };
   };
 
   App.AUTO_ROT_LIMIT = 15;
@@ -503,9 +594,14 @@
       // the crop is carried by the midpoints of its four sides, so a keystone that spreads the lanes
       // spreads the box with them (carried by its centre at a fixed size, its sides cut into the
       // outer lanes after a correction); a rotation moves the midpoints hardly at all
-      const x0 = P(c.x, ccy).x, x1 = P(c.x + c.w, ccy).x, y0 = P(ccx, c.y).y, y1 = P(ccx, c.y + c.h).y;
-      const cx0 = Math.max(0, Math.min(x0, x1)), cx1 = Math.min(W, Math.max(x0, x1)), cy0 = Math.max(0, Math.min(y0, y1)), cy1 = Math.min(H, Math.max(y0, y1));
-      A.crop = { x: Math.round(cx0), y: Math.round(cy0), w: Math.max(10, Math.round(cx1 - cx0)), h: Math.max(10, Math.round(cy1 - cy0)) };
+      const rect = c => {
+        const mx = c.x + c.w / 2, my = c.y + c.h / 2;
+        const x0 = P(c.x, my).x, x1 = P(c.x + c.w, my).x, y0 = P(mx, c.y).y, y1 = P(mx, c.y + c.h).y;
+        const cx0 = Math.max(0, Math.min(x0, x1)), cx1 = Math.min(W, Math.max(x0, x1)), cy0 = Math.max(0, Math.min(y0, y1)), cy1 = Math.min(H, Math.max(y0, y1));
+        return { x: Math.round(cx0), y: Math.round(cy0), w: Math.max(10, Math.round(cx1 - cx0)), h: Math.max(10, Math.round(cy1 - cy0)) };
+      };
+      A.crop = rect(c);
+      if (A.quant.region) A.quant.region = rect(A.quant.region);
     };
     carry(S);
     Object.values(S.rowStash || {}).forEach(carry);
@@ -874,19 +970,21 @@
   };
 
   /* Clipping in the crop, as two different things:
-   *  - sensor: the camera itself saturated (raw ≥ 0.998)
+   *  - sensor: original pixels clipped at the band end of the scale (App.satPredicate, App.satReport)
    *  - levels: pixels pushed past the black / white point by the contrast setting (display only,
    *    but a band core flattened this way is just as lost in the figure) */
   App.clipStats = function () {
     const S = App.S, lv = S.levels;
-    const key = [S.rotation, S.crop.x, S.crop.y, S.crop.w, S.crop.h, lv.black, lv.white].join('|');
+    const key = [S.rotation, S.crop.x, S.crop.y, S.crop.w, S.crop.h, lv.black, lv.white, S.saturatedInCrop, S.bright].join('|');
     if (App._clipKey === key) return App._clip;
     const c = App.cropImg(), d = c.data, n = d.length;
-    let sensor = 0, high = 0, low = 0;
-    for (let i = 0; i < n; i++) { const v = d[i]; if (v >= SAT) sensor++; if (v > lv.white) high++; else if (v < lv.black) low++; }
+    let high = 0, low = 0;
+    for (let i = 0; i < n; i++) { const v = d[i]; if (v > lv.white) high++; else if (v < lv.black) low++; }
+    // clipped at the band end, counted on the original pixels (App.updateSaturation)
+    const sensor = S.saturatedInCrop || 0;
     App._clipKey = key;
     // "high" is what turns pure white on screen when not inverted, pure black when inverted
-    return (App._clip = { n, sensor, high, low, highFrac: high / n, lowFrac: low / n, sensorFrac: sensor / n });
+    return (App._clip = { n, sensor, high, low, highFrac: high / n, lowFrac: low / n, sensorFrac: sensor / Math.max(1, App._satPixels || n) });
   };
   // the band side of the levels: bright bands are clipped at the white point, dark bands at black
   App.bandClipFrac = function () { const k = App.clipStats(); return App.S.bright ? k.highFrac : k.lowFrac; };
@@ -964,7 +1062,12 @@
     const fromOld = xs.map(near);                 // new index -> old index (or -1)
     const toNew = new Map(); fromOld.forEach((o, n) => { if (o >= 0 && !toNew.has(o)) toNew.set(o, n); });
     const nearestNew = o => { if (toNew.has(o)) return toNew.get(o); let bi = 0, bd = Infinity; xs.forEach((x, n) => { const d = Math.abs(x - (old[o] ? old[o].x : 0)); if (d < bd) { bd = d; bi = n; } }); return bi; };
-    S.lanes = xs.map((x, n) => { const o = fromOld[n] >= 0 ? old[fromOld[n]] : null; return { x, name: o ? o.name : '', hidden: o ? !!o.hidden : false }; });
+    S.lanes = xs.map((x, n) => {
+      const o = fromOld[n] >= 0 ? old[fromOld[n]] : null, l = { x, name: o ? o.name : '', hidden: o ? !!o.hidden : false };
+      if (o && o.noMeasure) l.noMeasure = true;
+      if (o && o.role) l.role = o.role;
+      return l;
+    });
     S.markers = S.markers.filter(m => toNew.has(m.lane)).map(m => Object.assign(m, { lane: toNew.get(m.lane) }));
     if (S.quant.ref >= 0) S.quant.ref = toNew.has(S.quant.ref) ? toNew.get(S.quant.ref) : -1;
     S.groups.forEach(g => { g.from = nearestNew(g.from); g.to = nearestNew(g.to); });
@@ -1726,7 +1829,7 @@
       { label: `Set gel width to ${safe} mm`, run: () => { st.autoWidth = false; st.gelWidthMm = safe; } });
     const k = App.clipStats(), bc = App.bandClipFrac();
     const sp = (k.sensorFrac * 100).toFixed(2), bp = (bc * 100).toFixed(2);
-    if (k.sensorFrac > 0.0005) add('warn', `Camera saturation: ${sp}% of the pixels in the crop are saturated. Consider a shorter exposure.`);
+    if (k.sensor > 0) add('warn', `Clipped band pixels: ${App.satReport().text.replace(/ Whether the detector.*$/, '')} (${sp}% of the figure area).`);
     if (bc > 0.001) add('block', `Contrast clipping: ${bp}% of the pixels are flattened by the contrast setting.`, { label: 'Reset contrast', run: () => App.resetLevels() });
     if (st.fontPt < 5) add('warn', `Font size ${st.fontPt} pt is small (most journals ask for ≥ 5–6 pt).`, { label: 'Use 6 pt', run: () => { st.fontPt = 6; } });
     if (st.lineWidthPt < 0.25) add('warn', `Line width ${st.lineWidthPt} pt is too thin.`, { label: 'Use 0.5 pt', run: () => { st.lineWidthPt = 0.5; } });
@@ -1744,11 +1847,8 @@
   };
 
   App.saturationText = function () {
-    const S = App.S, n = S.saturatedInCrop;
-    const where = `${n} saturated pixels in the crop: band intensities are distorted and reviewers may question them. `;
-    return S.file.bits <= 8
-      ? where + 'This is an 8-bit image: export the 16-bit raw TIFF from the imager (more dynamic range) or re-image with a shorter exposure'
-      : where + 'Consider re-imaging with a shorter exposure';
+    const S = App.S, r = App.satReport();
+    return r.text.replace(/ Whether the detector.*$/, '') + (S.file.bits <= 8 ? ' This is an 8-bit image: export the 16-bit raw TIFF from the imager (more dynamic range) or re-image with a shorter exposure.' : ' Re-image with a shorter exposure for quantification.');
   };
 
   // ---------- change notifications / undo ----------
@@ -1896,8 +1996,20 @@
     S.gelType = G.Gels.get(S.gelType).id;
     S.style = Object.assign(defaultStyle(), S.style || {});
     S.strips = S.strips || [];
-    S.quant = Object.assign(defaultQuant(), S.quant || {});
-    S.quant.plot = Object.assign(defaultPlot(), S.quant.plot || {});
+    const legacy = A => {
+      const hadMode = A.quant && A.quant.mode, hadNorm = A.quant && A.quant.norm, hadRegion = A.quant && 'region' in A.quant;
+      A.quant = Object.assign(defaultQuant(), A.quant || {});
+      A.quant.plot = Object.assign(defaultPlot(), A.quant.plot || {});
+      // saved before 2026-11: those defaults were the thresholded measure and loading-control normalization
+      if (!hadMode && A.quant.rows.length) A.quant.mode = 'band';
+      if (!hadNorm && A.quant.rows.length) A.quant.norm = 'control';
+      if (!hadRegion && A.quant.rows.length && A.crop) {
+        A.quant.region = Object.assign({}, A.crop);
+        (A.lanes || []).forEach(l => { if (l.hidden) l.noMeasure = true; });
+      }
+    };
+    legacy(S);
+    Object.values(S.rowStash || {}).forEach(A => { if (A && A.quant) legacy(A); });
     if (S.markerImage === undefined) S.markerImage = null;
     S.flip = Object.assign({ h: false, v: false }, S.flip || {});
     if (S.gelRows === undefined) S.gelRows = null;
@@ -1911,6 +2023,7 @@
   App.normalizeState = normalize;
   function restore(input, state, initial, autoRotation, marker) {
     App.src0 = { w: input.img.width, h: input.img.height, data: input.img.data };
+    setAcq(input.img);
     App.srcBuffer = input.buffer;
     App.rot = null; App.satCanvas = null; App._display = null; App._clipKey = null; App._emptyKey = null;
     App.exposures = null; App.isExample = false; App._libSkip = null;

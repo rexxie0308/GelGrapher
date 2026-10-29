@@ -478,3 +478,10 @@ body.touring #app, body.touring .topbar { user-select: none; }
   .menu.right { left: 12px; right: 12px; }
   .dlg-body { padding: 18px; }
 }
+/* densitometry: values below the limit of quantification, and the measured-lane chips */
+.qtable td.low { color: var(--faint); font-style: italic; }
+.qtable small.blq { font-size: 9.5px; font-style: normal; color: var(--warn); margin-left: 2px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chip-c { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px 2px 4px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; background: var(--panel); }
+.chip-c input { margin: 0; }
+.chip-c.off { color: var(--faint); background: var(--panel-2); }

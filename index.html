@@ -215,7 +215,7 @@
           <div class="cl-head"><span>Marker image</span> <span class="h3-note">optional, for Westerns</span></div>
           <p class="hint" id="mkImageText">Ladder not visible on the blot image? Load the white-light image of the same membrane. It is used only to find the marker bands; the figure still shows the blot.</p>
           <div class="field inline"><button class="btn sm" id="btnMarkerImg">Load marker image…</button><button class="btn sm ghost hidden" id="btnMarkerImgDel">Remove</button>
-            <label class="switch hidden" id="mkOverlayWrap"><input type="checkbox" id="mkOverlay" checked><span>Overlay on image</span></label></div>
+            <span class="inline hidden" id="mkOverlayWrap"><label class="switch"><input type="checkbox" id="mkOverlay" checked><span>Overlay</span></label><input type="range" id="mkOpacity" min="10" max="90" value="45" style="width:80px" title="Opacity of the marker image over the blot: slide it to check that the membrane edges coincide" aria-label="Marker image opacity"></span></div>
         </div>
         <details class="adv" id="favAdv">
           <summary><span>Favourite ladders ★</span><span class="h3-note" id="favNote"></span></summary>
@@ -296,22 +296,30 @@
       <section class="sec ana-sec" id="quantSec">
         <details class="adv flush" id="quantDetails">
           <summary class="sec-head as-summary"><span class="sec-n">6</span><span>Densitometry</span> <span class="h3-note" id="stQuant">band intensities, band sizes</span></summary>
-          <p class="lead">Add a <b>band box</b> for each band of interest, e.g. the target and the loading control: click <b>+ Band box</b>, then click the band on the raw image (or drag across it). The box is measured in every lane from the raw pixel values; the chart and table open in the <b>Analysis</b> window under the figure (also from <b>Analysis</b> in the top bar). While that window is the active one the boxes are the layer you can drag on the raw image (strips fade to outlines); click the figure to work on strips again.</p>
+          <p class="lead">A <b>band box</b> spans one band row; every measured lane is read in it from the original pixels. Click <b>+ Band box</b>, then click the band on the image (or drag across it).</p>
           <div class="field inline"><button class="btn sm" id="btnAddBox">+ Band box</button><button class="btn sm ghost" id="btnShowQuant">Show results</button></div>
           <div id="boxList" class="list"></div>
-          <p class="hint">Tick <b>Loading control</b> on the box of a housekeeping protein (GAPDH, actin, tubulin): the other bands in each lane are divided by it, which corrects for unequal loading.</p>
           <div class="field inline">
-            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto" title="Edge line: a straight line between the lane profile at the top and bottom edge of the box (ImageJ gel analyser). Border median: the median of a 3-pixel border around the box (Image Studio style). Rolling ball: a baseline under the whole lane profile."><option value="edge">Straight line at box edges</option><option value="border">Median of the box border</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
+            <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Whole box: every pixel of the box after background subtraction; linear in the amount of signal. Thresholded signal: only pixels more than 3 σ above the background count; it ignores empty margins but loses the faint part of every band, so faint bands read too low."><option value="box">Whole box (background-subtracted)</option><option value="band">Thresholded signal (pixels above 3 σ)</option></select></label>
           </div>
+          <p class="hint warn-t hidden" id="qModeWarn">Thresholded signal is not linear: a faint band loses most of its signal (doubling it can read as 3–10 ×). Use <b>Whole box</b> to compare amounts.</p>
           <div class="field inline">
-            <label class="inline-label"><span>Measure</span> <select id="qMode" style="width:auto" title="Band pixels: only pixels above the noise floor of the background count, so the value does not change with the box size. Whole box: every pixel of the box (ImageJ gel analyser), which drifts with the box size and the noise."><option value="band">Band pixels above the noise floor</option><option value="box">Whole box (ImageJ style)</option></select></label>
+            <label class="inline-label"><span>Background</span> <select id="qBg" style="width:auto" title="Edge line: a straight line between the lane profile at the top and bottom edge of the box (ImageJ gel analyser). Border median: the median of a 3-pixel border around the box (Image Studio style). Rolling ball: a baseline under the lane profile over the analysis area."><option value="edge">Straight line at box edges</option><option value="border">Median of the box border</option><option value="rolling">Rolling ball (lane profile)</option><option value="none">None</option></select></label>
           </div>
           <div class="field"><label><span>Box width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1"></div>
-          <div class="field inline">
-            <label class="inline-label"><span>Normalize to</span> <select id="qNorm" style="width:auto" title="Loading control: each band is divided by the ticked box in the same lane. Total lane: divided by the whole lane's density inside the figure area (total-protein normalization on a stain-free or stained gel). None: the volumes themselves."><option value="control">Loading-control box</option><option value="lane">Total lane density</option><option value="none">Nothing</option></select></label>
+          <div class="field" id="qAreaBox">
+            <div class="cl-head">Analysis area <span class="h3-note" id="qAreaNote"></span></div>
+            <div class="inline"><button class="btn sm ghost" id="btnAreaFromCrop" title="Set the analysis area to the current figure box (results can change)">Use the figure box</button></div>
+            <div class="cl-head" style="margin-top:6px">Lanes measured <span class="h3-note">untick to leave a lane out of the analysis; the figure is not affected</span></div>
+            <div id="qLaneList" class="chips"></div>
           </div>
+          <div class="field inline">
+            <label class="inline-label"><span>Normalize</span> <select id="qNorm" style="width:auto" title="Nothing: the background-subtracted values. Loading-control box: each band divided by the box ticked “Divide by this box” in the same lane. Lane signal: each band divided by its lane's signal over the analysis area."><option value="none">Nothing (raw values)</option><option value="control">By a loading-control box</option><option value="lane">By the lane signal</option></select></label>
+          </div>
+          <p class="hint" id="qNormHint"></p>
+          <label class="switch hidden" id="qLaneTotalWrap" title="Tick only when this image is a total-protein stain (e.g. Ponceau, Coomassie, REVERT) or a stain-free image of the same gel or membrane"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label>
           <div class="field inline"><label class="inline-label"><span>Reference lane (= 1.00)</span> <select id="qRef" style="width:auto"></select></label></div>
-          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the normalization).</p>
+          <p class="hint">Relative values are given against this lane: 2.00 means twice the reference lane (after the normalization). Its band must be at or above its limit of quantification.</p>
           <details class="adv" id="plotAdv">
             <summary><span>Plot</span><span class="h3-note">bars or points, values, title, axis label</span></summary>
             <div class="field inline">
@@ -323,7 +331,7 @@
             </div>
             <div class="field"><label><span>Title</span></label><input type="text" id="plotTitle" placeholder="none"></div>
             <div class="field"><label><span>Y-axis label</span></label><input type="text" id="plotY" placeholder="automatic (from the boxes and the normalization)"></div>
-            <p class="hint">One value per lane: the figure's lanes in order, markers left out. Error bars and significance need replicate gels, which this app does not pool. The chart is exported from the analysis window; <b>Export all</b> at the top right bundles it with the figure and the numbers.</p>
+            <p class="hint">One value per measured lane, ladders left out. A dashed bar is below its limit of quantification. Error bars and significance need replicate gels, which this app does not pool.</p>
           </details>
           <details class="adv" id="methodsAdv">
             <summary><span>Methods text</span><span class="h3-note">what was measured, for the manuscript</span></summary>
@@ -396,7 +404,7 @@
         <div class="qv-body">
           <div id="quantInt">
             <div id="quantEmpty" class="qv-empty hidden">
-              <b>No band boxes yet.</b><br>Click <b>+ Band box</b> (step 6 in the panel, or here), then click the band on the raw image. The box is measured in every lane of the figure; tick the loading control and the values are normalized to it.
+              <b>No band boxes yet.</b><br>Click <b>+ Band box</b>, then click a band on the image. The box is measured in every lane of the analysis area.
               <div><button class="btn primary" id="btnAddBox2">+ Band box</button></div>
             </div>
             <div id="quantChart" class="qchart"></div>
@@ -404,9 +412,9 @@
             <details class="adv" id="profAdv"><summary>Lane profile</summary>
               <div class="field inline"><select id="qProfLane" style="width:auto"></select></div>
               <canvas id="qProfile" height="130"></canvas>
-              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted.</p>
+              <p class="hint">Signal down the lane (top of the gel on the left). Shaded: band boxes; dashed: the background that is subtracted; dotted (thresholded signal only): pixels above it count. Drawn from the working image; the numbers come from the original pixels.</p>
             </details>
-            <p class="hint" id="quantNote">Integrated density of each box, from the original pixel values (the box is mapped back through the rotation and the geometry correction and read at the original pixels; the contrast setting has no effect). "rel." = divided by the loading control in the same lane, then by the reference lane, so the reference lane is 1.00. Saturated pixels make a box unreliable and are flagged. Compare lanes of the same image only.</p>
+            <p class="hint" id="quantNote"></p>
           </div>
           <div id="quantSize" class="hidden">
             <p class="lead">Every band in every lane of the figure, sized against the marker.</p>

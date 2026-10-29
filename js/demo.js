@@ -104,7 +104,7 @@
       }
     }
     for (let i = 0; i < d.length; i++) {
-      let v = Math.min(1, Math.max(0, d[i] + (rnd() - 0.5) * 0.012));
+      let v = Math.min(1, Math.max(0, d[i] + (rnd() - 0.5) * (opts.noise != null ? opts.noise : 0.012)));   // noise: full width of the uniform pixel noise
       if (opts.dark) v = Math.min(1, Math.max(0, 0.93 - v * 0.9));   // stained gel scanned in white light
       d[i] = v;
     }

@@ -132,7 +132,7 @@
     return JSON.stringify({
       tool: A.NAME + ' ' + A.VERSION, experiment: S.gelType, source: S.file.name, sha256: S.file.sha256,
       rotationDeg: S.rotation, flip: flipText(S), geometry: keystoneText(S) || null, levels: S.levels, effectiveGelDpi: Math.round(A.effectiveDpi()),
-      sensorSaturatedFrac: +k.sensorFrac.toFixed(5), levelClippedFrac: +A.bandClipFrac().toFixed(5),
+      bandEndClippedFrac: +k.sensorFrac.toFixed(5), saturation: A.satReport().kind, levelClippedFrac: +A.bandClipFrac().toFixed(5),
       splicedLanes: S.lanes.map((l, i) => (l.hidden ? i + 1 : null)).filter(v => v != null),
       disclosure: legendHints(S).join(' ')
     });
@@ -289,7 +289,8 @@
       strips: (S.strips || []).map(t => ({ label: t.label, yFrom: Math.round(Math.min(t.y0, t.y1)), yTo: Math.round(Math.max(t.y0, t.y1)) })),
       levels: Object.assign({ note: 'linear whole-image stretch; values are fractions of full scale' }, S.levels),
       clipping: {
-        sensorSaturatedPixels: k.sensor, sensorSaturatedFrac: k.sensorFrac,
+        bandEndClippedPixels: k.sensor, bandEndClippedFrac: k.sensorFrac, saturation: A.satReport(),
+        acquisition: A.acq ? { bits: A.acq.bits, floatingPoint: A.acq.float, lossy: A.acq.lossy, colourConvertedToGrey: !!A.acq.colour, top: A.acq.hi, bottom: A.acq.lo, largestStoredValue: A.acq.rawMax, looksBits: A.acq.effBits } : null,
         levelClippedHighPixels: k.high, levelClippedLowPixels: k.low,
         levelClippedOnBandSideFrac: A.bandClipFrac(), pixelsInCrop: k.n
       },
@@ -309,14 +310,17 @@
       legendHints: legendHints(S)
     };
     if (S.quant.rows.length) {
-      const R = G.Quant.measure(A);
+      const R = G.Quant.measure(A), D = G.Quant.describe(A, R), r4 = v => (v == null ? null : +v.toFixed(5));
       log.densitometry = {
-        method: { background: R.method, measure: R.mode === 'box' ? 'whole box' : 'band pixels above the noise floor (3 sigma of the background rows at the box edges)', boxWidthPx: Math.round(R.halfWidthPx * 20) / 10, values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' },
-        loadingControl: R.control >= 0 ? R.rows[R.control].name : null, referenceWell: R.ref + 1,
+        method: Object.assign({ mode: R.mode === 'box' ? 'whole box' : 'thresholded signal', backgroundMethod: R.method, boxWidthPx: Math.round(R.halfWidthPx * 20) / 10,
+          values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' }, D),
+        normalizationMode: R.normMode, loadingControl: R.control >= 0 ? R.rows[R.control].name : null, laneTotalIsTotalProteinStain: R.normMode === 'lane' ? R.laneTotal : null,
+        referenceWell: R.ref + 1, analysisArea: { x: Math.round(R.region.x), y: Math.round(R.region.y), w: Math.round(R.region.w), h: Math.round(R.region.h) },
+        lanesLeftOutOfAnalysis: S.lanes.map((l, i) => (l.noMeasure ? i + 1 : null)).filter(v => v != null),
         boxes: S.quant.rows.map(q => ({ name: q.name, yFrom: Math.round(Math.min(q.y0, q.y1)), yTo: Math.round(Math.max(q.y0, q.y1)) })),
-        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j],
-          values: R.rows.map((row, k2) => ({ band: row.name, volume: +R.vol[k2][j].toFixed(4), saturatedPixels: R.cells[k2][j].sat, normalized: R.norm[k2][j] == null ? null : +R.norm[k2][j].toFixed(5), relative: R.rel[k2][j] == null ? null : +R.rel[k2][j].toFixed(5) })) })),
-        saturatedWells: R.saturatedLanes.map(i => i + 1)
+        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j], denominator: R.totals ? r4(R.totals[j]) : undefined,
+          values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, volume: +c.vol.toFixed(4), lod: r4(c.lod), loq: r4(c.loq), clippedPixels: c.sat, flags: G.Quant.flagText(R.flags[k2][j]) || null, normalized: r4(R.norm[k2][j]), relative: r4(R.rel[k2][j]) }; }) })),
+        clippedWells: R.saturatedLanes.map(i => i + 1)
       };
     }
     return log;
@@ -357,10 +361,12 @@
     if (A.hasMarkerImage() && S.markers.length) h.push('Marker positions were taken from a white-light image of the same membrane captured in the same position.');
     if (S.arrows.some(a => a.size && !a.sizeText && (A.estimateInfo(a.y) || {}).extrap)) h.push('Sizes marked ≈ were extrapolated beyond the ladder range.');
     if (S.quant.rows.length) {
+      // the same words as the methods text and the CSV (G.Quant.describe), shortened for a legend
       const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
-      const ctl = R.control >= 0 ? `, normalized to ${R.rows[R.control].name}` : R.normMode === 'lane' ? ', normalized to the total lane density' : '';
-      const how = R.mode === 'box' ? 'integrated density in fixed-width boxes' : 'integrated density of the band pixels above the background noise floor in fixed-width boxes';
-      h.push(`Band intensities were quantified by densitometry of the raw image (${how}, ${bg})${ctl}` + (R.refOk.every(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.'));
+      const ctl = R.control >= 0 ? `, divided by ${R.rows[R.control].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the lane signal of this image') : '';
+      const how = R.mode === 'box' ? 'integrated density of fixed-width boxes on the original pixel values' : 'thresholded integrated density (pixels above 3 σ of the background) of fixed-width boxes on the original pixel values';
+      const blq = R.flags.flat().some(f => f.below) ? ' Values below the limit of quantification are marked.' : '';
+      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.refOk.some(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.') + blq);
     }
     return h;
   }

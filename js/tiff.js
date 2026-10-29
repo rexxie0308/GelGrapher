@@ -289,12 +289,16 @@
       return fmt === 3 ? tdv.getFloat32(byteIdx, le) : (fmt === 2 ? tdv.getInt32(byteIdx, le) : tdv.getUint32(byteIdx, le));
     };
     const color = spp >= 3 && photo === 2;
+    let chroma = 0;   // pixels whose channels differ by more than 4 % of full scale
+    const fullScale = fmt === 3 ? 1 : Math.pow(2, bits) - 1;
     for (let i = 0; i < n; i++) {
       let v;
       if (color) {
         const a = planar === 2 ? [i * bps, (n + i) * bps, (2 * n + i) * bps]
           : [(i * spp) * bps, (i * spp + 1) * bps, (i * spp + 2) * bps];
-        v = 0.299 * get(a[0]) + 0.587 * get(a[1]) + 0.114 * get(a[2]);
+        const r = get(a[0]), g = get(a[1]), b = get(a[2]);
+        if (Math.max(r, g, b) - Math.min(r, g, b) > 0.04 * fullScale) chroma++;
+        v = 0.299 * r + 0.587 * g + 0.114 * b;
       } else {
         v = get((planar === 2 ? i : i * spp) * bps);
       }
@@ -317,8 +321,12 @@
       if (v > actualMax) actualMax = v;
     }
     if (t[34675]) warnings.push('The TIFF carries an ICC colour profile, which is not applied; intensities are the stored values.');
-    return { width: w, height: h, data: gray, bits, spp, compression: comp, actualMax, dpi, warnings };
+    const colour = color && chroma > n * 0.01;
+    if (colour) warnings.push(COLOUR_NOTE);
+    return { width: w, height: h, data: gray, bits, spp, compression: comp, actualMax, dpi, warnings, fmt, colour };
   }
+
+  const COLOUR_NOTE = 'This is a colour image: it is converted to grey by luminance (0.299 R + 0.587 G + 0.114 B). A multi-channel fluorescence composite cannot be quantified per channel this way; export each channel as its own grayscale TIFF from the imager.';
 
   // Decode PNG/JPG etc. via the browser
   function decodeBrowserImage(file) {
@@ -333,13 +341,16 @@
         const d = ctx.getImageData(0, 0, c.width, c.height).data;
         const n = c.width * c.height;
         const gray = new Float32Array(n);
-        let mx = 0;
+        let mx = 0, chroma = 0;
         for (let i = 0; i < n; i++) {
-          const v = (0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255;
+          const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2];
+          if (Math.max(r, g, b) - Math.min(r, g, b) > 10) chroma++;
+          const v = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
           gray[i] = v; if (v > mx) mx = v;
         }
         URL.revokeObjectURL(url);
-        resolve({ width: c.width, height: c.height, data: gray, bits: 8, spp: 3, compression: 0, actualMax: mx, dpi: 0 });
+        const lossy = /\.jpe?g$/i.test(file.name || '') || file.type === 'image/jpeg';
+        resolve({ width: c.width, height: c.height, data: gray, bits: 8, spp: 3, compression: 0, actualMax: mx, dpi: 0, fmt: 1, lossy, colour: chroma > n * 0.01 });
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Cannot read this image')); };
       img.src = url;
@@ -360,7 +371,9 @@
     const isTiff = (b[0] === 0x49 && b[1] === 0x49 && b[2] === 42) || (b[0] === 0x4d && b[1] === 0x4d && b[3] === 42);
     if (isTiff) { const r = await decode(buffer); r.warnings = r.warnings || []; return r; }
     const r = await decodeBrowserImage(new File([buffer], name || 'image'));
-    r.warnings = [];
+    r.warnings = r.colour ? [COLOUR_NOTE] : [];
+    const isJpeg = b[0] === 0xff && b[1] === 0xd8;
+    if (isJpeg) r.lossy = true;
     const isPng = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
     if (isPng && b[24] === 16) r.warnings.push('This is a 16-bit PNG; browsers read it as 8-bit, so dynamic range is reduced. A 16-bit TIFF is better.');
     else if (!isPng || b[24] < 16) r.warnings.push('Non-TIFF images are handled as 8-bit; use the raw 16-bit TIFF if you have it.');

@@ -472,7 +472,7 @@
       const r = st.quant.rows[0], box = { name: 'extra', y0: r.y0 + 2, y1: r.y1 + 2 }; st.quant.rows.push(box); App.boxAdded = true; App.commit();
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
-      const lcHead = /loading control/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
+      const lcHead = /divisor/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
       G.QuantUI.show('quant', false);
       const v2 = G.QuantUI.view(), figShown = !$('figPane').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
@@ -592,25 +592,42 @@
         off: !!notes && !svg0.includes(probe), on: !!notes && svg1.includes(probe), taller: fn.h > f.h && fn.svg.includes(`height="`) && fn.notes >= 1,
         ok: !!$('btnPrint') && !!$('btnPrintMenu') && !!$('notesOn') && /width:1[2-8]\d\.\dmm/.test(h0) && !!notes && !svg0.includes(probe) && svg1.includes(probe) && fn.h > f.h };
     }
-    // 38. densitometry: the band-pixel measure does not change with the box size; a reference lane without the band gives no relative values
+    // 38. densitometry is linear by default and says when it cannot be trusted: a two-fold dilution series reads
+    // two-fold in the whole-box measure (the thresholded measure does not, for faint bands); a box over an empty
+    // region is below its limit of quantification, so it is flagged and the reference lane cannot serve; a
+    // denominator below its LOQ gives no normalized value; the analysis area and lanes are apart from the figure
     {
-      await G.UI.loadExample('western');
-      const st = App.S, q = st.quant, row = q.rows[0], h = Math.abs(row.y1 - row.y0), keep = JSON.parse(JSON.stringify(q));
-      q.mode = 'band'; q.control = -1;
-      const v1 = G.Quant.measure(App).vol[0];
-      q.rows[0] = { y0: Math.min(row.y0, row.y1) - h * 0.6, y1: Math.max(row.y0, row.y1) + h * 0.6, name: row.name };   // a box more than twice as tall
-      const v2 = G.Quant.measure(App).vol[0];
-      const drift = Math.max(...v1.map((v, j) => Math.abs(v2[j] / v - 1)));
-      q.mode = 'box';
-      const v3 = G.Quant.measure(App).vol[0], driftBox = Math.max(...v1.map((v, j) => Math.abs(v3[j] / v - 1)));
-      // a box over an empty region: the reference lane has no band there, so no relative value, and the chart falls back to the values
-      q.mode = 'band'; q.rows = [q.rows[0], { y0: st.crop.y + 2, y1: st.crop.y + 10, name: 'empty' }];
-      const M = G.Quant.measure(App), ch = G.Quant.chartSVG(App, M);
-      const emptyLow = Math.max(...M.vol[1]) < 0.02 * Math.max(...M.vol[0]);
-      const R2 = { refOk: M.refOk, relNull: M.rel[1].every(v => v == null), chart: !!(ch && ch.svg) };
-      Object.assign(q, keep); App.commit();
-      R.densMode = { drift: +drift.toFixed(4), driftBox: +driftBox.toFixed(4), emptyLow, refOk: R2.refOk, relNull: R2.relNull, chart: R2.chart,
-        ok: drift < 0.03 && emptyLow && R2.refOk[0] === true && R2.refOk[1] === false && R2.relNull && R2.chart };
+      const keepImg = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      // lanes 1-4: a two-fold series of a faint band (peak 0.02 to 0.16 above background); lane 5: empty
+      const amps = [0.02, 0.04, 0.08, 0.16], samples = [null, ...amps.map(a => [[3000, a]]), [], [[3000, 0.08]], [[3000, 0.08]], [[3000, 0.08]]];
+      await App.load(new File([G.Demo.encodeTiff16(G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: 9, samples, seed: 3, clean: true }))], 'dilution.tif'), 'dna-agarose');
+      const st = App.S, q = st.quant, xs = st.lanes.map(l => l.x), want = Array.from({ length: 4 }, (_, k) => 260 + 80 * (k + 1));
+      const li = want.map(x => xs.reduce((b, v, i) => (Math.abs(v - x) < Math.abs(xs[b] - x) ? i : b), 0));
+      const box = G.Quant.bandBox(App, st.lanes[li[3]].x, G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: 9, samples, seed: 3, clean: true }).truth.yOf(3000));
+      q.rows = [{ y0: box.y0, y1: box.y1, name: 'series' }]; q.region = Object.assign({}, st.crop); q.ref = li[0];
+      const ratios = mode => { q.mode = mode; const M = G.Quant.measure(App), v = li.map(i => M.vol[0][M.lanes.indexOf(i)]); return v.slice(1).map((x, k) => x / v[k]); };
+      const rBox = ratios('box'), rBand = ratios('band');
+      const linear = rBox.every(r => Math.abs(r - 2) < 0.2), bandOff = Math.abs(rBand[0] - 2) > 0.3;
+      // an empty box: below LOQ in every lane, flagged, no reference
+      q.mode = 'box'; q.rows.push({ y0: st.crop.y + st.crop.h * 0.04, y1: st.crop.y + st.crop.h * 0.08, name: 'empty' });
+      const M2 = G.Quant.measure(App), emptyFlag = M2.flags[1].every(f => f.below), noRef = M2.refOk[1] === false && M2.rel[1].every(v => v == null);
+      // dividing by the empty box: no normalized values (the denominator is below its LOQ)
+      q.norm = 'control'; q.control = 1;
+      const M3 = G.Quant.measure(App), denWeak = M3.norm[0].every(v => v == null) && M3.flags[0].every(f => f.den === 'weak');
+      q.norm = 'none'; q.control = -1;
+      // the figure is not the analysis: a narrower red box and a lane hidden from the figure change no number
+      const before = JSON.stringify(G.Quant.measure(App).vol), lanesBefore = G.Quant.quantLanes(App).join();
+      st.crop = { x: st.crop.x + 100, y: st.crop.y + 30, w: st.crop.w - 200, h: st.crop.h - 60 }; st.lanes[li[2]].hidden = true;
+      const sameVals = JSON.stringify(G.Quant.measure(App).vol) === before, sameLanes = G.Quant.quantLanes(App).join() === lanesBefore;
+      // leaving a lane out of the analysis does remove it
+      st.lanes[li[2]].noMeasure = true; const leftOut = !G.Quant.quantLanes(App).includes(li[2]);
+      // the methods, the CSV and the log say the same thing about the measure
+      const M4 = G.Quant.measure(App), D = G.Quant.describe(App, M4), methods = G.Quant.methodsText(App, M4), csvT = G.Quant.quantCSV(App, M4);
+      const consistent = methods.includes(D.measure) && csvT.includes(D.measure) && /LOQ/.test(methods) && /whole box/.test(D.measure);
+      await App.load(new File([keepImg.buf], keepImg.name), keepImg.type);
+      App.S = JSON.parse(keepImg.snap); App.hist = keepImg.hist; App.future = keepImg.future; App.isExample = keepImg.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.densMode = { rBox: rBox.map(r => +r.toFixed(3)), rBand: rBand.map(r => +r.toFixed(3)), linear, bandOff, emptyFlag, noRef, denWeak, sameVals, sameLanes, leftOut, consistent,
+        ok: linear && bandOff && emptyFlag && noRef && denWeak && sameVals && sameLanes && leftOut && consistent };
     }
     // 39. the raw image edits one layer at a time: band boxes respond with the Densitometry view, strips with the figure
     {
@@ -712,8 +729,8 @@
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
       // normalization modes and the border background
       q.norm = 'lane'; q.bg = 'border'; App.commit();
-      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
-      const csvNorm = G.Quant.quantCSV(App, M).includes('total lane'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
+      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'lane signal' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
+      const csvNorm = G.Quant.quantCSV(App, M).includes('lane signal (denominator)'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
       q.norm = 'none'; App.commit();
       const noneNorm = G.Quant.measure(App).normLabel === null;
       // the package
@@ -899,6 +916,48 @@
       App.S.markers.forEach((m, k) => { m.ladderId = keepM[k]; });
       R.ladderLibrary = { n: all.length, bad, fmt: fmt.length, once, starred, legend: legend.slice(0, 200),
         ok: !bad.length && lmw.ref.join() === '200' && p7717.sizes.length === 13 && fmt.length === 5 && once.join() === 'neb1kbplus' && starred.join() === 'nebqlp1kbplus' && /Broad Range \(10-250 kDa\)\./.test(legend) };
+    }
+    // 53. saturation is read from the original pixels at the band end of the scale, where this file clips: dark bands
+    // clipped at black, 12-bit data in a 16-bit file (a pile-up at 4095), floating-point data (cannot tell), a
+    // colour image (warned); and the marker image goes through the blot's geometry, with its offset measured
+    {
+      const keep = { buf: App.srcBuffer, name: App.S.file.name, type: App.S.gelType, snap: App.snapshot(), hist: App.hist.slice(), future: App.future.slice(), example: App.isExample };
+      // dark bands (a stained gel scanned in white light) with one band core clipped at black
+      const gd = G.Demo.makeGel({ preset: 'dna', tilt: 0, dark: true });
+      await App.load(new File([G.Demo.encodeTiff16(gd)], 'dark.tif'), 'dna-agarose');
+      // (the synthetic stain clips at 0.03 of full scale, not at 0: a pile-up, 'probably clipped')
+      const darkOk = App.S.bright === false && App.S.saturatedInCrop > 0 && App.satReport().kind === 'probable' && App.acq.lo.kind === 'pileup' && App.acq.hi.kind === 'none';
+      // 12-bit data in a 16-bit file: the saturating band piles up at 4095, far below 65535
+      const g12 = G.Demo.makeGel({ preset: 'dna', tilt: 0 }), d12 = Float32Array.from(g12.data, v => Math.round(v * 4095) / 65535);
+      await App.load(new File([G.Demo.encodeTiff16({ width: g12.width, height: g12.height, data: d12 })], 'twelve.tif'), 'dna-agarose');
+      const twelve = { eff: App.acq.effBits, kind: App.acq.hi.kind, n: App.S.saturatedInCrop, rep: App.satReport().kind };
+      const twelveOk = twelve.eff === 12 && twelve.kind === 'pileup' && twelve.n > 0 && twelve.rep === 'probable';
+      // floating-point data with no pile-up: saturation cannot be told
+      const keepAcq = App.acq; App.acq = G.Engine.clipLevels({ data: Float32Array.from({ length: 4000 }, (_, i) => 0.1 + 0.8 * i / 4000) }, { fmt: 3, bits: 32 });
+      const floatOk = App.satReport().kind === 'unknown' && App.satPredicate() === null; App.acq = keepAcq;
+      // a colour image is converted to grey with a warning
+      const cv = document.createElement('canvas'); cv.width = 120; cv.height = 80; const cx = cv.getContext('2d');
+      cx.fillStyle = '#000'; cx.fillRect(0, 0, 120, 80); cx.fillStyle = '#f00'; cx.fillRect(10, 10, 40, 60); cx.fillStyle = '#0f0'; cx.fillRect(60, 10, 40, 60);
+      const png = await new Promise(r => cv.toBlob(r, 'image/png')), inp = await App.readInput({ name: 'composite.png', buffer: await png.arrayBuffer() });
+      const colourOk = inp.img.colour === true && inp.img.warnings.some(w => /colour image/.test(w));
+      // the marker image under a manual perspective box: the same transform as the blot, so a copy of the blot lands on it
+      const gm = G.Demo.makeGel({ preset: 'western', tilt: 0 }), bufM = G.Demo.encodeTiff16(gm);
+      await App.load(new File([bufM], 'blot.tif'), 'western');
+      const W = App.src.w, H = App.src.h;
+      App.setGeomCorners([[W * 0.08, H * 0.1], [W * 0.92, H * 0.06], [W * 0.95, H * 0.94], [W * 0.05, H * 0.9]]); App.commit();
+      App.setMarkerImage(await App.readInput({ name: 'marker.tif', buffer: bufM }));
+      const mr = App.ensureMarkerRot(), rr = App.ensureRot();
+      let diff = 0; for (let i = 0; i < rr.data.length; i += 97) diff = Math.max(diff, Math.abs(mr.data[i] - rr.data[i]));
+      const sameFrame = mr.w === rr.w && mr.h === rr.h && diff < 1e-4, aligned = App.markerAligned() === true;
+      // an offset copy is measured as offset
+      const sh = new Float32Array(gm.data.length); for (let y = 0; y < gm.height; y++) for (let x = 0; x < gm.width; x++) sh[y * gm.width + x] = gm.data[Math.min(gm.height - 1, Math.max(0, y - 14)) * gm.width + Math.min(gm.width - 1, Math.max(0, x - 10))];
+      App.setMarkerImage(await App.readInput({ name: 'shifted.tif', buffer: G.Demo.encodeTiff16({ width: gm.width, height: gm.height, data: sh }) }));
+      const off = App.markerAlign, offsetSeen = App.markerAligned() === false && Math.abs(off.dx - 10) <= 3 && Math.abs(off.dy - 14) <= 3;
+      App.clearMarkerImage();
+      await App.load(new File([keep.buf], keep.name), keep.type);
+      App.S = JSON.parse(keep.snap); App.hist = keep.hist; App.future = keep.future; App.isExample = keep.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
+      R.saturation = { darkOk, twelve, twelveOk, floatOk, colourOk, sameFrame, diff, aligned, off, offsetSeen,
+        ok: darkOk && twelveOk && floatOk && colourOk && sameFrame && aligned && offsetSeen };
     }
     // 40. the figure column follows the panel: a control of steps 1-5 brings the figure, one of step 6 the Densitometry view
     {
