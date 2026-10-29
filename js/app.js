@@ -21,7 +21,9 @@
   // signal over the analysis area; laneTotal: the image is a total-protein stain or stain-free image);
   // region: the analysis area, set from the figure box when the first band box is drawn and kept
   // apart from it afterwards, so a cosmetic change of the figure never changes a result
-  const defaultQuant = () => ({ rows: [], bg: 'edge', mode: 'box', wFrac: 0.7, control: -1, ref: -1, norm: 'none', laneTotal: false, region: null, plot: defaultPlot() });
+  // version 2: regions fixed in the original pixels, local background, signed sums (js/quant.js); a project
+  // measured before keeps version 1 until the user updates it
+  const defaultQuant = () => ({ version: 2, rows: [], bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, mode: 'box', wFrac: 0.7, norm: 'none', normBand: null, laneTotal: false, output: 'corrected', ref: null, region: null, frames: {}, plot: defaultPlot() });
 
   const App = {
     S: null,            // serialisable state
@@ -340,7 +342,7 @@
       } else {
         A.markers.forEach(m => m.bands.forEach(b => { b.y = H - 1 - b.y; }));
         A.arrows.forEach(a => { a.y = H - 1 - a.y; });
-        A.strips.concat(A.quant.rows).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
+        A.strips.concat(A.quant.rows.filter(r => !r.frame)).forEach(r => { const y0 = H - 1 - r.y1, y1 = H - 1 - r.y0; r.y0 = y0; r.y1 = y1; });
         A.crop = { x: c.x, y: Math.round(Math.max(0, H - (c.y + c.h))), w: c.w, h: c.h };
         const g = A.quant.region; if (g) A.quant.region = { x: g.x, y: Math.round(Math.max(0, H - (g.y + g.h))), w: g.w, h: g.h };
       }
@@ -612,8 +614,9 @@
       const laneX0 = A.lanes.map(l => l.x);
       A.markers.forEach(m => { const lx = laneX0[m.lane]; if (lx == null) return; m.bands.forEach(b => { b.y = P(lx, b.y).y; }); });
       A.arrows.forEach(a => { const p = P(a.x != null ? a.x : ccx, a.y); a.y = p.y; if (a.x != null) a.x = p.x; });
-      // strips and band boxes span the crop: carried at its horizontal centre like arrows
-      A.strips.concat(A.quant.rows).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
+      // strips and band boxes span the crop: carried at its horizontal centre like arrows. A band placed in
+      // the original pixels (r.frame, version 2) does not move: its outline follows on screen by itself
+      A.strips.concat(A.quant.rows.filter(r => !r.frame)).forEach(r => { r.y0 = P(ccx, r.y0).y; r.y1 = P(ccx, r.y1).y; });
       A.lanes.forEach(l => { l.x = P(l.x, ccy).x; });
       // the crop is carried by the midpoints of its four sides, so a keystone that spreads the lanes
       // spreads the box with them (carried by its centre at a fixed size, its sides cut into the
@@ -1086,14 +1089,18 @@
     const fromOld = xs.map(near);                 // new index -> old index (or -1)
     const toNew = new Map(); fromOld.forEach((o, n) => { if (o >= 0 && !toNew.has(o)) toNew.set(o, n); });
     const nearestNew = o => { if (toNew.has(o)) return toNew.get(o); let bi = 0, bd = Infinity; xs.forEach((x, n) => { const d = Math.abs(x - (old[o] ? old[o].x : 0)); if (d < bd) { bd = d; bi = n; } }); return bi; };
-    S.lanes = xs.map((x, n) => {
+    const out = [];
+    xs.forEach((x, n) => {
       const o = fromOld[n] >= 0 ? old[fromOld[n]] : null, l = { x, name: o ? o.name : '', hidden: o ? !!o.hidden : false };
+      if (o && o.id && !out.some(p => p.id === o.id)) l.id = o.id;   // the same lane keeps its id (its measurement regions)
       if (o && o.noMeasure) l.noMeasure = true;
       if (o && o.role) l.role = o.role;
-      return l;
+      out.push(l);
     });
+    S.lanes = out;
+    App.ensureLaneIds(S);
     S.markers = S.markers.filter(m => toNew.has(m.lane)).map(m => Object.assign(m, { lane: toNew.get(m.lane) }));
-    if (S.quant.ref >= 0) S.quant.ref = toNew.has(S.quant.ref) ? toNew.get(S.quant.ref) : -1;
+    if (typeof S.quant.ref === 'number' && S.quant.ref >= 0) S.quant.ref = toNew.has(S.quant.ref) ? toNew.get(S.quant.ref) : -1;
     S.groups.forEach(g => { g.from = nearestNew(g.from); g.to = nearestNew(g.to); });
     S.conditions.forEach(c => { const v = c.values.slice(); c.values = xs.map((x, n) => (fromOld[n] >= 0 ? v[fromOld[n]] || '' : '')); });
     App.fixIndices();
@@ -1272,6 +1279,23 @@
     return S.lanes.findIndex(l => l.x === x);
   };
 
+  /* A lane's stable id: measurement regions, the reference lane and exports refer to it, so re-detecting,
+   * reordering or removing other lanes never moves a measurement to another lane. Given on first use. */
+  App.laneId = function (i) {
+    const S = App.S, l = S.lanes[i];
+    if (!l) return null;
+    if (!l.id) App.ensureLaneIds(S);
+    return l.id;
+  };
+  // every lane of a state (and of its other gel rows) has an id, unique within its row: the first free 'L<k>',
+  // k from its position + 1 (so a project, a draft and an undo snapshot give the same ids)
+  App.ensureLaneIds = function (S) {
+    [S].concat(Object.values(S.rowStash || {})).forEach(A => {
+      if (!A || !A.lanes) return;
+      const used = new Set();
+      A.lanes.forEach((l, i) => { if (!l.id || used.has(l.id)) { let k = i + 1; while (used.has('L' + k) || A.lanes.some(x => x !== l && x.id === 'L' + k)) k++; l.id = 'L' + k; } used.add(l.id); });
+    });
+  };
   App.removeLane = function (i) {
     const S = App.S;
     if (i < 0 || i >= S.lanes.length) return;
@@ -1281,7 +1305,7 @@
     S.conditions.forEach(c => c.values.splice(i, 1));
     S.markers = S.markers.filter(m => m.lane !== i);
     S.markers.forEach(m => { m.lane = shift(m.lane); });
-    S.quant.ref = S.quant.ref === i ? -1 : shift(S.quant.ref);
+    if (typeof S.quant.ref === 'number') S.quant.ref = S.quant.ref === i ? -1 : shift(S.quant.ref);
     App.fixIndices();
   };
 
@@ -1293,7 +1317,7 @@
     S.groups.forEach(g => { g.from = inv[g.from] ?? g.from; g.to = inv[g.to] ?? g.to; });
     S.conditions.forEach(c => { const v = c.values.slice(); c.values = order.map(o => v[o] || ''); });
     S.markers.forEach(m => { m.lane = inv[m.lane] ?? m.lane; });
-    if (S.quant.ref >= 0) S.quant.ref = inv[S.quant.ref] ?? S.quant.ref;
+    if (typeof S.quant.ref === 'number' && S.quant.ref >= 0) S.quant.ref = inv[S.quant.ref] ?? S.quant.ref;
   };
 
   App.fixIndices = function () {
@@ -1301,7 +1325,7 @@
     S.groups.forEach(g => { g.from = Math.min(g.from, n - 1); g.to = Math.min(g.to, n - 1); });
     S.conditions.forEach(c => { c.values.length = n; for (let i = 0; i < n; i++) c.values[i] = c.values[i] || ''; });
     S.markers = S.markers.filter(m => m.lane != null && m.lane < n);
-    if (S.quant.ref >= n) S.quant.ref = -1;
+    if (typeof S.quant.ref === 'number' && S.quant.ref >= n) S.quant.ref = -1;
   };
 
   App.sortLanesIfNeeded = function () {
@@ -1918,6 +1942,7 @@
   App.snapshot = function () { return JSON.stringify(App.S); };
   App.commit = function () {
     if (!App.S) return;
+    App.ensureLaneIds(App.S);
     const snap = App.snapshot();
     if (App.hist[App.hist.length - 1] !== snap) {
       App.hist.push(snap);
@@ -2052,7 +2077,13 @@
     S.strips = S.strips || [];
     const legacy = A => {
       const hadMode = A.quant && A.quant.mode, hadNorm = A.quant && A.quant.norm, hadRegion = A.quant && 'region' in A.quant;
-      A.quant = Object.assign(defaultQuant(), A.quant || {});
+      // an analysis saved before calculation version 2 keeps version 1 (and its settings) until the user updates
+      // it; one without band boxes takes the current defaults
+      const v1 = A.quant && A.quant.version == null && A.quant.rows && A.quant.rows.length;
+      if (A.quant && A.quant.version == null && !v1) { const keep = { region: A.quant.region, plot: A.quant.plot, wFrac: A.quant.wFrac }; A.quant = Object.assign(defaultQuant(), keep); }
+      A.quant = Object.assign(defaultQuant(), v1 ? { bg: 'edge', ref: -1, control: -1, output: undefined, norm: 'none' } : {}, A.quant || {});
+      if (v1) A.quant.version = 1;
+      A.quant.frames = A.quant.frames || {};
       A.quant.plot = Object.assign(defaultPlot(), A.quant.plot || {});
       // saved before 2026-11: those defaults were the thresholded measure and loading-control normalization
       if (!hadMode && A.quant.rows.length) A.quant.mode = 'band';
@@ -2064,6 +2095,8 @@
     };
     legacy(S);
     Object.values(S.rowStash || {}).forEach(A => { if (A && A.quant) legacy(A); });
+    // every lane gets its stable id now, so an undo snapshot and a project file carry it
+    App.ensureLaneIds(S);
     if (S.markerImage === undefined) S.markerImage = null;
     S.flip = Object.assign({ h: false, v: false }, S.flip || {});
     if (S.gelRows === undefined) S.gelRows = null;

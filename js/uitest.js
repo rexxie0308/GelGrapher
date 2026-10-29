@@ -292,12 +292,12 @@
     {
       const st = App.S, fl = G.UI.figLanes(), g = G.Demo.makeGel();
       const box = G.Quant.bandBox(App, st.lanes[fl[1]].x, g.truth.yOf(1500));
-      st.quant.rows = [{ y0: box.y0, y1: box.y1, name: 'product' }]; st.quant.control = -1; st.quant.ref = fl[1]; App.commit();
+      st.quant.rows = [{ y0: box.y0, y1: box.y1, name: 'product' }]; st.quant.norm = 'none'; st.quant.ref = App.laneId(fl[1]); st.quant.output = 'fold'; App.commit();
       const Rq = G.Quant.measure(App), j2 = Rq.lanes.indexOf(fl[2]), j3 = Rq.lanes.indexOf(fl[3]);
       const truth = [0.6 / 0.55, 0.5 / 0.55], got = [Rq.rel[0][j2], Rq.rel[0][j3]];
       const csv = G.Quant.quantCSV(App, Rq), chart = G.Quant.chartSVG(App, Rq);
       R.quant = { truth: truth.map(v => +v.toFixed(3)), got: got.map(v => +v.toFixed(3)), maxErr: Math.max(...got.map((v, k) => Math.abs(v / truth[k] - 1))), csvLines: csv.trim().split('\n').length, chart: !!chart && chart.svg.startsWith('<svg') };
-      st.quant.rows = []; App.commit();
+      st.quant.rows = []; st.quant.ref = null; st.quant.output = 'corrected'; App.commit();
     }
     // 23. vector PDF: valid file, text kept (Greek letters via the Symbol font)
     {
@@ -344,8 +344,8 @@
       const err = Math.max(...Rw.rel[0].map((v, j) => Math.abs(v / truth[j] - 1)));
       // the favourite-ladder list follows the loaded gel's kind (protein here), not the kind chosen at start-up
       const favNames = [...document.querySelectorAll('#favList .item span')].map(e => e.textContent), protein = new Set(G.Ladders.all('protein').map(l => l.name));
-      // the boxes integrate the original pixels inside their mapped outline (the example is rotated 1.3°); the
-      // band mode's noise floor on the synthetic's noise puts the relative values within 5 % of the truth
+      // the regions integrate the original pixels inside their mapped outline (the example is rotated 1.3°), signed,
+      // after the local background above and below: fold changes within 5 % of the synthetic truth
       R.western = { ok: App.S.markers.length === 1 && App.S.markers[0].ladderId === 'pr26619' && err < 0.05 && App.S.strips.length === 2, err: +err.toFixed(4), markers: App.S.markers.map(m => [m.lane + 1, m.ladderId]),
         favsFollowKind: favNames.length > 0 && favNames.every(n => protein.has(n)), favFirst: favNames[0] };
       await G.UI.loadExample('sds');
@@ -472,7 +472,7 @@
       const r = st.quant.rows[0], box = { name: 'extra', y0: r.y0 + 2, y1: r.y1 + 2 }; st.quant.rows.push(box); App.boxAdded = true; App.commit();
       await new Promise(r => setTimeout(r, 50));
       const v1 = G.QuantUI.view(), chart = !!$('quantChart').querySelector('svg'), tableRows = $('quantTable').querySelectorAll('tbody tr').length, lanes = G.Quant.quantLanes(App).length;
-      const lcHead = /divisor/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
+      const lcHead = /reference band/.test($('quantTable').innerHTML), panelHasChart = !document.getElementById('quantSec').contains($('quantChart'));
       G.QuantUI.show('quant', false);
       const v2 = G.QuantUI.view(), figShown = !$('figPane').classList.contains('hidden') && $('quantView').classList.contains('hidden');
       st.quant.rows.pop(); App.commit();
@@ -499,7 +499,7 @@
       const ways = /Use my image/.test(es.textContent) && !!es.querySelector('[data-lesson="figure"]') && !!es.querySelector('[data-lesson="measure"]') && !!es.querySelector('#btnOverview');
       const idle = !G.Tour.active();
       const L = G.Tour.lessons(), short = L.length >= 6 && L.every(l => l.cards.length >= 2 && l.cards.length <= 8);
-      const order = L.find(l => l.id === 'measure').cards.join(' > ') === 'Acquisition and saturation > Ladder image > Box the band > Lanes measured > Background and profile > Normalization > Read the values > Export results and provenance';
+      const order = L.find(l => l.id === 'measure').cards.join(' > ') === 'Acquisition quality > Select the target band > Inspect the background > Output and normalization > Review flags and export';
       App.setPref('lessons', null);
       // the menu: lessons under two goals; an example is open, so it is the practice copy (no "Practise on" choice)
       G.Tour.menu();
@@ -528,7 +528,9 @@
       const cardInPanel = cr.left >= panelR.left - 1 && cr.right <= panelR.right + 1 && !(cr.left < tr.right && cr.right > tr.left && cr.top < tr.bottom && cr.bottom > tr.top);
       const cardAt = { card: box4(cr), control: box4(tr), panel: box4(panelR) };
       const glued = $('tourText').innerHTML.includes('<span class="tour-kb"><kbd class="tour-key">Confirm this is the ladder you loaded</kbd>.</span>');   // "." never starts a line
-      confirmEl.querySelector('input').click(); log.push(await act('Name a lane·0'));
+      confirmEl.querySelector('input').click(); log.push(await act('Ladder image·0'));
+      const naWords = $('tourAlt').textContent === 'Not applicable' && /verify registration before estimating sizes/.test($('tourWhyText').textContent);
+      $('tourAlt').click(); log.push(await until('Name a lane·0'));
       const whyRefolded = !$('tourWhy').open;
       const fl = G.UI.figLanes().filter(i => !App.S.markers.some(m => m.lane === i));
       App.S.lanes[fl[0]].name = 'tut-A'; $('floatEd').classList.remove('hidden'); App.commit(); await wait(1200);
@@ -561,23 +563,25 @@
       $('tourSkip').click();
       // measuring, in order, on the Western example
       await G.Tour.practice('measure');
-      log.push(await until('Acquisition and saturation·0'));
+      log.push(await until('Acquisition quality·0'));
       const prepQuant = !App.S.quant.rows.length && App.S.quant.norm === 'none';
-      $('showSat').checked = true; $('showSat').dispatchEvent(new Event('change')); log.push(await act('Ladder image·0'));
-      const naWords = $('tourAlt').textContent === 'Not applicable';
+      $('showSat').checked = true; $('showSat').dispatchEvent(new Event('change')); log.push(await act('Select the target band·0'));
       $('showSat').checked = false; $('showSat').dispatchEvent(new Event('change'));
-      $('tourAlt').click(); log.push(await until('Box the band·0'));
       App.mode = 'quant'; App.emit('change'); await wait(200);
       const quantStage = spotR().left > panelR.right;              // the ring moves to the image
       App.mode = null; const r0 = App.S.markers[0].bands[3];
-      App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await act('Lanes measured·0'));
-      const profileOpen = G.QuantUI.view() === 'quant' && !$('quantProf').classList.contains('hidden');   // the follow-up of the card ran
-      $('tourAlt').click(); log.push(await until('Background and profile·0'));
-      const pl = $('qProfLane'); pl.value = [...pl.options].map(o => o.value).find(v => v !== pl.value); pl.dispatchEvent(new Event('change')); log.push(await act('Normalization·0'));
-      const proteinWords = /GAPDH/.test($('tourText').textContent) && /total-protein/.test($('tourText').textContent) && $('tourAlt').textContent === 'Keep raw values';
-      $('tourAlt').click(); log.push(await until('Read the values·0'));
-      document.querySelector('#quantTabs [data-tab="int"]').click(); log.push(await act('Export results and provenance·0'));
-      $('tourAlt').click(); log.push(at());
+      App.S.quant.rows.push({ y0: r0.y - 6, y1: r0.y + 6, name: 'a' }); App.commit(); log.push(await act('Inspect the background·0'));
+      // the follow-up of the card ran: the profile is open on the strongest lane; the card asks for the weakest
+      const Rl = G.Quant.measure(App), byV = Rl.values.corrected[0].map((v, j) => [v, Rl.lanes[j]]).filter(p => p[0] != null).sort((a, b) => b[0] - a[0]);
+      const profileOpen = G.QuantUI.view() === 'quant' && !$('quantProf').classList.contains('hidden') && +$('qProfLane').value === byV[0][1];
+      const weakAsked = $('tourText').textContent.includes(`lane ${byV[byV.length - 1][1] + 1}, the weakest`) && !G.Tour.done();
+      const pl = $('qProfLane'); pl.value = String(byV[byV.length - 1][1]); pl.dispatchEvent(new Event('change')); log.push(await act('Output and normalization·0'));
+      const proteinWords = /GAPDH/.test($('tourText').textContent) && /total-protein/.test($('tourText').textContent) && $('tourAlt').textContent === 'Keep unnormalized'
+        && /Unnormalized signal is useful when acquisition, region selection, and background correction are valid\. Normalization is optional\./.test($('tourWhyText').textContent);
+      $('tourAlt').click(); log.push(await until('Review flags and export·0'));
+      const exportOnSave = !G.Tour.done();                         // clicking alone does not finish it: a kept file does
+      App.emit('exported-results'); await wait(300); const exportSaved = G.Tour.done();
+      G.Tour.next(); log.push(at());
       G.Tour.next();
       const measureDone = App.prefs().lessons.measure.done === true;
       // on the user's own gel: the menu offers the choice; the lesson is worded for its experiment, and what it
@@ -594,13 +598,13 @@
       $('tourRevert').click(); await wait(100);
       const reverted = App.S.strips.length === strips0 && $('tourRevert').classList.contains('hidden');
       G.Tour.next();
-      const expect = ['Working image and original·0', 'Check the lanes·0', 'Check the ladder·0', 'Name a lane·0', 'Read the notices·0', 'Export the figure·0', 'Lesson done·0',
+      const expect = ['Working image and original·0', 'Check the lanes·0', 'Check the ladder·0', 'Ladder image·0', 'Name a lane·0', 'Read the notices·0', 'Export the figure·0', 'Lesson done·0',
         'Group line·0', 'Target band arrow·0', 'Target band arrow·0',
-        'Acquisition and saturation·0', 'Ladder image·0', 'Box the band·0', 'Lanes measured·0', 'Background and profile·0', 'Normalization·0', 'Read the values·0', 'Export results and provenance·0', 'Lesson done·0',
+        'Acquisition quality·0', 'Select the target band·0', 'Inspect the background·0', 'Output and normalization·0', 'Review flags and export·0', 'Lesson done·0',
         'Add a strip·0', 'Remove the strip·0', 'Lesson done·0'];
       const bad = expect.map((e, k) => log[k] === e ? null : `${k}: ${log[k]} ≠ ${e}`).filter(Boolean);
       const checks = { ways, idle, short, order, menu, prepared, clickable, warnHidden, dimmed, waits, halfway, altWords, whyFolded, pageStill, ringOnConfirm, cardInPanel, glued, whyRefolded, typingWaits, noticesCard, exportWaits, dialogWaits, backWaits, endCard, doneKept,
-        leftAt, tick, resume: !!resume, prepQuant, naWords, quantStage, profileOpen, proteinWords, measureDone, whereShown, ownGel, revertShown, reverted };
+        leftAt, tick, resume: !!resume, prepQuant, naWords, quantStage, profileOpen, weakAsked, proteinWords, exportOnSave, exportSaved, measureDone, whereShown, ownGel, revertShown, reverted };
       R.lessons = Object.assign({ bad, cardAt, ok: !bad.length && Object.values(checks).every(Boolean) && !G.Tour.active() }, checks);
       await G.UI.loadExample('western');                               // the sections that follow ran on the Western example
     }
@@ -628,17 +632,17 @@
       const st = App.S, q = st.quant, xs = st.lanes.map(l => l.x), want = Array.from({ length: 4 }, (_, k) => 260 + 80 * (k + 1));
       const li = want.map(x => xs.reduce((b, v, i) => (Math.abs(v - x) < Math.abs(xs[b] - x) ? i : b), 0));
       const box = G.Quant.bandBox(App, st.lanes[li[3]].x, G.Demo.makeGel({ preset: 'dna', tilt: 0, lanes: 9, samples, seed: 3, clean: true }).truth.yOf(3000));
-      q.rows = [{ y0: box.y0, y1: box.y1, name: 'series' }]; q.region = Object.assign({}, st.crop); q.ref = li[0];
+      q.rows = [{ y0: box.y0, y1: box.y1, name: 'series' }]; q.region = Object.assign({}, st.crop); q.ref = App.laneId(li[0]); q.output = 'fold';
       const ratios = mode => { q.mode = mode; const M = G.Quant.measure(App), v = li.map(i => M.vol[0][M.lanes.indexOf(i)]); return v.slice(1).map((x, k) => x / v[k]); };
       const rBox = ratios('box'), rBand = ratios('band');
       const linear = rBox.every(r => Math.abs(r - 2) < 0.2), bandOff = Math.abs(rBand[0] - 2) > 0.3;
       // an empty box: below LOQ in every lane, flagged, no reference
       q.mode = 'box'; q.rows.push({ y0: st.crop.y + st.crop.h * 0.04, y1: st.crop.y + st.crop.h * 0.08, name: 'empty' });
       const M2 = G.Quant.measure(App), emptyFlag = M2.flags[1].every(f => f.below), noRef = M2.refOk[1] === false && M2.rel[1].every(v => v == null);
-      // dividing by the empty box: no normalized values (the denominator is below its LOQ)
-      q.norm = 'control'; q.control = 1;
-      const M3 = G.Quant.measure(App), denWeak = M3.norm[0].every(v => v == null) && M3.flags[0].every(f => f.den === 'weak');
-      q.norm = 'none'; q.control = -1;
+      // dividing by the empty box: no normalized values (the divisor is below its 10σ noise threshold), each with that reason
+      q.norm = 'band'; q.normBand = q.rows[1].id;
+      const M3 = G.Quant.measure(App), denWeak = M3.norm[0].every(v => v == null) && M3.why.normalized[0].every(w => /below its 10σ noise threshold|is not above zero/.test(w));
+      q.norm = 'none'; q.normBand = null;
       // the figure is not the analysis: a narrower red box and a lane hidden from the figure change no number
       const before = JSON.stringify(G.Quant.measure(App).vol), lanesBefore = G.Quant.quantLanes(App).join();
       st.crop = { x: st.crop.x + 100, y: st.crop.y + 30, w: st.crop.w - 200, h: st.crop.h - 60 }; st.lanes[li[2]].hidden = true;
@@ -647,7 +651,7 @@
       st.lanes[li[2]].noMeasure = true; const leftOut = !G.Quant.quantLanes(App).includes(li[2]);
       // the methods, the CSV and the log say the same thing about the measure
       const M4 = G.Quant.measure(App), D = G.Quant.describe(App, M4), methods = G.Quant.methodsText(App, M4), csvT = G.Quant.quantCSV(App, M4);
-      const consistent = methods.includes(D.measure) && csvT.includes(D.measure) && /LOQ/.test(methods) && /whole box/.test(D.measure);
+      const consistent = methods.includes(D.measure) && csvT.includes(D.measure) && /10 σ/.test(methods) && /whole region, signed/.test(D.measure);
       await App.load(new File([keepImg.buf], keepImg.name), keepImg.type);
       App.S = JSON.parse(keepImg.snap); App.hist = keepImg.hist; App.future = keepImg.future; App.isExample = keepImg.example; App.rot = null; App.ensureRot(); App.emit('change'); await wait(300);
       R.densMode = { rBox: rBox.map(r => +r.toFixed(3)), rBand: rBand.map(r => +r.toFixed(3)), linear, bandOff, emptyFlag, noRef, denWeak, sameVals, sameLanes, leftOut, consistent,
@@ -758,8 +762,8 @@
       const ch = G.QuantUI.chart(), pts = (ch.svg.match(/<circle /g) || []).length, bars = (ch.svg.match(/<rect /g) || []).length, titled = ch.svg.includes('My plot') && ch.svg.includes('Fold');
       // normalization modes and the border background
       q.norm = 'lane'; q.bg = 'border'; App.commit();
-      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'lane signal' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t > 0);
-      const csvNorm = G.Quant.quantCSV(App, M).includes('lane signal (denominator)'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel border/.test(methods) && $('methodsText').value === methods;
+      const M = G.Quant.measure(App), laneNorm = M.normMode === 'lane' && M.normLabel === 'total lane signal' && M.norm.every(r => r.every(v => v == null || (v >= 0 && v <= 1.5))) && M.totals.every(t => t.value > 0);
+      const csvNorm = G.Quant.quantCSV(App, M).includes('/ total lane signal'), methods = G.Quant.methodsText(App, M), methodsOk = /total-protein/.test(methods) && /3-pixel ring/.test(methods) && $('methodsText').value === methods;
       q.norm = 'none'; App.commit();
       const noneNorm = G.Quant.measure(App).normLabel === null;
       // the package
@@ -833,7 +837,7 @@
       // the red box holds its outer lanes whole: each side at least 0.4 lane spacing beyond the outer lane centre it holds
       const inC = st.lanes.filter(l => l.x >= st.crop.x && l.x <= st.crop.x + st.crop.w), Pc = st.lanePitch;
       const framed = inC.length >= 2 && inC[0].x - st.crop.x >= Pc * 0.4 && st.crop.x + st.crop.w - inC[inC.length - 1].x >= Pc * 0.4;
-      const segAuto = $('geomSeg').querySelector('[data-geom=auto]').classList.contains('on') && /auto/.test($('ksNote').textContent);
+      const segAuto = $('geomSeg').querySelector('[data-geom=auto]').classList.contains('on') && /Perspective corrected/.test($('ksNote').textContent) && /^Auto/.test($('ksDetails').textContent);
       const hints = G.Export.legendHints(st), disclosed = hints.some(h => /Geometry-corrected/.test(h) && /perspective/.test(h)) && !!G.Export.processingLog(st).geometry && G.Export.processingLog(st).geometry.grid.pts.length === st.geom.grid.nx * st.geom.grid.ny * 2;
       const lanesOn = st.lanes.map(l => l.x), frame0 = App.frameKey(st);
       App.setRotation(st.rotation + 1); App.afterRotation(); App.commit();
@@ -1035,7 +1039,7 @@
       const arNames = ar.files, archive = arNames.some(n => n.startsWith('ar/original/')) && arNames.includes('ar/ar.gelfig') && arNames.includes('ar/README.txt');
       // the profile: the first view of the analysis window, reading out the box's value and limits
       G.QuantUI.setView('quant'); document.querySelector('#quantTabs [data-tab="prof"]').click(); await wait(60);
-      const prof = !$('quantProf').classList.contains('hidden') && /LOQ/.test($('qProfRead').textContent);
+      const prof = !$('quantProf').classList.contains('hidden') && /10σ/.test($('qProfRead').textContent) && /Uncorrected sum [-\d.]+ − background [-\d.]+ = /.test($('qProfRead').textContent);
       G.QuantUI.show('quant', false);
       R.review = { shows, status, reviewBefore, confirmed, logConf, unconfirmedAgain, interp, eL: eL.bp, eM: eM.bp, eR: eR.bp, neg, asLadder, back, emptyWords, orig, work, dlg, archive, prof,
         ok: shows && reviewBefore && confirmed && logConf && unconfirmedAgain && interp && neg && asLadder && back && emptyWords && orig && work && dlg && archive && prof };
@@ -1072,6 +1076,278 @@
       $('laneList').querySelector('[data-pick="all"]').click(); const shownAll = App.S.lanes.every(l => !l.hidden);
       R.picks = { none, all, n: m.bands.length, hadLink, empty: empty.length, hiddenEmpty, shownAll, ok: none === 0 && all === m.bands.length && hadLink === empty.length > 0 && hiddenEmpty === empty.length && shownAll };
     }
+    // 56. densitometry regressions (calculation version 2) on synthetic images with known band amounts. SOFTWARE
+    // checks of the arithmetic and the bookkeeping, not an experimental validation (that needs blanks and dilution
+    // series imaged on the user's own system). L1-L15 as numbered in the densitometry review.
+    {
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      // a synthetic image: background bgf(x, y), Gaussian bands {x, y, a, s, hw}, Gaussian noise, values clipped at 0..1
+      const synth = (W, H, bgf, bands, noise, seed) => {
+        let z = seed || 1; const rnd = () => { z = (z * 16807) % 2147483647; return z / 2147483647; };
+        const gauss = () => { const u = Math.max(1e-12, rnd()), v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+        const data = new Float32Array(W * H), truth = new Float32Array(W * H);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          let t = 0;
+          bands.forEach(b => { if (Math.abs(x - b.x) <= b.hw) t += b.a * Math.exp(-0.5 * ((y - b.y) / b.s) ** 2); });
+          truth[y * W + x] = t; data[y * W + x] = Math.min(1, Math.max(0, bgf(x, y) + t + (noise ? noise * gauss() : 0)));
+        }
+        return { width: W, height: H, data, truth };
+      };
+      const loadSyn = async (img, name, invert) => {
+        const d = invert ? img.data.map(v => 1 - v) : img.data;
+        App.setPref('byType', {});
+        await App.load(new File([G.Demo.encodeTiff16({ width: img.width, height: img.height, data: d })], name), 'western');
+      };
+      // lanes by hand, no geometry: the regions are placed on the frame shown
+      const setup = (xs, pitch, y0, y1, bright) => {
+        const S = App.S, q = S.quant;
+        S.rotation = 0; S.geom = null; S.flip = { h: false, v: false }; App.applyFlip(); App.rot = null; App.ensureRot();
+        if (bright != null) S.bright = bright;
+        S.lanes = xs.map((x, k) => ({ x, name: 'L' + (k + 1), hidden: false })); S.lanes.forEach((l, k) => { l.id = 'L' + (k + 1); });
+        S.lanePitch = pitch; S.laneHalfW = pitch * 0.3; S.markers = [];
+        S.crop = { x: 0, y: 0, w: App.rot.w - 1, h: App.rot.h - 1 };
+        Object.assign(q, { version: 2, region: { x: 0, y: 0, w: App.rot.w - 1, h: App.rot.h - 1 }, norm: 'none', normBand: null, mode: 'box', bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, wFrac: 0.7, frames: {}, output: 'corrected', ref: null });
+        q.rows = [G.Quant.placeRow(App, { name: 'target' }, y0, y1)];
+        App.commit();
+      };
+      const vals = () => { const M = G.Quant.measure(App); return M.values.corrected[0]; };
+      const byId = () => { const M = G.Quant.measure(App), o = {}; M.ids.forEach((id, j) => { o[id] = M.values.corrected[0][j]; }); return o; };
+      const near = (a, b, tol) => a != null && b != null && Math.abs(a / b - 1) <= tol;
+      const res = {};
+      // the "known" image: 8 lanes 60 px apart on a background rising 0.25 down the lanes (uneven), noise sd 0.002
+      const W = 540, H = 360, xs = [60, 120, 180, 240, 300, 360, 420, 480], Y = 180, hw = 18;
+      const bgf = (x, y) => 0.06 + 0.25 * y / H + 0.02 * x / W;
+      const bands = [
+        { x: 60, y: Y, a: 0.30, s: 3, hw },        // L1 narrow, amount 0.9
+        { x: 120, y: Y, a: 0.10, s: 9, hw },       // L2 broad, amount 0.9 (same amount, three times wider)
+        { x: 180, y: Y, a: 0.30, s: 3, hw },       // L3 narrow
+        { x: 240, y: Y, a: 0.30, s: 6, hw },       // L4 same peak as L3, twice as wide: twice the amount
+        { x: 300, y: Y, a: 0.20, s: 9, hw },       // L5 broad, twice L1's amount at a lower peak (the ranking-reversal lane)
+        // L6 blank
+        { x: 420, y: Y, a: 0.30, s: 3, hw }, { x: 420, y: Y + 16, a: 0.30, s: 3, hw },   // L7 a band with a neighbour 16 rows below
+        { x: 480, y: Y, a: 1.40, s: 3, hw }        // L8 clipped at 1.0: a flat plateau
+      ];
+      const img = synth(W, H, bgf, bands, 0.002, 11);
+      await loadSyn(img, 'known_bands.tif');
+      const hwPx = () => G.Quant.boxHalfWidth(App.S);
+      // the truth inside a lane's region: the sum of the band term over the region's pixels
+      const truthIn = (lx, y0, y1) => { let t = 0; const h = hwPx(); for (let y = y0; y <= y1; y++) for (let x = Math.round(lx - h); x <= Math.round(lx + h); x++) t += img.truth[y * W + x]; return t; };
+      // tall regions (+-30 rows: 3.3 sigma of the broad bands) with local background above and below
+      setup(xs, 60, Y - 30, Y + 30);
+      let v = vals();
+      const tr = xs.map(x => truthIn(x, Y - 30, Y + 30));
+      res.L1 = { narrow: +v[0].toFixed(3), broad: +v[1].toFixed(3), truthN: +tr[0].toFixed(3), truthB: +tr[1].toFixed(3), ok: near(v[0], tr[0], 0.02) && near(v[1], tr[1], 0.02) && near(v[0], v[1], 0.03) };
+      res.L3 = { ratio: +(v[3] / v[2]).toFixed(3), ok: near(v[3] / v[2], 2, 0.03) };
+      res.L4 = { sameAmountRatio: +(v[1] / v[0]).toFixed(3), ok: near(v[1] / v[0], 1, 0.03) };
+      res.L8uneven = { ok: [0, 1, 2, 3, 4].every(k => near(v[k], tr[k], 0.02)), none: null };
+      App.S.quant.bg = 'none'; const vNone = vals(); App.S.quant.bg = 'local';
+      res.L8uneven.none = +(vNone[0] / tr[0]).toFixed(2); res.L8uneven.ok = res.L8uneven.ok && vNone[0] > 3 * tr[0];   // without background the slope swamps the band
+      // L2: a region fitted to the narrow band (+-8 rows) with the background from its own end rows reads the broad band
+      // LOWER than the narrow one although it holds twice as much (the earlier method's defect), and flags it; local
+      // background regions outside a region as tall as the band restore the order and the ratio
+      const r0 = App.S.quant.rows[0];
+      G.Quant.editRow(App, r0, Y - 8, Y + 8); App.S.quant.bg = 'edge'; App.commit();
+      const Me = G.Quant.measure(App), ve = Me.values.corrected[0];
+      const reversed = ve[4] < ve[0], flagged = !!(Me.cells[0][4].flags.boundary || Me.cells[0][4].flags.contaminated) && Me.cells[0][4].review.length > 0;
+      App.S.quant.bg = 'local'; G.Quant.editRow(App, r0, Y - 30, Y + 30); App.commit();
+      const vl = vals();
+      res.L2 = { edgeShort: +(ve[4] / ve[0]).toFixed(3), localTall: +(vl[4] / vl[0]).toFixed(3), truth: +(tr[4] / tr[0]).toFixed(3), reversed, flagged, ok: reversed && flagged && near(vl[4] / vl[0], tr[4] / tr[0], 0.03) };
+      // L5 (one image): the blank lane reads about zero, signed, never clamped; U - B = corrected in every lane
+      const Mb = G.Quant.measure(App), cb = Mb.cells[0][5];
+      res.L5one = { blank: +cb.value.toFixed(4), t3: +cb.t3.toFixed(4), ok: Math.abs(cb.value) < cb.t3 && Mb.cells[0].every(c => c.value == null || Math.abs(c.U - c.B - c.value) < 1e-9 * Math.max(1, Math.abs(c.U))) };
+      // L7: the clipped lane is flagged at the digital limit, marked in the table, hatched in the chart, never a divisor
+      const cc = Mb.cells[0][7];
+      const ch = G.Quant.chartSVG(App, Mb);
+      res.L7 = { clip: cc.flags.clip, n: cc.clip.n, hatch: /url\(#qhatch\)/.test(ch.svg), ok: cc.flags.clip === 'limit' && cc.clip.n > 0 && /url\(#qhatch\)/.test(ch.svg) && /clipped/.test(G.Quant.flagText(cc.flags, cc)) };
+      // L8: a neighbouring band: with the region reaching it (two peaks) or the background on it, the lane is flagged
+      G.Quant.editRow(App, r0, Y - 12, Y + 24); App.commit();
+      const Mn = G.Quant.measure(App), cn = Mn.cells[0][6];
+      G.Quant.editRow(App, r0, Y - 8, Y + 8); App.commit();
+      const Mn2 = G.Quant.measure(App), cn2 = Mn2.cells[0][6];
+      res.L8adjacent = { twoPeaks: !!cn.flags.twoPeaks, bgOnNeighbour: !!cn2.flags.uneven, ok: !!cn.flags.twoPeaks && !!cn2.flags.uneven && cn2.review.length > 0 };
+      // L8: a target shifted in one lane: the lane is flagged; moving that lane's region (its own top and bottom) clears
+      // the flag and is recorded as a lane-specific region
+      G.Quant.editRow(App, r0, Y - 30, Y + 30); App.commit();
+      const L3r = r0.lanes.L3; L3r.dy0 = 27; L3r.dy1 = 27; App.commit();    // L3's region moved 27 rows down: the band now reaches its top
+      const cs = G.Quant.measure(App).cells[0][2];
+      L3r.dy0 = 0; L3r.dy1 = 0; delete L3r.dy0; delete L3r.dy1; L3r.dy0 = -2; App.commit();
+      const cs2 = G.Quant.measure(App).cells[0][2];
+      delete L3r.dy0; App.commit();
+      res.L8shift = { flagged: !!cs.flags.boundary, override: cs2.prov.override.join(), ok: !!cs.flags.boundary && cs2.prov.override.includes('dy0') && !cs2.flags.boundary };
+      // L10: display contrast, gamma and inversion change no value
+      const base = byId(), st = App.S;
+      const lv0 = JSON.stringify(st.levels);
+      Object.assign(st.levels, { black: 0.1, white: 0.6, gamma: 1.8, invert: !st.levels.invert }); App.commit();
+      const afterDisp = byId(); st.levels = JSON.parse(lv0); App.commit();
+      const same = (a, b) => Object.keys(a).every(k => a[k] === b[k]) && Object.keys(a).length === Object.keys(b).length;
+      res.L10 = { ok: same(base, afterDisp) };
+      // L11: the regions stay on their original pixels through rotation, geometry, flips, crop, figure hiding, lane
+      // reorder, save / reopen and undo / redo: every value identical, lane by lane id
+      const inv = [];
+      App.setRotation(2); App.afterRotation && App.afterRotation(); App.commit(); inv.push(['rotation', same(base, byId())]);
+      const c = st.crop; App.setGeomCorners([[c.x + 10, c.y], [c.x + c.w - 10, c.y], [c.x + c.w, c.y + c.h], [c.x, c.y + c.h]]); App.commit(); inv.push(['geometry', same(base, byId())]);
+      App.flip('h'); App.commit(); inv.push(['flip h', same(base, byId())]);
+      App.flip('v'); App.commit(); inv.push(['flip v', same(base, byId())]);
+      st.crop = { x: st.crop.x + 40, y: st.crop.y + 20, w: st.crop.w - 80, h: st.crop.h - 40 }; App.commit(); inv.push(['crop', same(base, byId())]);
+      st.lanes[2].hidden = true; App.commit(); inv.push(['hidden in figure', same(base, byId())]);
+      App.reorderLanes(st.lanes.map((l, i) => i).reverse()); App.commit(); inv.push(['lane order', same(base, byId())]);
+      const snapBefore = App.snapshot();
+      await App.openProject(await (await App.projectBlob()).arrayBuffer()); inv.push(['save and reopen', same(base, byId()) && App.snapshot() === snapBefore]);
+      App.undo(); App.undo(); inv.push(['undo', same(base, byId())]); App.redo(); App.redo(); inv.push(['redo', same(base, byId())]);
+      res.L11 = { steps: inv.filter(x => !x[1]).map(x => x[0]), ok: inv.every(x => x[1]) };
+      // L12: an explicit edit changes the result and says so (placed count, provenance); undo brings it back
+      const st2 = App.S, r2 = st2.quant.rows[0], placed0 = r2.placed, v0 = byId().L1;
+      const sp = G.Quant.rowSpan(App, r2); G.Quant.editRow(App, r2, sp.y0 + 20, sp.y1 - 20); App.commit();
+      const v1 = byId().L1, prov1 = G.Quant.measure(App).cells[0][G.Quant.measure(App).ids.indexOf('L1')].prov;
+      App.undo(); const v2 = byId().L1;
+      res.L12 = { before: +v0.toFixed(3), edited: +v1.toFixed(3), undone: +v2.toFixed(3), ok: v1 < v0 * 0.95 && prov1.placed === placed0 + 1 && v2 === v0 && App.S.quant.rows[0].placed === placed0 };
+      // L9: the same image stored dark-on-light (1 - I), measured as dark bands, gives the same values
+      await loadSyn(img, 'known_bands_dark.tif', true);
+      setup(xs, 60, Y - 30, Y + 30, false);
+      const vd = vals();
+      res.L9 = { maxDiff: Math.max(...vd.map((x, k) => Math.abs(x - v[k]) / Math.max(1e-6, Math.abs(v[k])))), ok: vd.every((x, k) => Math.abs(x - v[k]) <= 1e-3 * Math.max(1, Math.abs(v[k]))) };
+      // L5 / L6: blanks and a weak two-fold series over noise realisations: blanks unbiased (signed, some below zero),
+      // the series two-fold within 10 % on average
+      const blanks = [], ratios = [];
+      for (let seed = 1; seed <= 4; seed++) {
+        const im = synth(480, 300, () => 0.1, [0.006, 0.012, 0.024, 0.048].map((a, k) => ({ x: 240 + 60 * k, y: 150, a, s: 4, hw: 18 })), 0.004, 101 + seed * 7);
+        await loadSyn(im, 'series.tif');
+        setup([60, 120, 180, 240, 300, 360, 420], 60, 138, 162);
+        const m = vals(); blanks.push(m[0], m[1], m[2]);
+        for (let k = 4; k < 7; k++) ratios.push(m[k] / m[k - 1]);
+      }
+      const mean = a => a.reduce((s, x) => s + x, 0) / a.length, sdv = a => Math.sqrt(a.reduce((s, x) => s + (x - mean(a)) ** 2, 0) / (a.length - 1));
+      res.L5 = { mean: +mean(blanks).toFixed(4), sd: +sdv(blanks).toFixed(4), negatives: blanks.filter(x => x < 0).length, ok: Math.abs(mean(blanks)) < 3 * sdv(blanks) / Math.sqrt(blanks.length) + 1e-9 && blanks.some(x => x < 0) };
+      res.L6 = { meanRatio: +mean(ratios).toFixed(3), ok: near(mean(ratios), 2, 0.1) };
+      // L13 and L14 on the Western example: one result everywhere; unavailable values explained, never a zero bar
+      await G.UI.loadExample('western'); await wait(100);
+      const q = App.S.quant, Rw = G.Quant.measure(App), j = 2, k = 0, cell = Rw.cells[k][j];
+      G.QuantUI.setView('quant'); G.QuantUI.setTab('int'); await wait(50);
+      const csv = G.Quant.quantCSV(App, Rw), tsv = G.Quant.quantTSV(App, Rw), log = G.Export.processingLog(App.S).densitometry;
+      const corr = cell.value, fold = Rw.values.fold[k][j];
+      const csvRow = csv.split('\r\n').find(l => l.startsWith(`${Rw.lanes[j] + 1},`)), tsvRow = tsv.split('\n').find(l => l.startsWith(`${Rw.lanes[j] + 1}\t`));
+      const tableTxt = document.querySelector(`#quantTable tr[data-lane="${Rw.lanes[j]}"]`).textContent;
+      G.QuantUI.selectLane(Rw.lanes[j]); G.QuantUI.setTab('prof'); await wait(50);
+      const prof = document.getElementById('qProfRead').textContent;
+      const f2 = x => (Math.abs(x) >= 100 ? x.toFixed(1) : x.toPrecision(4));
+      const logV = log.lanes[j].values[k];
+      res.L13 = { corr, fold,
+        csv: !!csvRow && csvRow.includes(corr.toFixed(4)) && csvRow.includes(fold.toFixed(4)),
+        tsv: !!tsvRow && tsvRow.includes(corr.toFixed(4)),
+        table: tableTxt.includes(fold.toFixed(2)),
+        profile: prof.includes(`= ${f2(corr)}`) && prof.includes(f2(cell.U)) && prof.includes(f2(cell.B)),
+        log: Math.abs(logV.corrected - corr) < 1e-4 && Math.abs(logV.foldChange - fold) < 1e-4,
+        methods: G.Quant.methodsText(App, Rw).includes(G.Quant.describe(App, Rw).measure) && csv.includes(G.Quant.describe(App, Rw).summary),
+        chart: (G.Quant.chartSVG(App, Rw).svg.match(/<rect data-lane=/g) || []).length === Rw.lanes.length };
+      res.L13.ok = ['csv', 'tsv', 'table', 'profile', 'log', 'methods', 'chart'].every(x => res.L13[x]);
+      // L14: no reference lane, a clipped reference, a weak divisor: n/a with the reason in the table, CSV and chart
+      const keepQ = JSON.stringify(q);
+      q.ref = null; const Ra = G.Quant.measure(App);
+      const noRef = Ra.values.fold[0].every(x => x == null) && Ra.why.fold[0].every(w => w === 'Choose a reference lane');
+      const chA = G.Quant.chartSVG(App, Ra).svg, naChart = /n\/a/.test(chA) && !/<rect data-lane=/.test(chA);
+      q.ref = App.laneId(G.UI.figLanes()[1]);
+      const ec = G.Quant.placeRow(App, { name: 'empty' }, App.S.crop.y + 8, App.S.crop.y + 20); q.rows.push(ec); q.normBand = ec.id; q.output = 'normalized';
+      const Rb = G.Quant.measure(App), weakDiv = Rb.values.normalized[0].every(x => x == null) && Rb.why.normalized[0].every(w => /noise threshold|not above zero|needs review/.test(w || '') || w == null);
+      const csvB = G.Quant.quantCSV(App, Rb), csvWhy = /Reference band \(empty\)/.test(csvB);
+      App.S.quant = JSON.parse(keepQ); App.commit();
+      res.L14 = { noRef, naChart, weakDiv, csvWhy, ok: noRef && naChart && weakDiv && csvWhy };
+      // L15: rasterisation: two polygons sharing a slanted edge split a rectangle's pixels exactly (none twice, none
+      // lost); the rows of a rotated region hold each of its pixels once; pixels off the image are counted, not read
+      const E = G.Engine, key = r => { const s = new Set(); r.runs.forEach(([y, a, b]) => { for (let x = a; x <= b; x++) s.add(y * 1000 + x); }); return s; };
+      const A = E.rasterPoly([[10.3, 5.2], [40.7, 5.2], [33.1, 60.9], [10.3, 60.9]], 200, 200), B = E.rasterPoly([[40.7, 5.2], [70.2, 5.2], [70.2, 60.9], [33.1, 60.9]], 200, 200), Rt = E.rasterPoly([[10.3, 5.2], [70.2, 5.2], [70.2, 60.9], [10.3, 60.9]], 200, 200);
+      const ka = key(A), kb = key(B), shared = [...ka].filter(x => kb.has(x)).length;
+      const fm = E.frameMap({ W: 200, H: 200, rot: 7, fh: false, fv: false, grid: null }), P = E.boxPixels(fm, 200, 200, 60.5, 100.5, 40.5, 80.5, 0);
+      const seen = new Set(); let dup = 0; P.bins.forEach(b => b.runs.forEach(([y, a, bb]) => { for (let x = a; x <= bb; x++) { const kk = y * 1000 + x; if (seen.has(kk)) dup++; seen.add(kk); } }));
+      const off = E.rasterPoly([[-5.5, -5.5], [10.5, -5.5], [10.5, 10.5], [-5.5, 10.5]], 200, 200);
+      res.L15 = { shared, partition: ka.size + kb.size === key(Rt).size, dup, rotatedArea: P.n, offImage: off.outside, inImage: off.n,
+        ok: shared === 0 && ka.size + kb.size === key(Rt).size && dup === 0 && Math.abs(P.n - 1600) <= 40 && off.n === 121 && off.outside === 256 - 121 };
+      const checks = ['L1', 'L2', 'L3', 'L4', 'L5', 'L5one', 'L6', 'L7', 'L8uneven', 'L8adjacent', 'L8shift', 'L9', 'L10', 'L11', 'L12', 'L13', 'L14', 'L15'];
+      R.densV2 = Object.assign({ ok: checks.every(x => res[x] && res[x].ok), failed: checks.filter(x => !(res[x] && res[x].ok)) }, res);
+    }
+    // 57. the densitometry workspace and its wording: an analysis measured with the earlier calculation keeps its
+    // numbers until the user updates it (and adding a band asks first); Measure bands as / Display are separate;
+    // the lane table's columns and labels; the reasons a lane is not measured; the analysis area and the band
+    // height edited explicitly; one instruction per tool; dialogs hold and return the focus; the broad-band lesson
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms)), vis = el => !!el && !el.classList.contains('hidden') && el.getClientRects().length > 0;
+      await G.UI.loadExample('western'); await wait(100);
+      const st0 = App.S, fl = G.UI.figLanes();
+      // (a) a project measured with version 1: rows without regions, background from the box's end rows, a loading
+      // control by index, the reference lane by index
+      const rows1 = st0.quant.rows.map(r => { const sp = G.Quant.rowSpan(App, r); return { y0: Math.round(sp.y0), y1: Math.round(sp.y1), name: r.name }; });
+      st0.quant = { rows: rows1, bg: 'edge', mode: 'box', wFrac: 0.7, norm: 'control', control: 1, ref: fl[1], region: Object.assign({}, st0.crop), plot: st0.quant.plot };
+      await App.openProject(await (await App.projectBlob()).arrayBuffer()); await wait(100);
+      G.QuantUI.setView('quant'); G.QuantUI.setTab('int'); await wait(50);
+      const R1 = G.Quant.measure(App), legacyKept = App.S.quant.version === 1 && R1.version === 1 && vis($('qLegacy')) && R1.values.fold[0].every(v => v != null);
+      const v1fold = R1.values.fold[0].slice();
+      // adding a band asks first; declined, nothing changes
+      G.UI.autoConfirm = false; await App.finishRegion('quant', rows1[0].y0 + 40, rows1[0].y1 + 40); await wait(50);
+      const declined = App.S.quant.version === 1 && App.S.quant.rows.length === rows1.length;
+      // Update to the current method: version 2, regions placed, the loading control becomes the reference band
+      G.UI.autoConfirm = true; $('btnQUpdate').click(); await wait(100);
+      const q2 = App.S.quant, R2 = G.Quant.measure(App);
+      const updated = q2.version === 2 && R2.version === 2 && q2.rows.every(r => r.frame && r.lanes) && q2.normBand === q2.rows[1].id && q2.ref === App.laneId(fl[1]) && !vis($('qLegacy'));
+      App.undo(); await wait(50);
+      const undoBack = App.S.quant.version === 1 && JSON.stringify(G.Quant.measure(App).values.fold[0]) === JSON.stringify(v1fold);
+      G.UI.autoConfirm = null;
+      await G.UI.loadExample('western'); await wait(100);
+      // (b) Measure bands as (detection and measurement) apart from Display (a look): Inverted changes no value
+      const st = App.S, before = JSON.stringify(G.Quant.measure(App).values.corrected);
+      const bright0 = st.bright, inv0 = !!st.levels.invert;
+      $('polSeg').querySelector(`[data-inv="${inv0 ? 0 : 1}"]`).click(); await wait(50);
+      const display = !!st.levels.invert !== inv0 && st.bright === bright0 && JSON.stringify(G.Quant.measure(App).values.corrected) === before
+        && $('polSeg').querySelector('.on').getAttribute('aria-checked') === 'true' && $('brightSeg').querySelector(`[data-bright="${bright0 ? 1 : 0}"]`).classList.contains('on');
+      App.undo();
+      const words = /Measure bands as/.test($('brightLabel').textContent) && /Display/.test($('polLabel').textContent) && !document.getElementById('invNote')
+        && $('fixLanes').querySelector('summary').textContent.startsWith('Adjust lanes…');
+      // (c) the lane table: Lane | Name | Role | Show | Measure, every control named; why a lane is not measured
+      const head = [...$('laneList').querySelectorAll('.lane-head span')].map(s => s.textContent).filter(Boolean).join('|');
+      const named = [...$('laneList').querySelectorAll('input, select, button.x')].every(e => e.getAttribute('aria-label'));
+      $('btnLanesEdit').click(); const why = /Not measured: 1 \(ladder\)/.test($('qLaneWhy').textContent); $('btnLanesEdit').click();
+      // (d) the analysis area, edited by its sides (undoable); the band height (an explicit edit, counted)
+      const lanesA = G.Quant.quantLanes(App).length;
+      $('btnAreaEdit').click(); const aL = $('qAreaL'); aL.value = String(Math.round(st.lanes[fl[2]].x - 5)); aL.dispatchEvent(new Event('change')); await wait(50);
+      const areaCut = G.Quant.quantLanes(App).length === lanesA - 1 && /differs/.test($('qAreaNote').textContent);
+      App.undo(); const areaBack = G.Quant.quantLanes(App).length === lanesA; $('btnAreaEdit').click();
+      const r0 = App.S.quant.rows[0], placed0 = r0.placed, h0 = Math.round(G.Quant.rowSpan(App, r0).y1 - G.Quant.rowSpan(App, r0).y0 + 1);
+      const hi = $('boxList').querySelector('[data-qhgt="0"]'); hi.value = String(h0 + 10); hi.dispatchEvent(new Event('change')); await wait(50);
+      const r0b = App.S.quant.rows[0], sp = G.Quant.rowSpan(App, r0b), height = Math.round(sp.y1 - sp.y0 + 1) === h0 + 10 && r0b.placed === placed0 + 1;
+      App.undo();
+      // (e) one instruction per tool; the Add-lane hint only while the tool is on
+      G.FigEdit.setMode('quant'); const bandMode = $('modeText').textContent === 'Add band: click or drag on image · Esc cancels' && $('btnAddBox').getAttribute('aria-pressed') === 'true';
+      G.FigEdit.setMode('lane'); const laneHint = vis($('addLaneHint')) && /Click the lane centre on the image/.test($('addLaneHint').textContent);
+      G.FigEdit.setMode(null); const hintGone = !vis($('addLaneHint'));
+      const tools = [...document.querySelectorAll('.tools .tool')].map(b => b.textContent.trim()).join('|') === '⎴Group bracket|◀Band arrow|±Condition row|☰Strip';
+      // (f) a dialog takes the focus, keeps it (Tab wraps), closes on Escape and gives it back
+      $('btnExport').focus(); $('btnExport').click(); await wait(50);
+      const inDlg = $('exportDlg').contains(document.activeElement);
+      const fs = [...$('exportDlg').querySelectorAll('button, select, input')].filter(e => !e.disabled && e.getClientRects().length);
+      fs[fs.length - 1].focus(); fs[fs.length - 1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      const wraps = $('exportDlg').contains(document.activeElement) && document.activeElement !== fs[fs.length - 1];
+      document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(50);
+      const focusBack = $('exportDlg').classList.contains('hidden') && document.activeElement === $('btnExport');
+      // (g) the broad-band lesson: lane 4 reads lowest with the earlier background, is marked; local regions and a
+      // region as tall as the band make it the highest, near the true ratio
+      await G.Tour.practice('background');
+      const at = () => $('tourTitle').textContent + '·' + G.Tour.part();
+      const until = async (want, ms) => { const t0 = Date.now(); while (at() !== want && Date.now() - t0 < (ms || 8000)) await wait(100); return at(); };
+      const act = async want => { const t0 = Date.now(); while (!G.Tour.done() && Date.now() - t0 < 6000) await wait(100); if (!G.Tour.done()) return 'not done: ' + at(); G.Tour.next(); return until(want); };
+      const log = [await until('A broad band·0', 15000)];
+      const lane4 = G.UI.figLanes()[3], Rb = G.Quant.measure(App), jb = Rb.lanes.indexOf(lane4), vb = Rb.values.corrected[0];
+      const lowest = vb[jb] === Math.min(...vb.filter(v => v != null)) && Rb.cells[0][jb].review.length > 0;
+      document.querySelector('#quantTabs [data-tab="int"]').click(); log.push(await act('See why·0'));
+      document.querySelector('#quantTabs [data-tab="prof"]').click(); await wait(100);
+      const pl = $('qProfLane'); pl.value = String(lane4); pl.dispatchEvent(new Event('change')); log.push(await act('Background outside the band·0'));
+      const sel = $('qBg'); sel.value = 'local'; sel.dispatchEvent(new Event('change')); log.push(await act('A region as tall as the band·0'));
+      const hb = document.querySelector('#boxList [data-qhgt="0"]'); hb.value = '57'; hb.dispatchEvent(new Event('change')); log.push(await act('Check the result·0'));
+      const Ra = G.Quant.measure(App), va = Ra.values.corrected[0], ratio = va[jb] / va[0], truth = G.Demo.makeGel({ preset: 'broad' }).truth;
+      const highest = va[jb] === Math.max(...va.filter(v => v != null)) && Math.abs(ratio / (truth.amounts[2] / truth.amounts[0]) - 1) < 0.1 && !Ra.cells[0][jb].review.length;
+      G.Tour.next(); log.push(at()); G.Tour.next();
+      const lessonOk = log.join() === ['A broad band·0', 'See why·0', 'Background outside the band·0', 'A region as tall as the band·0', 'Check the result·0', 'Lesson done·0'].join();
+      await G.UI.loadExample('western');
+      const checks = { legacyKept, declined, updated, undoBack, display, words, head: head === 'Lane|Name|Role|Show|Measure', named, why, areaCut, areaBack, height, bandMode, laneHint, hintGone, tools, inDlg, wraps, focusBack, lowest, highest, lessonOk };
+      R.workspace = Object.assign({ ok: Object.values(checks).every(Boolean), log, ratio: +ratio.toFixed(3), headText: head }, checks);
+    }
     // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
     // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to
     // the lines on the image lists only what is drawn and can be folded; the figure at its printed size; one filled
@@ -1081,7 +1357,7 @@
       const shownEl = el => !!(el && el.offsetParent !== null);
       const secs = [...document.querySelectorAll('#sections > .sec')];
       const words = /Size ladder/.test(secs[2].querySelector('.sec-head').textContent) && $('rangeLabel').textContent === 'Lanes shown' && $('btnAddMarker').textContent === '+ Add ladder lane'
-        && [...$('editSeg').querySelectorAll('button')].map(b => b.textContent).join('|') === 'Figure|Boxes' && parseFloat(getComputedStyle(document.body).fontSize) >= 14;
+        && [...$('editSeg').querySelectorAll('button')].map(b => b.textContent).join('|') === 'Figure elements|Measurement regions' && parseFloat(getComputedStyle(document.body).fontSize) >= 14;
       // folding: a done step folds to its heading and summary; the heading unfolds it, by click or Enter
       const s1 = secs[0], h1 = s1.querySelector('.sec-head');
       s1.classList.add('done'); G.UI.foldDone();

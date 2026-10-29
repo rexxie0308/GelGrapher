@@ -310,17 +310,22 @@
       legendHints: legendHints(S)
     };
     if (S.quant.rows.length) {
-      const R = G.Quant.measure(A), D = G.Quant.describe(A, R), r4 = v => (v == null ? null : +v.toFixed(5));
+      // the same result and the same words as the table, the CSV, the clipboard and the methods (G.Quant.measure / describe)
+      const R = G.Quant.measure(A), D = G.Quant.describe(A, R), r4 = v => (v == null || !isFinite(v) ? null : +v.toFixed(5));
       log.densitometry = {
-        method: Object.assign({ mode: R.mode === 'box' ? 'whole box' : 'thresholded signal', backgroundMethod: R.method, boxWidthPx: Math.round(R.halfWidthPx * 20) / 10,
-          values: 'integrated density of raw pixel values after background subtraction (arbitrary units)', signal: S.bright ? 'pixel value' : '1 - pixel value (dark bands)' }, D),
-        normalizationMode: R.normMode, loadingControl: R.control >= 0 ? R.rows[R.control].name : null, laneTotalIsTotalProteinStain: R.normMode === 'lane' ? R.laneTotal : null,
-        referenceWell: R.ref + 1, analysisArea: { x: Math.round(R.region.x), y: Math.round(R.region.y), w: Math.round(R.region.w), h: Math.round(R.region.h) },
+        calculationVersion: R.version, method: Object.assign({ mode: R.mode === 'box' ? 'whole region' : 'thresholded signal (exploratory)', backgroundMethod: R.method,
+          backgroundRegions: R.version === 2 ? { sides: S.quant.bgSides, gapPx: S.quant.bgGap, depthPx: S.quant.bgSize || 'auto' } : undefined, regionWidthPx: Math.round(R.halfWidthPx * 20) / 10 }, D),
+        output: R.output, normalizationMode: R.normMode, referenceBand: R.normBand >= 0 ? R.rows[R.normBand].name : null, laneTotalIsTotalProteinStain: R.normMode === 'lane' ? R.laneTotal : null,
+        referenceLane: R.ref != null ? { well: R.ref + 1, id: R.refId } : null, analysisArea: { x: Math.round(R.region.x), y: Math.round(R.region.y), w: Math.round(R.region.w), h: Math.round(R.region.h) },
         lanesLeftOutOfAnalysis: S.lanes.map((l, i) => (l.noMeasure ? i + 1 : null)).filter(v => v != null),
-        boxes: S.quant.rows.map(q => ({ name: q.name, yFrom: Math.round(Math.min(q.y0, q.y1)), yTo: Math.round(Math.max(q.y0, q.y1)) })),
-        lanes: R.lanes.map((i, j) => ({ well: i + 1, name: R.names[j], denominator: R.totals ? r4(R.totals[j]) : undefined,
-          values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, volume: +c.vol.toFixed(4), lod: r4(c.lod), loq: r4(c.loq), clippedPixels: c.sat, flags: G.Quant.flagText(R.flags[k2][j]) || null, normalized: r4(R.norm[k2][j]), relative: r4(R.rel[k2][j]) }; }) })),
-        clippedWells: R.saturatedLanes.map(i => i + 1)
+        bands: S.quant.rows.map(q => ({ id: q.id, name: q.name, frame: q.frame || null, rows: q.frame ? [q.y0, q.y1] : [Math.round(Math.min(q.y0, q.y1)), Math.round(Math.max(q.y0, q.y1))], placed: q.placed || null })),
+        lanes: R.lanes.map((i, j) => ({ well: i + 1, id: R.ids[j], name: R.names[j], laneTotal: R.totals ? r4(R.totals[j].value) : undefined,
+          values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, corrected: r4(c.value), uncorrectedSum: r4(c.U), backgroundSum: r4(c.B), signalPx: c.n, backgroundPx: c.nb,
+            threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined,
+            normalized: r4(R.values.normalized[k2][j]), foldChange: r4(R.values.fold[k2][j]), unavailable: R.shownWhy[k2][j] || c.unavailable || undefined,
+            ratioNeedsReview: R.shownCaveat && R.shownCaveat[k2][j] ? R.shownCaveat[k2][j] : undefined,
+            region: c.prov && c.prov.signal ? { signalCorners: c.prov.signal.corners, background: c.prov.background } : undefined }; }) })),
+        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1)
       };
     }
     return log;
@@ -367,10 +372,11 @@
     if (S.quant.rows.length) {
       // the same words as the methods text and the CSV (G.Quant.describe), shortened for a legend
       const R = G.Quant.measure(A), bg = G.Quant.BG_TEXT[R.method] || R.method;
-      const ctl = R.control >= 0 ? `, divided by ${R.rows[R.control].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the lane signal of this image') : '';
-      const how = R.mode === 'box' ? 'integrated density of fixed-width boxes on the original pixel values' : 'thresholded integrated density (pixels above 3 σ of the background) of fixed-width boxes on the original pixel values';
-      const blq = R.flags.flat().some(f => f.below) ? ' Values below the limit of quantification are marked.' : '';
-      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.refOk.some(Boolean) ? ` and expressed relative to lane ${R.ref + 1}.` : '.') + blq);
+      const ctl = R.normMode === 'band' && R.normBand >= 0 ? `, divided by ${R.rows[R.normBand].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the total lane signal of this image') : '';
+      const how = R.mode === 'box' ? 'background-corrected signal summed over a fixed region of the original pixel values in each lane' : 'thresholded signal (pixels above 3 σ of the background; exploratory) over a fixed region of the original pixel values';
+      const blq = R.flags.flat().some(f => f && f.below) ? ' Values below the estimated 10σ noise threshold are marked.' : '';
+      const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${R.reviewLanes.map(i => i + 1).join(', ')} were flagged for review.` : '';
+      h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.output === 'fold' && R.refOk.some(Boolean) ? ` and expressed as fold change versus lane ${R.ref + 1}.` : '.') + blq + rev);
     }
     return h;
   }

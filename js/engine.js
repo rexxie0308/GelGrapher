@@ -2208,7 +2208,77 @@
     return { score, clipFrac, rangeUse, snr, bright };
   }
 
+  /* ---------- measurement regions in the original pixels ----------
+   * Coordinates are index coordinates, as everywhere in the engine: pixel X spans X - 0.5 .. X + 0.5 and its
+   * centre is at X. A polygon holds every pixel whose centre lies inside it (even-odd rule, scanlines
+   * through the pixel centres). An edge crosses a scanline Y when its lower end is at or above Y and its
+   * upper end below (half-open), and a pixel X belongs to a span when xl <= X < xr; the crossing of an edge
+   * is computed from its two ends in one canonical order, so two polygons that share an edge get the
+   * identical crossing and share its pixels out exactly: none is counted twice, none is lost. Pixels inside
+   * the polygon but off the image are counted in `outside`, never read.
+   * Returns { runs: [[Y, X0, X1], ...] (inclusive), n, outside }. */
+  function rasterPoly(poly, W, H) {
+    const m = poly.length; let ya = Infinity, yb = -Infinity;
+    for (let k = 0; k < m; k++) { const y = poly[k][1]; if (y < ya) ya = y; if (y > yb) yb = y; }
+    const runs = []; let n = 0, outside = 0;
+    if (!(yb > ya)) return { runs, n, outside };
+    for (let Y = Math.ceil(ya); Y < yb; Y++) {
+      const xs = [];
+      for (let k = 0; k < m; k++) {
+        let a = poly[k], b = poly[(k + 1) % m];
+        if (a[1] > b[1] || (a[1] === b[1] && a[0] > b[0])) { const t = a; a = b; b = t; }
+        if (a[1] <= Y && Y < b[1]) xs.push(a[0] + (b[0] - a[0]) * (Y - a[1]) / (b[1] - a[1]));
+      }
+      if (xs.length < 2) continue;
+      xs.sort((p, q) => p - q);
+      for (let i = 0; i + 1 < xs.length; i += 2) {
+        const X0 = Math.ceil(xs[i]), X1 = Math.ceil(xs[i + 1]) - 1;
+        if (X1 < X0) continue;
+        const c0 = Math.max(0, X0), c1 = Math.min(W - 1, X1), inside = Y >= 0 && Y < H && c1 >= c0 ? c1 - c0 + 1 : 0;
+        outside += X1 - X0 + 1 - inside;
+        if (inside) { runs.push([Y, c0, c1]); n += inside; }
+      }
+    }
+    return { runs, n, outside };
+  }
+  /* A measurement frame: how the working frame (where boxes are drawn: the image rotated by `rot` degrees
+   * about its centre and, when `grid` is set, sent through that geometry grid) relates to the ORIGINAL decoded
+   * image, before any flip (fh, fv). { W, H, rot, fh, fv, grid }. to(x, y): working frame -> original
+   * pixel coordinates; from(X, Y): back (the grid's inverse is iterative, accurate to 1e-3 px). */
+  function frameMap(f) {
+    const R = M3.rotation(f.rot || 0, (f.W - 1) / 2, (f.H - 1) / 2), Ri = M3.inv(R), g = f.grid || null, W = f.W, H = f.H;
+    return {
+      to(x, y) {
+        let s = g ? Grid.at(g, x, y) : { x, y };
+        if (f.rot) s = M3.apply(Ri, s.x, s.y);
+        return { x: f.fh ? W - 1 - s.x : s.x, y: f.fv ? H - 1 - s.y : s.y };
+      },
+      from(X, Y) {
+        let s = { x: f.fh ? W - 1 - X : X, y: f.fv ? H - 1 - Y : Y };
+        if (f.rot) s = M3.apply(R, s.x, s.y);
+        return g ? Grid.inv(g, s.x, s.y) : s;
+      }
+    };
+  }
+  /* The original pixels of a working-frame box [xa, xb] x [ya, yb] (continuous edges; ya, yb a whole number
+   * of rows apart), split into its rows along the lane: the edge between two rows is mapped to the original
+   * image at points at most 6 px apart (so a bent mapping is followed; a grid is bilinear within cells of 20 px
+   * and more, so the chord error is far below a pixel) and each row is rasterised (rasterPoly). Rows share
+   * their edges, so every original pixel of the box belongs to exactly one row. v0 numbers the rows.
+   * Returns { bins: [{ v, runs, n }], n, outside }. */
+  function boxPixels(fm, W, H, xa, xb, ya, yb, v0) {
+    const K = Math.max(1, Math.round(yb - ya)), M = Math.max(1, Math.ceil((xb - xa) / 6));
+    const rung = y => { const pts = []; for (let i = 0; i <= M; i++) { const p = fm.to(xa + (xb - xa) * i / M, y); pts.push([p.x, p.y]); } return pts; };
+    let prev = rung(ya); const bins = []; let n = 0, outside = 0;
+    for (let j = 0; j < K; j++) {
+      const next = rung(ya + (yb - ya) * (j + 1) / K), r = rasterPoly(prev.concat(next.slice().reverse()), W, H);
+      bins.push({ v: (v0 || 0) + j, runs: r.runs, n: r.n }); n += r.n; outside += r.outside; prev = next;
+    }
+    return { bins, n, outside };
+  }
+
   G.Engine = {
+    rasterPoly, frameMap, boxPixels,
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
     toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore, clipLevels, alignmentShift, sharpBandCount, rankLadders, ladderCandidates, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };
