@@ -116,11 +116,11 @@
   const demoFile = () => new File([G.Demo.encodeTiff16(G.Demo.makeGel())], 'demo_gel.tif', { type: 'image/tiff' });
   /* ---------- examples: synthetic gels, filled in the way a finished figure would be ---------- */
   const EXAMPLE_NAMES = { dna: 'example_DNA_agarose.tif', sds: 'example_SDS-PAGE_Coomassie.tif', western: 'example_Western_p53.tif' };
-  async function loadExample(kind) {
+  // opts.clean: a lesson's practice gel has no saturated band, so the figure made in it passes the pre-flight check
+  async function loadExample(kind, opts) {
     App.busy(true, 'Building the example…');
     await new Promise(r => setTimeout(r, 30));
-    // the tutorial's practice gel has no saturated band, so the figure made in it passes the pre-flight check
-    const g = G.Demo.makeGel({ preset: kind, clean: !!(G.Tour && G.Tour.mode() === 'tutorial') });
+    const g = G.Demo.makeGel({ preset: kind, clean: !!(opts && opts.clean) });
     await App.load({ name: EXAMPLE_NAMES[kind], buffer: G.Demo.encodeTiff16(g) }, g.truth.gelType);
     if (!S()) return;
     App.isExample = kind;
@@ -251,9 +251,9 @@
   $('btnUndo').onclick = () => App.undo();
   $('btnRedo').onclick = () => App.redo();
   $('btnHelp').onclick = () => $('helpDlg').classList.remove('hidden');
-  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tour'); };
-  $('btnTutorial').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.start('tutorial'); };
-  $('btnGuide').onclick = () => G.Tour.start('tutorial');
+  $('btnTour').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.overview(); };
+  $('btnTutorial').onclick = () => { $('helpDlg').classList.add('hidden'); G.Tour.menu(); };
+  $('btnGuide').onclick = () => G.Tour.menu();
   $('btnHelpClose').onclick = () => $('helpDlg').classList.add('hidden');
   function menu(btn, m) {
     $(btn).onclick = e => { e.stopPropagation(); document.querySelectorAll('.menu').forEach(x => { if (x.id !== m) x.classList.add('hidden'); }); $(m).classList.toggle('hidden'); };
@@ -1123,7 +1123,8 @@
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();
 
-  /* the app opens on the empty workspace (with the library, if any); the first visit starts the hands-on tutorial */
+  /* the app opens on the start screen (with the library, if any); nothing starts by itself: the start screen
+   * offers "Use my image", "Practice with an example" (a lesson by goal) and "Quick overview" */
   async function startup() {
     const q = new URLSearchParams(location.search);
     if (q.get('demo') === '1' || q.get('src') || q.get('blank') === '1') return;
@@ -1132,7 +1133,6 @@
     try { list = await App.library.list(); } catch (e) { list = []; }
     if (S()) return;
     if (list.length) renderLibrary();
-    else if (!App.prefs().tutorialSeen) setTimeout(() => { if (!S() && !App.prefs().tutorialSeen) G.Tour.start('tutorial'); }, 500);
   }
   startup();
 

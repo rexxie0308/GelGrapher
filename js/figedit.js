@@ -16,9 +16,9 @@
     $('modeBanner').classList.toggle('hidden', !m);
     $('modeText').textContent = m === 'arrow' ? 'Click the target band (on either image); it snaps to the band and estimates the size'
       : m === 'group' ? 'Drag from the first to the last lane name on the figure; release to create the group line'
-      : m === 'strip' ? 'On the raw image, drag down across the region to show (include the marker ticks); release to add the strip'
-      : m === 'quant' ? 'Click a band on the raw image (the box fits itself), or drag across it'
-      : m === 'lane' ? 'Click on the raw image where the missing lane runs (the blue line follows the pointer). Shift+click adds several; Esc ends' : '';
+      : m === 'strip' ? 'On the image, drag down across the region to show (include the marker ticks); release to add the strip'
+      : m === 'quant' ? 'Click a band on the image (the box fits itself), or drag across it'
+      : m === 'lane' ? 'Click on the image where the missing lane runs (the blue line follows the pointer). Shift+click adds several; Esc ends' : '';
     $('btnAddArrow').classList.toggle('on', m === 'arrow');
     $('btnAddGroup').classList.toggle('on', m === 'group');
     $('btnAddStrip').classList.toggle('on', m === 'strip');

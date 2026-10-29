@@ -24,7 +24,7 @@
   <div class="topbar-right">
     <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
     <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
-    <button class="btn" id="btnGuide" title="Hands-on tutorial on this gel: one step at a time, you do the clicks">Guide me</button>
+    <button class="btn" id="btnGuide" title="Short hands-on lessons: a first figure, labels, strips, image corrections, lanes, measuring bands">Lessons</button>
     <button class="btn" id="btnLibrary" title="Every gel you opened, with your latest edits">Library</button>
     <span class="save-note hidden" id="saveNote" role="status" aria-live="polite"></span>
     <div class="menu-wrap">
@@ -59,18 +59,22 @@
   <aside id="panel">
     <div class="empty" id="emptyState">
       <div class="empty-icon">▣</div>
-      <h2>Drop a gel or blot image here</h2>
+      <h2>Gel and blot figures, with densitometry</h2>
       <div class="field type-field"><label for="gelTypeStart">Experiment</label><select id="gelTypeStart"></select><p class="hint" id="gelTypeStartHint"></p></div>
-      <p>TIFF from iBright, ChemiDoc and other imagers (16 / 8-bit), PNG or JPG.<br>Straightening, cropping, lanes and marker sizes are automatic;<br>you type the lane names and export.</p>
-      <label class="btn primary big"><span>Choose file</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
-      <div class="examples"><span class="ex-label">Examples (synthetic)</span>
-        <button class="btn" id="btnDemo" data-example="dna">DNA gel</button><button class="btn" data-example="sds">SDS-PAGE</button><button class="btn" data-example="western">Western blot</button></div>
+      <label class="btn primary big"><span>Use my image</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
+      <p class="hint">Or drop it anywhere in the window: a TIFF from the imager (8 or 16-bit), PNG or JPG. Several exposures of one gel can go together; the best is picked.</p>
+      <div class="start-learn">
+        <div class="ex-label">Practice with an example</div>
+        <div class="inline"><button class="btn" data-lesson="figure" title="A short hands-on lesson on an example of the experiment above: check, label, export">Prepare a figure</button><button class="btn" data-lesson="measure" title="A short hands-on lesson on an example of the experiment above: from acquisition to exported values">Measure bands</button></div>
+        <div class="inline"><button class="btn ghost" id="btnOverview" title="Two minutes, read only: where everything is">Quick overview</button><button class="btn ghost" id="btnLessonsStart">All lessons</button></div>
+      </div>
+      <div class="examples"><span class="ex-label">Finished examples</span>
+        <button class="btn sm" id="btnDemo" data-example="dna">DNA gel</button><button class="btn sm" data-example="sds">SDS-PAGE</button><button class="btn sm" data-example="western">Western blot</button></div>
       <div id="libBox" class="lib hidden">
         <div class="lib-head"><span>Your gels</span><span class="h3-note" id="libNote"></span></div>
         <div id="libGrid" class="lib-grid"></div>
         <p class="hint">Every gel you open is kept in this browser with your latest edits. Click one to continue where you left off. Nothing is uploaded.</p>
       </div>
-      <p class="hint">You can drop several exposures of the same gel at once; the best one is picked automatically.</p>
       <p class="privacy">Images are processed only in this browser and never uploaded.</p>
     </div>
 
@@ -87,7 +91,7 @@
         <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span></div>
         <div class="seg" id="geomSeg">
           <button data-geom="auto" title="Measure the perspective from the lane lines (and the ladder bands) and straighten the traced lanes, lanes detected again between rounds, until they settle">Auto</button>
-          <button data-geom="manual" title="A box with four free corners on the raw image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
+          <button data-geom="manual" title="A box with four free corners on the image: drag them onto the corners of the gel; the gel inside is mapped to a rectangle">Manual</button>
           <button data-geom="off" title="The uncorrected image; annotations follow">Off</button>
         </div>
         <div class="inline hidden" id="geomPlace">
@@ -149,7 +153,7 @@
         </div>
         <p class="hint">Or drag the red box on the image (its sides snap to the gaps between lanes; Alt moves freely).</p>
         <div class="field inline">
-          <button class="btn sm" id="btnAddLane" title="Then click on the raw image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
+          <button class="btn sm" id="btnAddLane" title="Then click on the image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
           <span class="h3-note">then click where the lane runs. Drag a blue line to move it; Delete removes it.</span>
         </div>
         <details class="adv" id="fixLanes">
@@ -351,7 +355,7 @@
         </div>
       </div>
     </section>
-    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize raw image and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
+    <div class="gutter" id="gutterStage" role="separator" aria-orientation="vertical" aria-label="Resize image editor and figure" tabindex="0" title="Drag to resize; double-click to reset"></div>
     <!-- the right column holds two windows, the figure and the analysis below it, each closable; a divider sets their share -->
     <section class="pane-col" id="figCol">
       <div class="pane active" id="figPane">
@@ -425,47 +429,59 @@
   <div id="tourCard">
     <div class="tour-top"><b id="tourTitle"></b><span class="h3-note" id="tourStep"></span></div>
     <p id="tourText"></p>
+    <details class="tour-why hidden" id="tourWhy"><summary>Why?</summary><p id="tourWhyText"></p></details>
     <div class="tour-status" id="tourStatus"></div>
-    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Exit</button><span class="flex"></span><button class="btn sm hidden" id="tourTourBtn">Overview tour</button><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
+    <div class="tour-more hidden" id="tourMore"><button class="btn sm" id="tourNextLesson"></button><button class="btn sm ghost" id="tourMenuBtn">All lessons</button><button class="btn sm ghost hidden" id="tourRevert" title="Put this gel back as it was before the lesson">Undo the lesson's changes</button></div>
+    <div class="tour-actions"><button class="btn sm ghost" id="tourSkip">Exit</button><span class="flex"></span><button class="btn sm hidden" id="tourAlt"></button><button class="btn sm" id="tourBack">Back</button><button class="btn sm primary" id="tourNext">Next</button></div>
   </div>
 </div>
+
+<div id="lessonDlg" class="dlg hidden" role="dialog" aria-modal="true" aria-labelledby="lessonTitle"><div class="dlg-body lessons">
+  <button class="dlg-x" id="btnLessonClose" aria-label="Close">×</button>
+  <h3 id="lessonTitle">Lessons</h3>
+  <p class="hint">A few minutes each. Every card asks for one action on the page and waits for it; Why? gives the reason.</p>
+  <div class="field inline hidden" id="lessonWhereBox"><span>Practise on</span><div class="seg" id="lessonWhere"><button data-where="example" class="on">An example</button><button data-where="this">This gel</button></div></div>
+  <p class="hint" id="lessonNote"></p>
+  <div id="lessonList"></div>
+  <p class="inline"><button class="btn sm" id="btnLessonTour">Quick overview</button><span class="h3-note">two minutes, read only: where everything is</span></p>
+</div></div>
 
 <div id="helpDlg" class="dlg hidden"><div class="dlg-body">
   <button class="dlg-x" id="btnHelpClose" aria-label="Close">×</button>
   <div>
-  <p class="inline"><button class="btn sm primary" id="btnTutorial">Hands-on tutorial</button><span class="h3-note">make a figure step by step, about ten minutes</span></p>
-  <p class="inline"><button class="btn sm" id="btnTour">Overview tour</button><span class="h3-note">two minutes: where everything is</span></p>
+  <p class="inline"><button class="btn sm primary" id="btnTutorial">Lessons…</button><span class="h3-note">short and hands-on: a first figure, labels, strips, image corrections, lanes, measuring bands</span></p>
+  <p class="inline"><button class="btn sm" id="btnTour">Quick overview</button><span class="h3-note">two minutes: where everything is</span></p>
   <h3>Fastest way to a figure</h3>
   <ol>
     <li>Pick the <b>experiment</b> (DNA gel, RNA / Northern, Southern, SDS-PAGE, native PAGE, Western) and drop the image. Straightening, cropping, lanes, ladder and contrast are automatic. Several exposures of one gel can be dropped together; the best is chosen.</li>
     <li><b>Click a lane name</b> on the figure and type; Enter jumps to the next (or paste a whole row on the left).</li>
-    <li>Check the ladder on the left. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
+    <li>Check the ladder card on the left and <b>confirm</b> it is the product you loaded. Westerns: if the ladder is not on the chemiluminescence image, load the white-light <b>marker image</b>.</li>
     <li><b>Export…</b> at the top right offers four things: the figure alone, a results package (figure, chart, numbers, log, methods), a complete archive (that plus the original image and the project file), and the chart alone. A pre-flight check points out problems first.</li>
   </ol>
   <h3>Common tasks</h3>
   <ul>
-    <li><b>Show only some lanes</b>: pick wells under “Lanes in figure”, or drag the sides of the red box. Names are never lost.</li>
-    <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick “Show”). A splice gap is added; state it in the legend.</li>
-    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the raw image. Only the strips are shown, stacked, each with its own name.</li>
-    <li><b>Analysis</b>: step 6, “+ Band box”, click the band on the raw image. Tick the loading control (GAPDH, actin…) and every other band is divided by it in the same lane, or normalize to the total lane density. The chart and the table open in the analysis window under the figure (Figure and Analysis in the top bar show or hide the two windows; drag the divider between them); plot options and the methods text are in step 7.</li>
+    <li><b>Show only some lanes</b>: pick the wells under Lanes, or drag the sides of the red box. Names are never lost.</li>
+    <li><b>Remove a lane in the middle</b>: select it on the image and press <code>H</code> (or untick its Fig. box in the lane list). A splice gap is added and the legend notes say so. The lane is still measured unless you untick Meas.</li>
+    <li><b>Western panel with target and loading control</b>: “Strip” under Annotations, then drag across each region on the image editor. Only the strips are shown, stacked, each with its own name.</li>
+    <li><b>Measure bands</b>: Densitometry (step 6), “+ Band box”, click the band on the image. Values are background-subtracted and relative to a reference lane; normalization is a choice under Normalize: a loading-control box (tick “Divide by this box”; it assumes that band is linear and unchanged by the treatment) or the lane signal (total-protein normalization only on a total-protein stain or stain-free image). The profile, table and plot open in the analysis window under the figure; plot options and the methods text are in the Densitometry step.</li>
     <li><b>Band sizes in every lane</b>: the analysis window, “Band sizes”.</li>
     <li><b>Group line</b>: drag from one lane name to another on the figure.</li>
     <li><b>Target band arrow</b>: click “Target band”, then the band. The size is estimated from the ladder; values outside it are marked ≈.</li>
     <li><b>+ / − rows</b>: add a row, then click cells on the figure to cycle + / − / empty.</li>
     <li><b>A ladder band is wrong</b>: drag its yellow line on the image; the others re-fit around it.</li>
     <li><b>Wells at the bottom, or a mirrored image</b>: the flip buttons under “Straighten and contrast”. Annotations follow.</li>
-    <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under “Lanes in figure” and make one figure per row. Each row keeps its names and annotations.</li>
+    <li><b>Two rows of wells on one gel</b>: the rows are found on load; switch between them under Lanes and make one figure per row. Each row keeps its names and annotations.</li>
     <li><b>Come back to a gel later</b>: every gel you open is kept in this browser's Library (top bar) with your latest edits; click it to continue. To take a gel to another computer, save a project file (Open / Save ▾).</li>
     <li><b>Into a slide or notebook</b>: Export… → Figure → Copy to clipboard.</li>
-    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the raw image and the figure; double-click one to reset. The sizes are remembered.</li>
-    <li><b>Use it like a desktop app</b>: on the web version, File ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
+    <li><b>More room for the image or the figure</b>: drag the dividers between the panel, the image editor and the figure; double-click one to reset. The sizes are remembered.</li>
+    <li><b>Use it like a desktop app</b>: on the web version, Open / Save ▾ → Install as an app (Chrome, Edge) or the browser's own “Add to Dock / Home Screen” (Safari). The installed app opens offline and, when online, fetches the newest version and offers “Reload”.</li>
   </ul>
   <h3>Image integrity</h3>
   <ul>
     <li>Only linear, whole-image adjustments; gamma is locked at 1 unless unlocked.</li>
     <li>Camera saturation (re-image needed) and contrast clipping (fixable) are reported separately.</li>
     <li>Removed lanes get a splice mark and strips a gap; never splice different gels into one panel.</li>
-    <li>Densitometry uses the raw pixel values, never the display contrast.</li>
+    <li>Densitometry reads the original pixel values, never the display contrast or the resampled working image.</li>
     <li>Also export the uncropped image and the original file for the supplement.</li>
   </ul>
   <p class='muted small'>Shortcuts: Ctrl+Z undo · Ctrl+Shift+Z redo · Space+drag pan · wheel zoom · H remove/restore lane · Esc cancel</p>

@@ -364,6 +364,10 @@ body.tutoring:not(.tut-warn) #warnings { display: none; }
 .tour-top b { font-size: 14px; flex: 1; }
 #tourText { margin: 6px 0 12px; font-size: 12.8px; line-height: 1.55; color: var(--muted); }
 .tour-actions { display: flex; align-items: center; gap: 6px; }
+.tour-why { margin: -6px 0 10px; font-size: 12.5px; color: var(--muted); }
+.tour-why summary { cursor: pointer; color: var(--accent); font-weight: 600; width: max-content; }
+.tour-why p { margin: 4px 0 0; line-height: 1.5; }
+.tour-more { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 body.touring #app, body.touring .topbar { user-select: none; }
 @media (max-width: 860px) { #tourSpot, #tourDim { display: none !important; } #tourCard { left: 12px !important; right: 12px; top: auto !important; bottom: 12px; width: auto !important; } }
 
@@ -416,6 +420,23 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin: 6px 0 4px; }
 .examples .ex-label { width: 100%; font-size: 11.5px; color: var(--faint); }
 .empty .examples .btn { display: inline-flex; width: auto; margin: 0; flex: 1 1 30%; }
+/* the start screen's ways in: practice by goal, the overview, every lesson */
+.start-learn { margin: 6px 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); }
+.start-learn .ex-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.start-learn .inline { justify-content: center; gap: 6px; }
+.empty .start-learn .btn { display: inline-flex; width: auto; margin: 0 0 6px; flex: 1 1 40%; justify-content: center; }
+/* the lesson menu: lessons by goal, a tick for those done, Continue for one left part-way on this gel */
+.dlg-body.lessons { width: min(560px, calc(100vw - 32px)); }
+.ls-goal { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); margin: 14px 0 6px; }
+.ls-item { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--line); }
+.ls-tick { width: 18px; flex: none; color: var(--ok); font-weight: 700; text-align: center; }
+.ls-main { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: none; background: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; color: var(--text); font: inherit; }
+.ls-main:hover { background: var(--panel-2); }
+.ls-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ls-main b { font-size: 13.5px; }
+.ls-main small { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ls-meta { flex: none; font-size: 11.5px; color: var(--faint); }
+#lessonWhereBox { gap: 10px; }
 #polSeg button { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
 #polSeg .pol-note { font-size: 10.5px; color: var(--faint); font-weight: 400; }
 .mk-image.emph { background: var(--accent-bg); }

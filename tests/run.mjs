@@ -75,7 +75,7 @@ const UI_CHECKS = [
   ['dividers resize the panel and the stage, remember it, and reset on double-click', r => r.splitters.ok, ['splitters']],
   ['library keeps the gel with its edits, renames, reopens, closes and removes it', r => r.library.ok, ['library']],
   ['overview tour: targets, keyboard, remembered as seen', r => r.tour.ok, ['tour']],
-  ['hands-on tutorial: one card per task, the ring follows the stage, the block stays lit, waits for the action and Next', r => r.tutorial.ok, ['tutorial']],
+  ['lessons: nothing starts by itself; short lessons by goal on a practice copy, worded for the experiment, one action per card that waits for it; Already correct / Not applicable, Why?, progress remembered, the measuring lesson in order, a lesson on the user\'s gel undone on request', r => r.lessons.ok, ['lessons']],
   ['"all" / "none" picks in the band and lane lists', r => r.picks.ok, ['picks']],
   ['print page and exports: the legend notes under the figure only when asked for', r => r.print.ok, ['print']],
   ['densitometry: a two-fold dilution reads two-fold in the default whole-box measure (not in the thresholded one); boxes below their LOQ are flagged, never a reference or a denominator; the figure box and figure lanes change no number; methods and CSV describe the same measure', r => r.densMode.ok, ['densMode']],
@@ -194,6 +194,21 @@ async function runIn(name, base) {
       await page.waitForTimeout(2000);
       outside.hits.length ? fail('no request leaves the page', outside.hits.join(', ')) : pass('no request leaves the page');
       await page.close();
+    }
+    // a first visit: nothing starts by itself; "Practice with an example" opens the example and its lesson
+    {
+      const fctx = await browser.newContext({ viewport: { width: 1280, height: 860 } }), page = await fctx.newPage();
+      try {
+        await page.goto(`${base}/index.html`);
+        await page.waitForTimeout(1500);
+        const idle = await page.evaluate(() => document.getElementById('tour').classList.contains('hidden') && !window.App.S && !!document.querySelector('#emptyState [data-lesson="figure"]'));
+        await page.click('#emptyState [data-lesson="figure"]');
+        await page.waitForFunction(() => window.App && window.App.S && window.Tour && window.Tour.lesson() === 'figure', null, { timeout: 60000 });
+        const started = await page.evaluate(() => ({ example: window.App.isExample, title: document.getElementById('tourTitle').textContent }));
+        idle && started.example === 'dna' && started.title === 'Working image and original' ? pass('first visit: nothing starts by itself; Practice with an example opens its lesson')
+          : fail('first visit: nothing starts by itself; Practice with an example opens its lesson', JSON.stringify({ idle, started }));
+      } catch (e) { fail('first visit', e.message.split('\n')[0]); }
+      finally { await fctx.close(); }
     }
   } catch (e) {
     fail('runner', e.message);

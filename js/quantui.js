@@ -355,5 +355,5 @@
   // the current results and chart (measured on demand), for the export routes
   function measured() { if (!lastR && S() && S().quant.rows.length && G.Quant.quantLanes(App).length) lastR = G.Quant.measure(App); return lastR; }
   function chart() { const R = measured(); return R ? G.Quant.chartSVG(App, R) : null; }
-  G.QuantUI = { render, setView, show, follow, view: () => view, isShown: p => !!shown[p], results: measured, chart, layer: () => layer, setLayer, exportChart };
+  G.QuantUI = { render, setView, setTab: t => { setTab(t); render(); }, show, follow, view: () => view, isShown: p => !!shown[p], results: measured, chart, layer: () => layer, setLayer, exportChart };
 })(window);
