@@ -22,8 +22,8 @@
   <div class="seg view-seg hidden" id="viewSeg" title="The two windows of the right column: the figure, and the analysis (band measurements and their plot) below it. Click to show or hide each"><button data-view="figure" class="on" title="Show or hide the figure window">Figure</button><button data-view="quant" title="Show or hide the analysis window">Analysis</button></div>
   <div class="coach" id="coach"><span class="coach-dot"></span><span id="coachText">Drop a gel image into the window to start</span></div>
   <div class="topbar-right">
-    <button class="icon-btn" id="btnUndo" title="Undo (Ctrl+Z)">↺</button>
-    <button class="icon-btn" id="btnRedo" title="Redo (Ctrl+Shift+Z)">↻</button>
+    <button class="icon-btn" id="btnUndo" aria-label="Undo" title="Undo (Ctrl+Z)">↺</button>
+    <button class="icon-btn" id="btnRedo" aria-label="Redo" title="Redo (Ctrl+Shift+Z)">↻</button>
     <button class="btn" id="btnGuide" title="Short hands-on lessons: a first figure, labels, strips, image corrections, lanes, measuring bands">Lessons</button>
     <button class="btn" id="btnLibrary" title="Every gel you opened, with your latest edits">Library</button>
     <span class="save-note hidden" id="saveNote" role="status" aria-live="polite"></span>
@@ -65,13 +65,20 @@
 </header>
 
 <div id="app">
-  <aside id="panel">
+  <aside id="panel" aria-label="Figure and analysis settings">
+    <nav id="settingsNav" class="settings-nav hidden" aria-label="Settings sections">
+      <div class="settings-heading"><span>Settings</span><button class="link" id="btnSettingsLessons">Lessons</button></div>
+      <div class="settings-steps">
+        <button data-step="0"><span>1</span>Image</button><button data-step="1"><span>2</span>Lanes</button><button data-step="2"><span>3</span>Ladder</button>
+        <button data-step="3"><span>4</span>Labels</button><button data-step="4"><span>5</span>Layout</button><button data-step="5"><span>6</span>Measure</button>
+      </div>
+    </nav>
     <div class="empty" id="emptyState">
       <div class="empty-icon">▣</div>
       <h2>Gel and blot figures, with densitometry</h2>
       <div class="field type-field"><label for="gelTypeStart">Experiment</label><select id="gelTypeStart"></select><p class="hint" id="gelTypeStartHint"></p></div>
       <label class="btn primary big"><span>Use my image</span><input type="file" id="fileInput2" accept=".tif,.tiff,.png,.jpg,.jpeg,.bmp,.gelfig,.zip" multiple hidden></label>
-      <p class="hint">Or drop it anywhere in the window: a TIFF from the imager (8 or 16-bit), PNG or JPG. Several exposures of one gel can go together; the best is picked.</p>
+      <p class="hint">Drop a TIFF, PNG or JPG anywhere to begin. Your image stays on this device.</p>
       <div class="start-learn">
         <div class="ex-label">Practice with an example</div>
         <div class="inline"><button class="btn" data-lesson="figure" title="A short hands-on lesson on an example of the experiment above: check, label, export">Prepare a figure</button><button class="btn" data-lesson="measure" title="A short hands-on lesson on an example of the experiment above: from acquisition to exported values">Measure bands</button></div>
@@ -94,10 +101,10 @@
         <div class="field type-field"><label for="gelType">Experiment</label><select id="gelType"></select><p class="hint" id="gelTypeHint"></p></div>
         <div class="set-row"><span class="set-l" id="brightLabel">Measure bands as</span>
           <div class="seg sm" id="brightSeg" role="radiogroup" aria-labelledby="brightLabel"><button data-bright="0" role="radio">Dark</button><button data-bright="1" role="radio">Bright</button></div></div>
-        <p class="hint">Bands darker or brighter than the background in the file. Detection and measurement use this; changing it detects again.</p>
+
         <div class="set-row"><span class="set-l" id="polLabel">Display</span>
           <div class="seg sm" id="polSeg" role="radiogroup" aria-labelledby="polLabel"><button data-inv="0" role="radio">Original</button><button data-inv="1" role="radio">Inverted</button></div></div>
-        <p class="hint">Display only: never changes a measured value.</p>
+        <details class="context-help"><summary>Measurement vs. display</summary><p>Choose whether bands are dark or bright in the original file. This controls detection and measurement; changing it detects the lanes again. Display inversion changes only the appearance.</p></details>
         <div class="cl-head" style="margin-top:8px">Gel shape <span class="h3-note" id="ksNote">off</span> <button type="button" class="link" id="btnKsDetails" aria-expanded="false" aria-controls="ksDetails">Details…</button></div>
         <p class="hint hidden" id="ksDetails"></p>
         <div class="seg" id="geomSeg">
@@ -108,9 +115,9 @@
         <div class="inline hidden" id="geomPlace">
           <button class="btn sm primary" id="btnGeomApply" title="Map the gel inside the blue box to a rectangle, then detect the lanes and markers again">Apply</button>
           <button class="btn sm ghost" id="btnGeomCancel" title="Leave the box without changing anything">Cancel</button>
-          <span class="h3-note">Drag the round corners onto the gel's corners (the square handles slide a whole side); nothing happens until Apply.</span>
+          <span class="h3-note">Place the corners on the gel, then Apply.</span>
         </div>
-        <p class="hint" id="geomHint" title="Auto runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. Manual: drag the blue box onto the corners of the gel, then Apply. Measurements always read the original pixels.">Auto corrects a camera angle and bent lanes. Manual: drag the box's corners onto the gel, then Apply.</p>
+        <p class="hint context-instruction" id="geomHint" title="Auto runs when the image opens and straightens a camera angle and bent lanes from the lane positions and the ladder bands, never from sample bands. Manual: drag the blue box onto the corners of the gel, then Apply. Measurements always read the original pixels.">Review the correction against the Original view.</p>
         <details class="adv" id="imgAdv">
           <summary><span>Straighten and contrast</span><span class="h3-note" id="imgAdvNote">set automatically; open to adjust</span></summary>
         <div class="field">
@@ -163,13 +170,13 @@
           <select id="rangeA" aria-label="First lane shown"></select> – <select id="rangeB" aria-label="Last lane shown"></select>
           <button class="btn sm ghost" id="btnRangeAuto" title="Show only the lanes with bands">Loaded</button>
         </div>
-        <p class="hint" title="Its sides snap to the gaps between lanes; hold Alt to move them freely">Or drag the sides of the red box on the image.</p>
+
         <div class="field inline">
           <button class="btn sm" id="btnAddLane" aria-pressed="false" title="Then click on the image where the missing lane runs; the blue line follows the pointer. Shift+click adds several, Esc ends">+ Add lane</button>
           <span class="h3-note hidden" id="addLaneHint" role="status">Click the lane centre on the image</span>
         </div>
         <details class="adv" id="fixLanes">
-          <summary><span>Adjust lanes…</span><span class="h3-note">re-detect, space evenly, spread</span></summary>
+          <summary><span>Adjust lane positions</span></summary>
           <div class="crop-lanes">
             <div class="field inline">
               <button class="btn sm" id="btnRedetectCrop" title="Find the lanes again inside the red box only; lanes you placed by hand stay">Re-detect in box</button>
@@ -187,9 +194,9 @@
           <div class="inline"><button class="btn sm" id="btnNegEmpty">Mark as negative control</button><button class="btn sm ghost" id="btnCutEmpty">Leave out of the figure</button><button class="btn sm ghost" id="btnIgnoreEmpty">Ignore</button></div>
         </div>
         <div class="cl-head" style="margin-top:10px">Lane names <span class="h3-note" id="laneCountNote"></span></div>
-        <p class="hint" title="Enter moves to the next lane; *lacZ* is set in italics. Show: in the figure (or select the lane and press H). Measure: in the analysis, once a band is measured.">Type names on the figure (click a grey number) or paste a row below.</p>
+        <p class="hint" title="Enter moves to the next lane; *lacZ* is set in italics. Show: in the figure (or select the lane and press H). Measure: in the analysis, once a band is measured.">Edit names here or click a name on the figure.</p>
         <div id="laneList" class="list"></div>
-        <textarea id="laneBulk" rows="1" placeholder="Paste a row of names: M, WT, KO-1, NTC … (commas, tabs or new lines; a row copied from Excel works)"></textarea>
+        <textarea id="laneBulk" rows="1" aria-label="Paste lane names, separated by commas, tabs or new lines" placeholder="Paste names from a spreadsheet…"></textarea>
         <details class="adv" id="laneAdv">
           <summary><span>Splice gap</span><span class="h3-note">where a lane is left out</span></summary>
           <div class="field inline">
@@ -296,7 +303,7 @@
           <div class="q-notice hidden" id="qLegacy" role="status"><b>Earlier method.</b> <span id="qLegacyText"></span> <button class="btn sm" id="btnQUpdate">Update to the current method…</button></div>
           <div id="boxList" class="q-bands"></div>
           <dl class="q-set">
-            <div class="q-row"><dt><label for="qMode">Measure</label></dt><dd><select id="qMode"><option value="box">Whole region</option><option value="band">Thresholded (exploratory)</option></select><span class="q-help" id="qModeHelp">Sum signal after background correction.</span></dd></div>
+            <div class="q-row"><dt><label for="qMode">Measure</label></dt><dd><select id="qMode"><option value="box">Whole region</option><option value="band">Thresholded (exploratory)</option></select><span class="q-help hidden" id="qModeHelp">Sum signal after background correction.</span></dd></div>
             <div class="q-row"><dt><label for="qBg">Background</label></dt><dd><select id="qBg"><option value="local">Local regions</option><option value="edge">Line between region ends</option><option value="rolling">Rolling baseline</option><option value="none">None</option><option value="border" hidden>Border median (earlier projects)</option></select><button class="btn sm" id="btnBgEdit" aria-expanded="false" aria-controls="qBgEdit">Edit…</button></dd></div>
             <div class="q-sub hidden" id="qBgEdit">
               <label class="inline-label"><span>Sides</span> <select id="qBgSides"><option value="ab">Above and below</option><option value="above">Above</option><option value="below">Below</option><option value="beside">Beside</option></select></label>
@@ -305,28 +312,28 @@
               <p class="hint" id="qBgHelp"></p>
             </div>
             <div class="q-row"><dt><label for="qNorm">Normalize</label></dt><dd><select id="qNorm"><option value="none">None — background-corrected signal</option><option value="band">Reference band</option><option value="lane">Total lane signal</option></select><select id="qNormBand" class="hidden" aria-label="Reference band"></select></dd></div>
-            <div class="q-sub hidden" id="qNormSub"><p class="hint" id="qNormHint"></p><label class="switch hidden" id="qLaneTotalWrap"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label>
+            <div class="q-sub hidden" id="qNormSub"><details class="context-help"><summary>Normalization assumptions</summary><p class="hint" id="qNormHint"></p></details><label class="switch hidden" id="qLaneTotalWrap"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label>
               <div class="hidden" id="qNormRegWrap"><p class="hint" id="qNormRegions"></p><button class="btn sm" id="btnNormRegions">Update total-lane regions from the analysis area…</button></div></div>
             <div class="q-row"><dt><label for="qOutput">Output</label></dt><dd><select id="qOutput"><option value="corrected">Background-corrected signal</option><option value="normalized">Normalized signal</option><option value="fold">Fold change vs reference</option></select><select id="qRef" class="hidden" aria-label="Reference lane"></select></dd></div>
             <div class="q-row"><dt>Measured lanes</dt><dd><span class="q-val" id="qLanesSum"></span><button class="btn sm" id="btnLanesEdit" aria-expanded="false" aria-controls="qLaneBox">Edit…</button></dd></div>
-            <div class="q-sub hidden" id="qLaneBox"><div id="qLaneList" class="chips"></div><p class="hint" id="qLaneWhy"></p><p class="hint">Untick a lane to leave it out of the measurements; the figure is not affected. Negative controls stay measured.</p></div>
+            <div class="q-sub hidden" id="qLaneBox"><div id="qLaneList" class="chips"></div><p class="hint" id="qLaneWhy"></p><p class="hint">Selection affects measurements only. Keep negative controls included.</p></div>
             <div class="q-row"><dt>Analysis area</dt><dd><span class="q-val" id="qAreaNote"></span><button class="btn sm" id="btnAreaEdit" aria-expanded="false" aria-controls="qAreaBox">Edit…</button></dd></div>
             <div class="q-sub hidden" id="qAreaBox">
-              <p class="hint">Decides which lanes are measured: those whose lines lie inside (pixels of the image as shown; dashed green on the image). It does not move the bands' regions or the total-lane regions.</p>
+              <p class="hint">Includes lanes whose centres are inside this area. Existing band and normalization regions stay fixed.</p>
               <div class="inline wrap">
                 <label class="inline-label"><span>Left</span> <input type="number" id="qAreaL" class="num" step="1"></label>
                 <label class="inline-label"><span>Right</span> <input type="number" id="qAreaR" class="num" step="1"></label>
                 <label class="inline-label"><span>Top</span> <input type="number" id="qAreaT" class="num" step="1"></label>
                 <label class="inline-label"><span>Bottom</span> <input type="number" id="qAreaB" class="num" step="1"></label>
               </div>
-              <button class="btn sm ghost" id="btnAreaFromCrop" title="Set the analysis area to the current figure box; lanes measured can change">Reset from figure…</button>
+              <button class="btn sm" id="btnAreaFromCrop" title="Set the analysis area to the current figure box; lanes measured can change">Reset from figure…</button>
             </div>
           </dl>
           <div id="qIssues" class="q-issues" aria-live="polite"></div>
           <details class="adv" id="qAdvanced">
             <summary><span>Advanced settings</span></summary>
             <div class="field"><label><span>Region width</span> <b id="qWV"></b></label><input type="range" id="qW" min="20" max="100" step="1" aria-label="Region width, percent of the lane spacing"></div>
-            <p class="hint">Changing the width places every band again on the lanes as shown.</p>
+            <p class="hint">Changing width repositions every band on the lanes shown. Results may change.</p>
           </details>
           <details class="adv" id="methodsAdv">
             <summary><span>Method and assumptions</span></summary>
@@ -337,10 +344,10 @@
         </details>
       </section>
 
-      <div class="legend-wrap">
+      <details class="legend-wrap context-help"><summary>Figure legend notes</summary>
         <div id="legendHints" class="legend"></div>
         <button class="btn sm claude-btn hidden" id="btnClaude">Draft legend and methods with Claude</button>
-      </div>
+      </details>
     </div>
   </aside>
   <div class="gutter" id="gutterPanel" role="separator" aria-orientation="vertical" aria-label="Resize the settings panel" tabindex="0" title="Drag to resize the panel; double-click to reset"></div>
@@ -417,7 +424,7 @@
         <div class="qv-sum" id="qSummary"></div>
         <div class="qv-body">
           <div id="quantEmpty" class="qv-empty hidden">
-            <b>No bands yet.</b><br>Click <b>+ Add band</b>, then click a band on the image. It is measured in every lane of the analysis area.
+            <b>No bands yet.</b><br>Add a band on the image to inspect its signal, background and results.
             <div><button class="btn primary" id="btnAddBox2">+ Add band</button></div>
           </div>
           <div id="quantProf" role="tabpanel" aria-labelledby="tabProf">
@@ -453,15 +460,16 @@
             <div class="inline wrap prof-actions">
               <button class="btn sm" id="btnBgRegions" aria-expanded="false" aria-controls="qBgPanel">Edit background regions…</button>
               <button class="btn sm" id="btnCopyLimits">Copy integration limits…</button>
-              <button class="btn sm" id="btnEndpoint">Use endpoint baseline…</button>
+
             </div>
             <div class="q-sub hidden" id="qBgPanel" role="group" aria-label="Background regions of this lane">
               <div class="inline wrap"><label class="inline-label"><span>Sides in this lane</span> <select id="qLaneBg"><option value="">As for all lanes</option><option value="ab">Above and below</option><option value="above">Above only</option><option value="below">Below only</option><option value="beside">Beside</option></select></label>
                 <label class="inline-label"><span>Gap</span> <input type="number" id="qLaneGap" class="num" min="0" max="40" step="1" placeholder="as all"> px</label></div>
-              <p class="hint">For this lane only (the band's setting is Background in step 6). The grey bands on the profile show the rows used.</p>
+              <p class="hint">Overrides the background settings for this lane only. The profile highlights the sampled rows.</p>
             </div>
             <details class="adv prof-more" id="qLaneMore">
-              <summary><span>Lane adjustments</span></summary>
+              <summary><span>More lane actions</span></summary>
+              <button class="btn sm" id="btnEndpoint">Use endpoint baseline…</button>
               <div class="pt-steps" id="qLaneAdj" role="group" aria-label="Lane adjustments"><span class="pt-l">Start</span><button class="btn sm" data-adj="dy0:-1" aria-label="Move the start one row up">↑</button><button class="btn sm" data-adj="dy0:1" aria-label="Move the start one row down">↓</button>
                 <span class="pt-l">End</span><button class="btn sm" data-adj="dy1:-1" aria-label="Move the end one row up">↑</button><button class="btn sm" data-adj="dy1:1" aria-label="Move the end one row down">↓</button>
                 <span class="pt-l">Shift</span><button class="btn sm" data-adj="dx:-1" aria-label="Shift the region one pixel to the left on the screen">←</button><button class="btn sm" data-adj="dx:1" aria-label="Shift the region one pixel to the right on the screen">→</button></div>
@@ -479,11 +487,11 @@
           </div>
           <div id="quantPlot" class="hidden" role="tabpanel" aria-labelledby="tabPlot">
             <div class="plot-wrap">
-              <figure class="qchart-fig"><div id="quantChart" class="qchart"></div><figcaption class="hint">Preview of the exported chart: the same values, marks and reasons as the table.</figcaption></figure>
+              <figure class="qchart-fig"><div id="quantChart" class="qchart"></div><figcaption class="hint">Export uses these values and quality flags.</figcaption></figure>
               <div class="plot-set" id="plotAdv" aria-label="Plot settings">
                 <div class="cl-head">Plot settings</div>
                 <label class="inline-label"><span>Type</span> <select id="plotType" style="width:auto"><option value="bar">Bars</option><option value="point">Points</option></select></label>
-                <label class="switch"><input type="checkbox" id="plotValues"><span>Write the values</span></label>
+                <label class="switch"><input type="checkbox" id="plotValues"><span>Show values</span></label>
                 <label class="switch"><input type="checkbox" id="plotRef" checked><span>Line at 1 (fold change)</span></label>
                 <div class="field"><label for="plotTitle">Title</label><input type="text" id="plotTitle" placeholder="the band's name"></div>
                 <div class="field"><label for="plotY">Y-axis label</label><input type="text" id="plotY" placeholder="from the output"></div>

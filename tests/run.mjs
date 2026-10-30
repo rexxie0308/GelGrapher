@@ -102,7 +102,8 @@ const UI_CHECKS = [
   ['the owner\'s notes (2026-10-30): a tool\'s instruction sits above its window, never over the figure or the image; on the Measurement regions layer the lanes do not respond and each box\'s drawn edges are its handles; a band\'s edge (drag or Height) moves drawn baselines\' limits along their line; Edit baseline never moves the plot, its typed positions folded unless opened from the keyboard, the axes fixed while drawing; flagged lanes say what to check, Mark as checked takes them off the list (kept in CSV, log and methods; back after any change to the lane), Next to review; the profile drawn when it becomes visible', r => r.notes.ok, ['notes']],
   ['profile controls: manual integration only in Edit baseline mode, complete by keyboard, Escape from anywhere, a snap option, Use automatic background keeps the limits, a full reset says what it removes; bulk changes scoped, previewed and undone at once; comparison on the band\'s rows with a legend; total-lane regions stated; notifications over the image editor; touch scrolls the profile unless editing', r => r.profileUI.ok, ['profileUI']],
   ['densitometry workspace: an earlier-method analysis keeps its numbers until updated on request (adding a band asks); Measure bands as apart from Display; the lane table\'s columns and names; why a lane is not measured; the analysis area and band height edited explicitly; one instruction per tool; dialogs hold and return the focus; the broad-band lesson', r => r.workspace.ok, ['workspace']],
-  ['less text, larger type: Size ladder and Lanes shown, finished steps folded to a summary (a lesson unfolds what it needs), a key to the lines on the image, the figure at printed size, one filled button in the export window with its resolution, the More menu', r => r.compact.ok, ['compact']]
+  ['less text, larger type: Size ladder and Lanes shown, finished steps folded to a summary (a lesson unfolds what it needs), a key to the lines on the image, the figure at printed size, one filled button in the export window with its resolution, the More menu', r => r.compact.ok, ['compact']],
+  ['settings navigation reveals and focuses each section; keyboard shortcuts, method details and lessons; review counts stay visible, optional advice survives redraws, navigation leaves measurements unchanged', r => r.hierarchy.ok, ['hierarchy']]
 ];
 
 // Chromium: a Playwright version newer than the browsers installed under PLAYWRIGHT_BROWSERS_PATH (as in
@@ -219,10 +220,19 @@ async function runIn(name, base) {
           const image = shown($('rawCol')) && !shown($('figCol')) && $('editor').getBoundingClientRect().width > 300;
           document.querySelector('#mobileNav [data-pane="steps"]').click(); await wait(100);
           const steps = shown($('panel')) && !shown($('stage'));
+          await window.UI.loadExample('western'); await wait(200);
+          window.UI.showPane('analysis'); window.QuantUI.setTab('prof'); await wait(100);
+          const values = JSON.stringify(window.QuantUI.results().shown);
+          $('qMethodLink').click(); await wait(100);
+          const method = document.body.dataset.pane === 'steps' && shown($('methodsAdv')) && $('methodsAdv').open
+            && $('methodsAdv').getBoundingClientRect().top >= $('settingsNav').getBoundingClientRect().bottom
+            && JSON.stringify(window.QuantUI.results().shown) === values;
+          document.querySelector('#settingsNav [data-step="0"]').click(); await wait(100);
+          const shortcut = shown($('polSeg')) && document.documentElement.scrollWidth <= innerWidth + 1;
           await window.Tour.practice('figure'); await wait(400);
           const card = $('tourCard').getBoundingClientRect();
           const lesson = document.body.dataset.pane === 'image' && $('tourTitle').textContent === 'Working image and original' && card.bottom <= nav.top + 1 && card.top > 0;
-          return { first, narrow, image, steps, lesson };
+          return { first, narrow, image, steps, method, shortcut, lesson };
         });
         Object.values(r).every(Boolean) ? pass('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs')
           : fail('phone: one workspace at a time, a bar to switch, nothing wider than the screen; a lesson shows the workspace its card needs', JSON.stringify(r));

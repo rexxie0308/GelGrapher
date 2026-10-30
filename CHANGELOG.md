@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Clearer settings and measurement review (interface test 62):** persistent section shortcuts with keyboard navigation; concise hints and expandable explanations; prominent profile values with visible quality flags; a compact review queue with Inspect next; readable dark-mode baseline colors; and Method details that opens the relevant settings on phones. Calculations and export values are unchanged.
+
 - **The owner's notes on the analysis (interface test 61):**
   - A tool's instruction ("Group bracket: drag across the lane names…", Add band, Strip, Arrow, Add lane) is now a strip above the window the tool works in. It used to float over the figure and hide the lane names the group bracket is drawn across.
   - On the **Measurement regions** layer the lanes, ladder bands and arrows no longer respond to the pointer (the lanes are drawn faint), so a lane line lying on a box can no longer be grabbed instead of it. Each lane's box, as drawn, has its own edge handles.
