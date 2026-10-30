@@ -305,13 +305,14 @@
               <p class="hint" id="qBgHelp"></p>
             </div>
             <div class="q-row"><dt><label for="qNorm">Normalize</label></dt><dd><select id="qNorm"><option value="none">None — background-corrected signal</option><option value="band">Reference band</option><option value="lane">Total lane signal</option></select><select id="qNormBand" class="hidden" aria-label="Reference band"></select></dd></div>
-            <div class="q-sub hidden" id="qNormSub"><p class="hint" id="qNormHint"></p><label class="switch hidden" id="qLaneTotalWrap"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label></div>
+            <div class="q-sub hidden" id="qNormSub"><p class="hint" id="qNormHint"></p><label class="switch hidden" id="qLaneTotalWrap"><input type="checkbox" id="qLaneTotal"><span>This image is a total-protein stain or stain-free image</span></label>
+              <div class="hidden" id="qNormRegWrap"><p class="hint" id="qNormRegions"></p><button class="btn sm" id="btnNormRegions">Update total-lane regions from the analysis area…</button></div></div>
             <div class="q-row"><dt><label for="qOutput">Output</label></dt><dd><select id="qOutput"><option value="corrected">Background-corrected signal</option><option value="normalized">Normalized signal</option><option value="fold">Fold change vs reference</option></select><select id="qRef" class="hidden" aria-label="Reference lane"></select></dd></div>
             <div class="q-row"><dt>Measured lanes</dt><dd><span class="q-val" id="qLanesSum"></span><button class="btn sm" id="btnLanesEdit" aria-expanded="false" aria-controls="qLaneBox">Edit…</button></dd></div>
             <div class="q-sub hidden" id="qLaneBox"><div id="qLaneList" class="chips"></div><p class="hint" id="qLaneWhy"></p><p class="hint">Untick a lane to leave it out of the measurements; the figure is not affected. Negative controls stay measured.</p></div>
             <div class="q-row"><dt>Analysis area</dt><dd><span class="q-val" id="qAreaNote"></span><button class="btn sm" id="btnAreaEdit" aria-expanded="false" aria-controls="qAreaBox">Edit…</button></dd></div>
             <div class="q-sub hidden" id="qAreaBox">
-              <p class="hint">Pixels of the image as shown. The lanes whose lines lie inside are measured; the dashed green outline on the image shows the area.</p>
+              <p class="hint">Decides which lanes are measured: those whose lines lie inside (pixels of the image as shown; dashed green on the image). It does not move the bands' regions or the total-lane regions.</p>
               <div class="inline wrap">
                 <label class="inline-label"><span>Left</span> <input type="number" id="qAreaL" class="num" step="1"></label>
                 <label class="inline-label"><span>Right</span> <input type="number" id="qAreaR" class="num" step="1"></label>
@@ -357,6 +358,8 @@
         <span class="zoomlabel" id="zoomLabel"></span>
       </div>
       <div id="expoStrip" class="expo hidden"></div>
+      <!-- the active tool's instruction: a strip above the window the tool works in, never over the image or figure -->
+      <div id="modeBanner" class="mode-banner hidden" role="status"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
       <div id="editorBox" tabindex="0">
         <canvas id="editor"></canvas>
         <div id="overlayKey" class="okey hidden" aria-label="What the lines on the image are">
@@ -369,6 +372,7 @@
             <li data-k="strip"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#0e8f8f" stroke-width="1.4" stroke-dasharray="4 2"/></svg>Strip</li>
             <li data-k="box"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#1f9d55" stroke-width="1.2"/></svg>Measurement region</li>
             <li data-k="area"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#1f9d55" stroke-width="1.2" stroke-dasharray="5 2"/></svg>Analysis area</li>
+            <li data-k="norm"><svg width="22" height="10" aria-hidden="true"><rect x="1" y="1" width="20" height="8" fill="none" stroke="#6d5bd0" stroke-width="1" stroke-dasharray="6 4"/></svg>Total-lane region</li>
             <li data-k="arrow"><svg width="22" height="10" aria-hidden="true"><path d="M1 5h20" stroke="#c026d3" stroke-width="1.4" stroke-dasharray="4 2"/></svg>Target band</li>
           </ul>
         </div>
@@ -394,7 +398,6 @@
         </div>
         <div id="previewBox">
           <div id="preview"></div>
-          <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
         </div>
       </div>
       <div class="gutter gutter-h hidden" id="gutterFig" role="separator" aria-orientation="horizontal" aria-label="Resize figure and analysis" tabindex="0" title="Drag to resize; double-click to reset"></div>
@@ -418,24 +421,56 @@
             <div><button class="btn primary" id="btnAddBox2">+ Add band</button></div>
           </div>
           <div id="quantProf" role="tabpanel" aria-labelledby="tabProf">
-            <div class="field inline wrap prof-ctl"><select id="qProfBox" style="width:auto" aria-label="Band"></select><select id="qProfLane" style="width:auto" aria-label="Lane"></select><label class="switch"><input type="checkbox" id="qProfAll"><span>Compare lanes</span></label></div>
-            <!-- the integration tools: always here, above the profile, whatever the readout below says -->
-            <div class="prof-tools" id="qLaneAdj" role="toolbar" aria-label="Integration of this lane">
-              <span class="pt-mode" id="qProfMode" role="status"></span>
-              <button class="btn sm" id="btnProfAll" title="Use this lane's integration limits in every lane of the band; each lane's baseline ends sit on its own profile">Apply to all lanes</button>
-              <button class="btn sm" id="btnLaneReset" title="Back to the band's own region and background in this lane">Automatic</button>
-              <span class="pt-steps"><span class="pt-l">Start</span><button class="btn sm" data-adj="dy0:-1" aria-label="Move the start one row up">↑</button><button class="btn sm" data-adj="dy0:1" aria-label="Move the start one row down">↓</button>
-                <span class="pt-l">End</span><button class="btn sm" data-adj="dy1:-1" aria-label="Move the end one row up">↑</button><button class="btn sm" data-adj="dy1:1" aria-label="Move the end one row down">↓</button>
-                <span class="pt-l">Shift</span><button class="btn sm" data-adj="dx:-1" aria-label="Shift the region left one pixel">←</button><button class="btn sm" data-adj="dx:1" aria-label="Shift the region right one pixel">→</button></span>
+            <div class="field inline wrap prof-ctl">
+              <label class="inline-label"><span>Band</span> <select id="qProfBox" style="width:auto"></select></label>
+              <label class="inline-label"><span>Lane</span> <select id="qProfLane" style="width:auto"></select></label>
+              <label class="switch"><input type="checkbox" id="qProfAll"><span>Compare lanes</span></label>
+              <label class="switch hidden" id="qProfAlignWrap"><input type="checkbox" id="qProfAlign"><span>Align peaks (shape only)</span></label>
             </div>
-            <canvas id="qProfile" height="260" role="img" aria-label="Lane profile of the band; drag on it to draw the integration baseline"></canvas>
+            <!-- editing is a mode chosen here; a drag on the profile changes nothing until then. The row keeps one height
+                 in both states, so the plot below it never moves -->
+            <div class="prof-edit-row" id="qEditRow">
+              <span class="pe-state" id="qEditState" role="status">Editing: off</span>
+              <button class="btn sm" id="btnEditBase" aria-expanded="false" aria-controls="qEditPanel">Edit baseline…</button>
+              <button class="btn sm primary hidden" id="btnEdApply">Apply</button><button class="btn sm hidden" id="btnEdCancel">Cancel</button>
+            </div>
+            <canvas id="qProfile" height="280" role="img" aria-label="Lane profile: mean signal per pixel along the lane, with the background and the integrated rows"></canvas>
+            <div class="prof-editpanel hidden" id="qEditPanel" role="group" aria-label="Manual baseline">
+              <p class="pe-preview" id="qEdPreview" aria-live="polite"></p>
+              <div class="inline wrap pe-act"><button class="btn sm" id="btnLaneReset" title="Remove the drawn baseline in this lane; its start, end and shift stay">Use automatic background</button></div>
+              <details class="adv" id="qEdExact">
+                <summary><span>Exact positions and levels</span></summary>
+                <p class="hint" id="qEditHelp">Rows of the band's frame and levels of the profile (mean signal per pixel). Both ends must lie on background; the value is integrated relative to this line.</p>
+                <div class="pe-grid">
+                  <span class="pe-l">Start</span><label class="inline-label"><span>row</span> <input type="number" id="qEdA" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLa" class="num" step="0.001"></label>
+                  <span class="pe-l">End</span><label class="inline-label"><span>row</span> <input type="number" id="qEdB" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLb" class="num" step="0.001"></label>
+                </div>
+                <label class="switch"><input type="checkbox" id="qEdSnap" checked><span>Snap the ends to the profile</span></label>
+              </details>
+            </div>
             <p class="hint prof-key" id="qProfKey"></p>
-            <div class="prof-sum" id="qProfSum"></div>
+            <div class="prof-sum" id="qProfSum" aria-live="polite"></div>
+            <div class="inline wrap prof-actions">
+              <button class="btn sm" id="btnBgRegions" aria-expanded="false" aria-controls="qBgPanel">Edit background regions…</button>
+              <button class="btn sm" id="btnCopyLimits">Copy integration limits…</button>
+              <button class="btn sm" id="btnEndpoint">Use endpoint baseline…</button>
+            </div>
+            <div class="q-sub hidden" id="qBgPanel" role="group" aria-label="Background regions of this lane">
+              <div class="inline wrap"><label class="inline-label"><span>Sides in this lane</span> <select id="qLaneBg"><option value="">As for all lanes</option><option value="ab">Above and below</option><option value="above">Above only</option><option value="below">Below only</option><option value="beside">Beside</option></select></label>
+                <label class="inline-label"><span>Gap</span> <input type="number" id="qLaneGap" class="num" min="0" max="40" step="1" placeholder="as all"> px</label></div>
+              <p class="hint">For this lane only (the band's setting is Background in step 6). The grey bands on the profile show the rows used.</p>
+            </div>
+            <details class="adv prof-more" id="qLaneMore">
+              <summary><span>Lane adjustments</span></summary>
+              <div class="pt-steps" id="qLaneAdj" role="group" aria-label="Lane adjustments"><span class="pt-l">Start</span><button class="btn sm" data-adj="dy0:-1" aria-label="Move the start one row up">↑</button><button class="btn sm" data-adj="dy0:1" aria-label="Move the start one row down">↓</button>
+                <span class="pt-l">End</span><button class="btn sm" data-adj="dy1:-1" aria-label="Move the end one row up">↑</button><button class="btn sm" data-adj="dy1:1" aria-label="Move the end one row down">↓</button>
+                <span class="pt-l">Shift</span><button class="btn sm" data-adj="dx:-1" aria-label="Shift the region one pixel to the left on the screen">←</button><button class="btn sm" data-adj="dx:1" aria-label="Shift the region one pixel to the right on the screen">→</button></div>
+              <p class="hint">Start and end are rows of the frame the band was placed in; the arrows shift the region left or right as the image is shown now.</p>
+              <button class="btn sm" id="btnLaneResetAll">Reset all lane adjustments…</button>
+            </details>
             <details class="adv prof-more" id="qProfMore">
               <summary><span>Calculation details</span></summary>
               <div class="prof-read" id="qProfRead"></div>
-              <div class="inline wrap"><label class="inline-label"><span>Background in this lane</span> <select id="qLaneBg"><option value="">As for all lanes</option><option value="ab">Above and below</option><option value="above">Above only</option><option value="below">Below only</option><option value="beside">Beside</option></select></label>
-                <label class="inline-label"><span>Gap</span> <input type="number" id="qLaneGap" class="num" min="0" max="40" step="1" placeholder="as all"> px</label></div>
             </details>
           </div>
           <div id="quantInt" class="hidden" role="tabpanel" aria-labelledby="tabInt">
@@ -564,6 +599,15 @@
     <button class="btn" id="claudeStop">Stop</button><button class="btn" id="claudeAgain">Write again</button><button class="btn primary" id="claudeCopy">Copy</button></div>
 </div></div>
 
+<div id="bulkDlg" class="dlg hidden" role="dialog" aria-modal="true" aria-labelledby="bulkTitle"><div class="dlg-body bulk">
+  <button class="dlg-x" id="btnBulkClose" aria-label="Close">×</button>
+  <h3 id="bulkTitle"></h3>
+  <p class="hint" id="bulkWhat"></p>
+  <div class="bulk-lanes" id="bulkLanes" role="group" aria-label="Lanes to change"></div>
+  <label class="switch hidden" id="bulkReplaceWrap"><input type="checkbox" id="bulkReplace"><span>Replace the drawn baselines in the ticked lanes</span></label>
+  <div class="bulk-prev" id="bulkPreview" aria-live="polite"></div>
+  <div class="pf-actions"><button class="btn" id="btnBulkCancel">Cancel</button><button class="btn primary" id="btnBulkApply">Apply</button></div>
+</div></div>
 <div id="exportDlg" class="dlg hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle"><div class="dlg-body exp">
   <button class="dlg-x" id="btnExportClose" aria-label="Close">×</button>
   <h3 id="exportTitle">Export</h3>

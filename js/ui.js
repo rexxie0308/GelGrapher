@@ -13,10 +13,16 @@
   const list = a => a.join(', ');
 
   /* ---------- toasts / warnings ---------- */
+  // notifications sit over the top of the image editor (never over the analysis window, the panel's controls or
+  // the notices); without a visible editor (start screen, another workspace on a phone) at the bottom centre
   function toast(msg, ms) {
-    const el = document.createElement('div');
+    const el = document.createElement('div'), box = $('editorBox'), t = $('toasts');
+    const r = box && box.getClientRects().length ? box.getBoundingClientRect() : null, anchored = !!r && r.width > 220 && r.height > 140;
+    t.classList.toggle('anchored', anchored);
+    if (anchored) { t.style.left = `${r.left + r.width / 2}px`; t.style.top = `${r.top + 10}px`; t.style.maxWidth = `${Math.min(460, r.width - 24)}px`; }
+    else { t.style.left = ''; t.style.top = ''; t.style.maxWidth = ''; }
     el.className = 'toast'; el.textContent = msg;
-    $('toasts').appendChild(el);
+    t.appendChild(el);
     setTimeout(() => { el.style.transition = '.25s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 260); }, ms || 2400);
   }
   const dismissed = new Set();
@@ -1192,7 +1198,8 @@
     k.classList.toggle('closed', closed); $('okeyToggle').setAttribute('aria-expanded', String(!closed));
     const q = G.QuantUI.layer() === 'quant', ga = st.quant.region, c = st.crop;
     const on = { crop: true, lane: true, ladder: st.markers.length > 0, hidden: st.lanes.some(l => l.hidden), strip: st.strips.length > 0, box: st.quant.rows.length > 0,
-      area: q && !!ga && st.quant.rows.length > 0 && (ga.x !== c.x || ga.y !== c.y || ga.w !== c.w || ga.h !== c.h), arrow: st.arrows.length > 0 };
+      area: q && !!ga && st.quant.rows.length > 0 && (ga.x !== c.x || ga.y !== c.y || ga.w !== c.w || ga.h !== c.h), arrow: st.arrows.length > 0,
+      norm: q && st.quant.norm === 'lane' && !!st.quant.normRegions };
     k.querySelectorAll('li').forEach(li => li.classList.toggle('off', !on[li.dataset.k]));
   }
   $('editSeg').addEventListener('click', () => setTimeout(updateKey, 0));

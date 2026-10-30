@@ -136,8 +136,9 @@
         // a lane that needs review (or has no value) is marked on the image, in words as well as colour
         if (q && cell && ((cell.review && cell.review.length) || cell.value == null || cell.flags.clip)) {
           const p = toScr(top[0], top[1]); ctx.font = '700 12px -apple-system, Segoe UI, Arial, sans-serif'; ctx.textAlign = 'center';
-          const t = cell.value == null ? 'n/a' : cell.flags.clip ? '⚠' : '?';
-          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, p.x, p.y - 4); ctx.fillStyle = '#9F4E0C'; ctx.fillText(t, p.x, p.y - 4);
+          // checked by the user (the flags were looked at and the value kept): a tick instead of the question
+          const t = cell.checked ? '✓' : cell.value == null ? 'n/a' : cell.flags.clip ? '⚠' : '?';
+          ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, p.x, p.y - 4); ctx.fillStyle = cell.checked ? '#1f7a4d' : '#9F4E0C'; ctx.fillText(t, p.x, p.y - 4);
           ctx.font = '600 11px -apple-system, Segoe UI, Arial, sans-serif';
         }
       });
@@ -148,6 +149,14 @@
       }
       ctx.globalAlpha = 1;
     };
+    // the total-lane regions (lane normalization), their own extent: a thin dashed outline per lane in the Measurement layer
+    const nr = S.quant.normRegions;
+    if (q && S.quant.norm === 'lane' && nr && nr.lanes) {
+      const pseudo = { frame: nr.frame, y0: nr.y0, y1: nr.y1, hw: nr.hw, lanes: nr.lanes };
+      ctx.strokeStyle = '#6d5bd0'; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
+      Object.keys(nr.lanes).forEach(id => { const o = G.Quant.outlines(App, pseudo, id); if (o) poly(o.signal, false, true); });
+      ctx.setLineDash([]);
+    }
     const drawBoxes = () => S.quant.rows.forEach((r, k) => {
       if (r.frame) { drawRegions(r, k); return; }
       const ya = toScr(0, Math.min(r.y0, r.y1)).y, yb = toScr(0, Math.max(r.y0, r.y1)).y;
@@ -216,8 +225,10 @@
       ctx.strokeStyle = l.hidden ? 'rgba(255,90,90,.85)' : sel ? '#2f6feb' : isM ? 'rgba(236,178,0,.9)' : 'rgba(47,111,235,.55)';
       ctx.lineWidth = sel || hov ? 2.2 : 1.2;
       ctx.setLineDash(l.hidden ? [5, 4] : isM ? [] : [6, 4]);
+      // with the measurement regions being edited the lanes are drawn faint and do not respond (quantLayer)
+      const ga = ctx.globalAlpha; if (quantLayer()) ctx.globalAlpha = ga * 0.35;
       ctx.beginPath(); ctx.moveTo(p.x, a.y); ctx.lineTo(p.x, b.y); ctx.stroke();
-      ctx.setLineDash([]);
+      ctx.globalAlpha = ga; ctx.setLineDash([]);
       // above the crop: the well number in a chip, and the lane's name (when it has one) in a lighter pill above it
       const nb = S.lanes.length > 1 ? Math.abs((S.lanes[i + 1] || S.lanes[i - 1]).x - l.x) * view.s : 999;
       const lab = String(i + 1);
@@ -306,6 +317,16 @@
   // the editing layer chosen with the Editing switch above the image: band boxes ('quant') or the figure's
   // lanes, ladder bands and strips
   const quantLayer = () => !!(G.QuantUI && G.QuantUI.layer && G.QuantUI.layer() === 'quant');
+  // every band's box in every measured lane, as drawn now: {k, i, x0, x1, y0, y1} in the working frame
+  function laneBoxes() {
+    const S = App.S, out = [], lanes = S.quant.rows.length ? G.Quant.quantLanes(App) : [];
+    S.quant.rows.forEach((r, k) => { if (!r.frame) return; lanes.forEach(i => {
+      const o = G.Quant.outlines(App, r, App.laneId(i)); if (!o) return;
+      const xs = o.signal.map(p => p[0]), ys = o.signal.map(p => p[1]);
+      out.push({ k, i, x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) });
+    }); });
+    return out;
+  }
   function hitTest(sx, sy, shift) {
     if (origOn) return null;
     const S = App.S; if (!S) return null;
@@ -318,9 +339,16 @@
       return { type: 'pan' };
     }
     for (const [hx, hy, k] of handles()) if (Math.abs(p.x - hx) <= tol * 1.3 && Math.abs(p.y - hy) <= tol * 1.3) return { type: 'crop', k };
-    const inX = p.x >= c.x - tol && p.x <= c.x + c.w + tol, inY = p.y >= c.y - tol && p.y <= c.y + c.h + tol;
-    for (let k = 0; k < S.arrows.length; k++) if (Math.abs(p.y - S.arrows[k].y) <= tol && inX) return { type: 'arrow', i: k };
-    for (let mi = 0; mi < S.markers.length; mi++) {
+    const inX = p.x >= c.x - tol && p.x <= c.x + c.w + tol, inY = p.y >= c.y - tol && p.y <= c.y + c.h + tol, q = quantLayer();
+    // the measurement regions: the edges and insides of the boxes as drawn (a lane's own rows when a drawn baseline
+    // or a start / end shift sets them); lanes, ladder bands, arrows and strips do not respond on this layer
+    if (q) {
+      const bx = laneBoxes();
+      for (const b of bx) if (p.x >= b.x0 - tol && p.x <= b.x1 + tol) for (const e of ['y0', 'y1']) if (Math.abs(p.y - b[e]) <= tol) return { type: 'qedge', k: b.k, e, i: b.i };
+      for (const b of bx) if (p.x >= b.x0 && p.x <= b.x1 && p.y > b.y0 && p.y < b.y1) return { type: 'qbody', k: b.k, i: b.i };
+    }
+    if (!q) for (let k = 0; k < S.arrows.length; k++) if (Math.abs(p.y - S.arrows[k].y) <= tol && inX) return { type: 'arrow', i: k };
+    if (!q) for (let mi = 0; mi < S.markers.length; mi++) {
       const mk = S.markers[mi];
       if (!S.lanes[mk.lane] || Math.abs(p.x - S.lanes[mk.lane].x) > S.laneHalfW * 1.5) continue;
       let best = -1, bd = tol;
@@ -330,14 +358,14 @@
     // edges of band boxes and strips (drag up / down); inside a band box = move it. Only the layer of the open view
     // responds: band boxes with the Densitometry view, strips with the figure
     if (inX) {
-      const q = quantLayer();
       const spanOf = r => (r.frame ? G.Quant.rowSpan(App, r) : { y0: Math.min(r.y0, r.y1), y1: Math.max(r.y0, r.y1) });
-      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const sp = spanOf(S.quant.rows[k]); for (const e of ['y0', 'y1']) if (Math.abs(p.y - (S.quant.rows[k].frame ? (e === 'y0' ? sp.y0 - 0.5 : sp.y1 + 0.5) : S.quant.rows[k][e])) <= tol) return { type: 'qedge', k, e }; }
+      // bands measured with the earlier method (no frame): their rows across the analysis area
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { if (S.quant.rows[k].frame) continue; const sp = spanOf(S.quant.rows[k]); for (const e of ['y0', 'y1']) if (Math.abs(p.y - (S.quant.rows[k].frame ? (e === 'y0' ? sp.y0 - 0.5 : sp.y1 + 0.5) : S.quant.rows[k][e])) <= tol) return { type: 'qedge', k, e }; }
       if (!q) for (let k = 0; k < S.strips.length; k++) for (const e of ['y0', 'y1']) if (Math.abs(p.y - S.strips[k][e]) <= tol) return { type: 'sedge', k, e };
       const ga = G.Quant.region(S);
-      if (q) for (let k = 0; k < S.quant.rows.length; k++) { const sp = spanOf(S.quant.rows[k]); if (p.y > sp.y0 && p.y < sp.y1 && p.x >= ga.x && p.x <= ga.x + ga.w) return { type: 'qbody', k }; }
+      if (q) for (let k = 0; k < S.quant.rows.length; k++) { if (S.quant.rows[k].frame) continue; const sp = spanOf(S.quant.rows[k]); if (p.y > sp.y0 && p.y < sp.y1 && p.x >= ga.x && p.x <= ga.x + ga.w) return { type: 'qbody', k }; }
     }
-    if (inY) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
+    if (inY && !q) for (let i = 0; i < S.lanes.length; i++) if (Math.abs(p.x - S.lanes[i].x) <= tol) return { type: 'lane', i };
     if (inY && Math.abs(p.x - c.x) <= tol) return { type: 'crop', k: 'w' };
     if (inY && Math.abs(p.x - c.x - c.w) <= tol) return { type: 'crop', k: 'e' };
     if (inX && Math.abs(p.y - c.y) <= tol) return { type: 'crop', k: 'n' };
@@ -420,13 +448,13 @@
     }
     else if (h.type === 'arrow') { App.selArrow = h.i; App.selLane = -1; drag.y0 = App.S.arrows[h.i].y; App.emit('select'); }
     else if (h.type === 'band') { drag.y0 = App.S.markers[h.m].bands[h.i].y; }
-    else if (h.type === 'qedge') { const r = App.S.quant.rows[h.k]; if (r.frame) { const sp = G.Quant.rowSpan(App, r); drag.span = [sp.y0, sp.y1]; drag.y0 = h.e === 'y0' ? sp.y0 : sp.y1; drag.placed = r.placed || 1; } else drag.y0 = r[h.e]; }
+    else if (h.type === 'qedge') { const r = App.S.quant.rows[h.k]; if (r.frame) { const sp = G.Quant.rowSpan(App, r); drag.span = [sp.y0, sp.y1]; drag.y0 = h.e === 'y0' ? sp.y0 : sp.y1; drag.placed = r.placed || 1; drag.drops = G.Quant.placementDropsManual(App, r); } else drag.y0 = r[h.e]; }
     else if (h.type === 'sedge') { drag.y0 = App.S.strips[h.k][h.e]; }
-    else if (h.type === 'qbody') { const q = App.S.quant.rows[h.k]; if (q.frame) { const sp = G.Quant.rowSpan(App, q); drag.q0 = [sp.y0, sp.y1]; drag.placed = q.placed || 1; } else drag.q0 = [q.y0, q.y1]; }
+    else if (h.type === 'qbody') { const q = App.S.quant.rows[h.k]; if (q.frame) { const sp = G.Quant.rowSpan(App, q); drag.q0 = [sp.y0, sp.y1]; drag.placed = q.placed || 1; drag.drops = G.Quant.placementDropsManual(App, q); } else drag.q0 = [q.y0, q.y1]; }
     if (h.type === 'inside' || h.type === 'qbody') {
       let best = -1, bd = Infinity;
       App.S.lanes.forEach((l, i) => { const d = Math.abs(l.x - p.x); if (d < bd) { bd = d; best = i; } });
-      drag.pickLane = bd <= App.S.laneHalfW * 1.6 ? best : -1;
+      drag.pickLane = h.i != null ? h.i : bd <= App.S.laneHalfW * 1.6 ? best : -1;
     }
     cv.style.cursor = (h.type === 'pan' || h.type === 'inside') ? 'grabbing' : cursorFor(h);
     e.preventDefault();
@@ -541,6 +569,7 @@
     // a dragged arrow takes its size from where it now sits: a typed size no longer applies
     if (d.h.type === 'arrow') { const a = S.arrows[d.h.i]; if (a && a.sizeText && App.parseSize(a.sizeText) != null) a.sizeText = ''; }
     if (d.h.type === 'band') App.matchMarkers(false);
+    if (d.drops && d.drops.length && G.UI) G.UI.toast(`Drawn baseline${d.drops.length > 1 ? 's' : ''} removed in lane${d.drops.length > 1 ? 's' : ''} ${d.drops.map(id => App.S.lanes.findIndex(l => l.id === id) + 1).join(', ')}: the band was placed in the image as it is shown now (another rotation or correction than when the baseline was drawn). Undo brings ${d.drops.length > 1 ? 'them' : 'it'} back.`, 5200);
     if (d.h.type !== 'pan' && d.h.type !== 'inside') App.commit();
     cv.style.cursor = cursorFor(hover);
   }

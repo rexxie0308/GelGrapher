@@ -30,6 +30,7 @@ jobs:
           cp -r index.html css js icons sw.js manifest.webmanifest LICENSE _site/
           rm _site/js/uitest.js
           sed -i "s/__VERSION__/${GITHUB_SHA:0:7}/g" _site/sw.js
+          sed -i "s/__BUILD__/${GITHUB_SHA:0:7}/g" _site/js/app.js
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

@@ -277,7 +277,7 @@
     const bounds = G.Render.laneBounds(S.lanes, A.src.w);
     const rnd = v => (v == null ? null : unit === 'kDa' ? Math.round(v * 10) / 10 : Math.round(v));
     const log = {
-      tool: A.NAME, version: A.VERSION, basedOn: 'GelFigure 0.5.0 (MIT, github.com/poplarity/GelFigure)', exportedAt: new Date().toISOString(),
+      tool: A.NAME, version: A.VERSION, build: A.BUILD, basedOn: 'GelFigure 0.5.0 (MIT, github.com/poplarity/GelFigure)', exportedAt: new Date().toISOString(),
       experiment: { type: S.gelType, name: A.gelType().name(), sizeUnit: unit },
       environment: { userAgent: navigator.userAgent, figureFont: 'Arial, Helvetica, sans-serif (vector text)' },
       source: { file: S.file.name, sha256: S.file.sha256, bytes: S.file.size, width: A.src.w, height: A.src.h, bitDepth: S.file.bits, dpi: S.file.dpi || null },
@@ -321,11 +321,15 @@
         bands: S.quant.rows.map(q => ({ id: q.id, name: q.name, frame: q.frame || null, rows: q.frame ? [q.y0, q.y1] : [Math.round(Math.min(q.y0, q.y1)), Math.round(Math.max(q.y0, q.y1))], placed: q.placed || null })),
         lanes: R.lanes.map((i, j) => ({ well: i + 1, id: R.ids[j], name: R.names[j], laneTotal: R.totals ? r4(R.totals[j].value) : undefined,
           values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, corrected: r4(c.value), uncorrectedSum: r4(c.U), backgroundSum: r4(c.B), signalPx: c.n, backgroundPx: c.nb,
-            threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined,
-            normalized: r4(R.values.normalized[k2][j]), foldChange: r4(R.values.fold[k2][j]), unavailable: R.shownWhy[k2][j] || c.unavailable || undefined,
-            ratioNeedsReview: R.shownCaveat && R.shownCaveat[k2][j] ? R.shownCaveat[k2][j] : undefined,
+            threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined, reviewCheckedByUser: c.review && c.review.length ? !!c.checked : undefined,
+            noise: c.flags ? c.flags.noise : undefined, clipping: c.flags ? c.flags.clipState : undefined,
+            // each quantity with its own reason and caveat, whatever output the window shows
+            correctedUnavailable: R.why.corrected[k2][j] || undefined,
+            normalized: r4(R.values.normalized[k2][j]), normalizedUnavailable: R.normMode !== 'none' ? R.why.normalized[k2][j] || undefined : undefined, normalizedCaveat: R.caveat.normalized[k2][j] || undefined,
+            foldChange: r4(R.values.fold[k2][j]), foldUnavailable: R.refId != null ? R.why.fold[k2][j] || undefined : undefined, foldCaveat: R.caveat.fold[k2][j] || undefined,
+            baselineSensitivity: c.msens || undefined,
             region: c.prov && c.prov.signal ? { signalCorners: c.prov.signal.corners, background: c.prov.background, manualBaseline: c.prov.manual } : undefined }; }) })),
-        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1), manuallyIntegratedWells: (R.manualLanes || []).map(i => i + 1)
+        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1), reviewCheckedByUserWells: (R.checkedLanes || []).map(i => i + 1), manuallyIntegratedWells: (R.manualLanes || []).map(i => i + 1)
       };
     }
     return log;
@@ -375,7 +379,8 @@
       const ctl = R.normMode === 'band' && R.normBand >= 0 ? `, divided by ${R.rows[R.normBand].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the total lane signal of this image') : '';
       const how = R.mode === 'box' ? 'background-corrected signal summed over a fixed region of the original pixel values in each lane' : 'thresholded signal (pixels above 3 σ of the background; exploratory) over a fixed region of the original pixel values';
       const blq = R.flags.flat().some(f => f && f.below) ? ' Values below the estimated 10σ noise threshold are marked.' : '';
-      const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${R.reviewLanes.map(i => i + 1).join(', ')} were flagged for review.` : '';
+      const rev = (R.reviewLanes && R.reviewLanes.length ? ` Lane${R.reviewLanes.length > 1 ? 's' : ''} ${R.reviewLanes.map(i => i + 1).join(', ')} ${R.reviewLanes.length > 1 ? 'were' : 'was'} flagged for review.` : '')
+        + (R.checkedLanes && R.checkedLanes.length ? ` Review flags in lane${R.checkedLanes.length > 1 ? 's' : ''} ${R.checkedLanes.map(i => i + 1).join(', ')} were inspected and the values kept.` : '');
       const man = R.manualLanes && R.manualLanes.length ? ` Lane${R.manualLanes.length > 1 ? 's' : ''} ${R.manualLanes.map(i => i + 1).join(', ')} ${R.manualLanes.length > 1 ? 'were' : 'was'} integrated manually (limits and baseline drawn on the lane profile).` : '';
       h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.output === 'fold' && R.refOk.some(Boolean) ? ` and expressed as fold change versus lane ${R.ref + 1}.` : '.') + blq + rev + man);
     }
@@ -416,17 +421,23 @@
         add(`${base}_chart.svg`, '<?xml version="1.0" encoding="UTF-8"?>\n' + chart.svg);
       }
       add(`${base}_densitometry.csv`, G.Quant.quantCSV(A, R));
+      // the reproducible specification: with the original image it recomputes every value (G.Quant.applySpec)
+      if (R.version === G.Quant.VERSION) add(`${base}_densitometry_spec.json`, JSON.stringify(G.Quant.spec(A), null, 1));
     }
     if (S.markers.length) add(`${base}_band_sizes.csv`, G.Quant.sizesCSV(A, G.Quant.bandSizes(A)));
     add(`${base}_processing_log.json`, JSON.stringify(processingLog(S), null, 2));
-    add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION}\n`);
+    add(`${base}_methods.txt`, `Legend notes\n${legendHints(S).join(' ') || '(none)'}\n\nMethods\n${R ? G.Quant.methodsText(A, R) : 'No densitometry.'}\n\nSource: ${S.file.name} (SHA-256 ${S.file.sha256})\nMade with ${A.NAME} ${A.VERSION} (build ${A.BUILD})\n`);
     const ar = opts && opts.archive;
     if (ar) {
       const keep = f => { const ext = (f.name.match(/\.[^.]+$/) || ['.tif'])[0]; return f.name.replace(/\.[^.]+$/, '') + `_sha256-${String(f.sha256).slice(0, 12)}${ext}`; };
       add(`original/${keep(ar.original)}`, ar.original.buffer);
       if (ar.marker) add(`original/${keep(ar.marker)}`, ar.marker.buffer);
       if (ar.project) add(`${base}.gelfig`, ar.project);
-      add('README.txt', `${base}: complete archive made with ${A.NAME} ${A.VERSION}\n\noriginal/   the source image${ar.marker ? ' and the marker image' : ''}, byte-identical (the SHA-256 in the name; check it with any SHA-256 tool)\n${base}.gelfig   the project: open it in ${A.NAME} (Open / Save > Project file) to continue exactly where this was exported\nthe rest    the figure, chart, measurements, band sizes, processing log and methods text\n`);
+      add('README.txt', `${base}: complete archive made with ${A.NAME} ${A.VERSION} (build ${A.BUILD})\n\n` +
+        `Three levels, from the summary to everything:\n` +
+        `1. Results summary   the figure, chart, *_densitometry.csv (values with their reasons and flags), band sizes, methods text\n` +
+        `2. Reproducible analysis specification   *_densitometry_spec.json and *_processing_log.json: every measurement frame in full, every region in its placement frame with each lane's adjustments and drawn baselines, the settings and the pixel-inclusion rule; with the original image they recompute every value\n` +
+        `3. Complete archive with the original data   original/: the source image${ar.marker ? ' and the marker image' : ''}, byte-identical (the SHA-256 in the name; check it with any SHA-256 tool); ${base}.gelfig: the project, to open in ${A.NAME} (Open / Save > Project file) and continue exactly where this was exported\n`);
     }
     return { blob: await G.Zip.make(files), files: files.map(f => f.name) };
   }

@@ -2208,6 +2208,20 @@
     return { score, clipFrac, rangeUse, snr, bright };
   }
 
+  /* A digest of a list of numbers that depends on every value exactly (the bits of each float64, its position and
+   * the list's length): two 32-bit FNV-1a / murmur-style lanes, 16 hex digits. Frame identities use it, so two
+   * geometry grids that differ in any value (however little) never share a key. */
+  const hashBuf = new Float64Array(1), hashU = new Uint32Array(hashBuf.buffer);
+  function hashNums(arr) {
+    let h1 = 0x811c9dc5 ^ arr.length, h2 = 0x9747b28c ^ Math.imul(arr.length, 0x5bd1e995);
+    for (let i = 0; i < arr.length; i++) {
+      hashBuf[0] = +arr[i];
+      h1 = Math.imul(h1 ^ hashU[0], 16777619); h1 = Math.imul(h1 ^ hashU[1], 16777619);
+      h2 = Math.imul(h2 ^ hashU[1], 0x5bd1e995); h2 ^= h2 >>> 15; h2 = Math.imul(h2 ^ hashU[0], 0xcc9e2d51); h2 ^= h2 >>> 13;
+    }
+    return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
+  }
+
   /* ---------- measurement regions in the original pixels ----------
    * Coordinates are index coordinates, as everywhere in the engine: pixel X spans X - 0.5 .. X + 0.5 and its
    * centre is at X. A polygon holds every pixel whose centre lies inside it (even-odd rule, scanlines
@@ -2278,7 +2292,7 @@
   }
 
   G.Engine = {
-    rasterPoly, frameMap, boxPixels,
+    rasterPoly, frameMap, boxPixels, hashNums,
     clamp, percentiles, gaussSmooth, downsample, rotate, cropImg, detectBright, autoLevels, saturation,
     toImageData, deskew, autoCrop, baseline, findPeaks, detectLanes, evenLanes, laneProfile, detectBands, matchLadder, estimateSize, estimateSizeInfo, exposureScore, clipLevels, alignmentShift, sharpBandCount, rankLadders, ladderCandidates, jointLadders, matchMulti, detectLaneLattice, uniqueLadders, combPitch, presenceProfile, featureWidth, signal, M3, warp, laneLines, laneComb, vanishing, keystoneH, keystoneReport, Grid, warpGrid, homographyFromQuad, slabQuad, laneTraces, straightenGrid
   };

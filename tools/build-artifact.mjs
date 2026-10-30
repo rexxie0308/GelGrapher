@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = name => (process.argv.find(a => a.startsWith(`--${name}=`)) || '').split('=').slice(1).join('=');
@@ -25,8 +26,17 @@ let body = pick(/<body>([\s\S]*)<\/body>/, '<body>');
 // those marked data-artifact="no" (the service worker registration) are left out: the host runs the page
 const scripts = [...body.matchAll(/<script src="([^"]+)"([^>]*)><\/script>\n?/g)].filter(m => !/data-artifact="no"/.test(m[2]));
 if (!scripts.length) throw new Error('no <script src> tags found');
+// the build identifier: the commit (with "+changes" when the working tree differs from it), so a reviewed commit
+// and a deployed build can be told apart (App.BUILD; written in the log, the CSV, the methods and the specification)
+let build = 'dev';
+try {
+  const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim();
+  const dirty = execSync('git status --porcelain -- js css index.html', { cwd: ROOT }).toString().trim();
+  build = sha + (dirty ? '+changes' : '');
+} catch (e) { /* not a git checkout */ }
 const inlineJs = scripts.map(m => {
-  const src = fs.readFileSync(path.join(ROOT, m[1]), 'utf8');
+  let src = fs.readFileSync(path.join(ROOT, m[1]), 'utf8');
+  if (m[1] === 'js/app.js') src = src.replace(/__BUILD__/g, build);
   if (/<\/script/i.test(src)) throw new Error(`${m[1]} contains "</script"`);
   return `<script>/* ${m[1]} */\n${src}</script>`;
 }).join('\n');

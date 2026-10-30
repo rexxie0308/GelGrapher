@@ -36,7 +36,7 @@
         description: G.Quant.describe(A, R),
         output: R.output, referenceBand: R.normBand >= 0 ? R.rows[R.normBand].name : null, referenceLane: R.ref != null && S.lanes[R.ref] ? (S.lanes[R.ref].name || `lane ${R.ref + 1}`) : null,
         values: R.rows.map((row, kk) => ({ band: row.name, perLane: R.lanes.map((i, j) => ({ lane: R.names[j], value: R.shown[kk][j] == null ? null : +R.shown[kk][j].toPrecision(4), unavailable: R.shownWhy[kk][j] || undefined, flags: [G.Quant.flagText(R.cells[kk][j].flags, R.cells[kk][j]), R.shownCaveat ? R.shownCaveat[kk][j] : null].filter(Boolean).join('; ') || undefined })) })),
-        lanesWithClippedPixels: R.saturatedLanes.map(i => i + 1), lanesNeedingReview: (R.reviewLanes || []).map(i => i + 1)
+        lanesWithClippedPixels: R.saturatedLanes.map(i => i + 1), lanesNeedingReview: (R.reviewLanes || []).map(i => i + 1), lanesReviewedAndKeptByUser: (R.checkedLanes || []).map(i => i + 1)
       };
     }
     return out;

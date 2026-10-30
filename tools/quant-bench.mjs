@@ -17,12 +17,21 @@
  * 2. Broad band (the "Lane 4" case): the broad-band example, whose lane 4 band holds 2.9 x lane 2's protein in a
  *    band three times as tall: lane 4 / lane 2 with the region fitted to a narrow band (background from the
  *    region's end rows, as before version 2; local regions), and with local regions and a region as tall as the band.
+ * 3. Backgrounds and noise over 12 independent noise realisations each: white noise on a flat background, a smooth
+ *    gradient, spatially correlated noise, a neighbouring band in the background region, a smear below the band, and
+ *    a band at the image's edge (background region off the image). For each: the band's bias against its true sum,
+ *    the blanks' empirical scatter over the realisations against the estimated sigma of the sum (1 = the noise model
+ *    is right), how often the noise could be estimated, and how often the band was flagged for review.
  *
  * Pass / fail (the default: whole region, local background above and below), exit code 1 on a failure:
  *   slope 0.95-1.05 at every noise level and haze; faint ratio 1.5-2.5 at noise <= 0.012; width and height
  *   changes <= 3 % (or the value's 3 sigma when that is larger: a bigger region adds noise); the blank's mean
  *   within 3 standard errors of 0; broad band: the tall region within 10 % of the
- *   true ratio and the highest lane, the short end-row background flagged for review.
+ *   true ratio and the highest lane, the short end-row background flagged for review; backgrounds: bias within 3 % for
+ *   white, gradient and correlated noise; empirical / estimated sigma 0.7-1.4 for white and correlated noise and at
+ *   most 1.4 for the structured gradient (overstating sigma is conservative, understating it is not); the neighbour,
+ *   smear and edge cases flagged (or noise not estimated) in at least 10 of 12 realisations unless their bias is
+ *   within 5 %.
  * Run: node tools/quant-bench.mjs (Chromium as in tests/run.mjs). */
 import http from 'http'; import fs from 'fs'; import path from 'path';
 import { chromium } from 'playwright';
@@ -55,7 +64,9 @@ const res = await pg.evaluate(async () => {
     for (const [mode, bg] of [['box', 'local'], ['box', 'edge'], ['box', 'rolling'], ['band', 'local']]) {
       q.mode = mode; q.bg = bg; place(0.7, 1);
       const M = Quant.measure(App), cells = li.map(i => M.cells[0][M.lanes.indexOf(i)]);
-      const okIdx = cells.map((c, k) => (c.value != null && c.value > 0 && !(c.flags && c.flags.below) ? k : -1)).filter(k => k >= 0);
+      // quantifiable: a value above its 10 sigma threshold, where that threshold could be estimated at all (an
+      // unknown threshold is never counted as passed)
+      const okIdx = cells.map((c, k) => (c.value != null && c.value > 0 && c.flags && c.flags.noise === 'estimated' && !c.flags.below ? k : -1)).filter(k => k >= 0);
       const slope = okIdx.length >= 2 ? fit(okIdx.map(k => Math.log(amounts[k])), okIdx.map(k => Math.log(cells[k].value))) : NaN;
       const faint = cells[0].value > 0 ? cells[1].value / cells[0].value : Infinity;
       if (mode === 'box' && bg === 'local') (blanks[noise] = blanks[noise] || []).push(M.cells[0][M.lanes.indexOf(9)].value);
@@ -77,6 +88,49 @@ const res = await pg.evaluate(async () => {
   Quant.editRow(App, r, c - 28, c + 28); broad.localTall = ratioOf();
   return { rows: out, blanks, broad };
 });
+// 3. backgrounds and noise, 12 realisations each
+const bg3 = await pg.evaluate(async () => {
+  const W = 360, H = 300, xs = [60, 120, 180, 240, 300], Y = 150, hw = 18, out = {};
+  const gauss = rnd => Math.sqrt(-2 * Math.log(Math.max(1e-12, rnd()))) * Math.cos(2 * Math.PI * rnd());
+  const scen = {
+    white: { bg: () => 0.1 },
+    gradient: { bg: (x, y) => 0.08 + 0.2 * y / H + 0.03 * Math.sin(x / 50) },
+    correlated: { bg: () => 0.1, corr: true },
+    neighbour: { bg: () => 0.1, extra: [{ dy: -16, a: 0.15, s: 3 }] },
+    smear: { bg: () => 0.1, smear: true },
+    edge: { bg: () => 0.1, y: 9 }
+  };
+  for (const [name, sc] of Object.entries(scen)) {
+    const blanks = [], blankSig = [], bias = [], flagged = [], est = [];
+    for (let rep = 0; rep < 12; rep++) {
+      let z = 1000 + rep * 7919 + name.length * 31; const rnd = () => { z = (z * 16807) % 2147483647; return z / 2147483647; };
+      const y0 = sc.y || Y, d = new Float32Array(W * H), tr = new Float32Array(W * H), nz = new Float32Array(W * H);
+      for (let i = 0; i < nz.length; i++) nz[i] = gauss(rnd);
+      if (sc.corr) { const t = new Float32Array(nz); for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) { let s2 = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s2 += t[(y + dy) * W + x + dx]; nz[y * W + x] = s2 / 3; } }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let b = 0;
+        [3, 4].forEach(k => { if (Math.abs(x - xs[k]) > hw) return; b += 0.15 * Math.exp(-0.5 * ((y - y0) / 4) ** 2); (sc.extra || []).forEach(e => { b += e.a * Math.exp(-0.5 * ((y - y0 - e.dy) / e.s) ** 2); }); if (sc.smear && y > y0) b += 0.04 * Math.exp(-(y - y0) / 14); });
+        tr[y * W + x] = b; d[y * W + x] = Math.min(1, Math.max(0, sc.bg(x, y) + b + 0.004 * nz[y * W + x]));
+      }
+      App.setPref('byType', {});
+      await App.load(new File([Demo.encodeTiff16({ width: W, height: H, data: d })], `${name}.tif`), 'western');
+      const S = App.S, q = S.quant;
+      S.rotation = 0; S.geom = null; S.flip = { h: false, v: false }; App.applyFlip(); App.rot = null; App.ensureRot();
+      S.bright = true;   // bright bands here: the polarity detection is not under test
+      S.lanes = xs.map((x, k) => ({ x, name: String(k + 1), hidden: false, id: 'L' + (k + 1) })); S.lanePitch = 60; S.laneHalfW = 18; S.markers = [];
+      Object.assign(q, { version: 2, frames: {}, region: { x: 0, y: 0, w: W - 1, h: H - 1 }, norm: 'none', normBand: null, normRegions: null, output: 'corrected', ref: null, mode: 'box', bg: 'local', bgSides: 'ab', bgGap: 2, bgSize: 0, wFrac: 0.7 });
+      q.rows = [Quant.placeRow(App, { name: 'b' }, Math.max(0, y0 - 12), y0 + 12)];
+      const M = Quant.measure(App), hwp = Quant.boxHalfWidth(S);
+      [0, 1, 2].forEach(k => { const c = M.cells[0][k]; blanks.push(c.value); if (isFinite(c.sigmaSum)) blankSig.push(c.sigmaSum); });
+      const c3 = M.cells[0][3], rr = q.rows[0]; let t = 0;
+      for (let y = rr.y0; y <= rr.y1; y++) for (let x = Math.round(xs[3] - hwp); x <= Math.round(xs[3] + hwp); x++) t += tr[y * W + x];
+      bias.push(c3.value / t - 1); flagged.push(c3.review.length > 0 || c3.flags.noise !== 'estimated'); est.push(c3.flags.noise === 'estimated');
+    }
+    const mean = a => a.reduce((x, y) => x + y, 0) / a.length, sd = a => Math.sqrt(a.reduce((x, y) => x + (y - mean(a)) ** 2, 0) / Math.max(1, a.length - 1));
+    out[name] = { bias: mean(bias), empSd: sd(blanks), estSd: blankSig.length ? mean(blankSig) : NaN, ratio: blankSig.length ? sd(blanks) / mean(blankSig) : NaN, estimated: est.filter(Boolean).length, flagged: flagged.filter(Boolean).length, n: bias.length };
+  }
+  return out;
+});
 const pad = (s, n) => String(s).padEnd(n);
 console.log('1. Dilution series (value of the region; lanes at or above their 10 sigma threshold)');
 console.log(pad('noise', 7), pad('haze', 6), pad('measure', 11), pad('bg', 9), pad('slope', 7), pad('faint', 7), pad('>=10s', 6), pad('width %', 8), pad('height %', 9), '3 sigma %');
@@ -88,6 +142,9 @@ console.log(`\n2. Broad band (example "broad"): lane 4 / lane 2, truth ${B.truth
 console.log(`   region fitted to a narrow band, background from its end rows: ${f(B.edgeShort)}`);
 console.log(`   same region, local background regions:                         ${f(B.localShort)}`);
 console.log(`   local background regions, region as tall as the band:          ${f(B.localTall)}`);
+console.log('\n3. Backgrounds and noise (12 realisations each; band = 0.15 peak, sigma 4 rows; noise sd 0.004 per pixel)');
+console.log(pad('case', 12), pad('band bias %', 12), pad('blank sd', 10), pad('est. sigma', 11), pad('emp/est', 8), pad('noise est.', 11), 'flagged');
+for (const [k, v] of Object.entries(bg3)) console.log(pad(k, 12), pad((100 * v.bias).toFixed(1), 12), pad(v.empSd.toFixed(3), 10), pad(isFinite(v.estSd) ? v.estSd.toFixed(3) : '–', 11), pad(isFinite(v.ratio) ? v.ratio.toFixed(2) : '–', 8), pad(`${v.estimated}/${v.n}`, 11), `${v.flagged}/${v.n}`);
 // pass / fail for the default measure
 const def = res.rows.filter(r => r.mode === 'box' && r.bg === 'local'), fails = [];
 def.forEach(r => {
@@ -100,6 +157,12 @@ def.forEach(r => {
 if (Math.abs(mB) > 3 * sB / Math.sqrt(allB.length)) fails.push(`blank bias ${mB.toFixed(3)} (sd ${sB.toFixed(3)}, n ${allB.length})`);
 if (!(Math.abs(B.localTall.ratio / B.truth - 1) <= 0.1 && B.localTall.highest)) fails.push(`broad band ${B.localTall.ratio.toFixed(2)} x vs ${B.truth.toFixed(2)} x`);
 if (!B.edgeShort.review) fails.push('broad band read with the end-row background is not flagged for review');
-console.log(fails.length ? `\nFAIL (default measure): ${fails.join('; ')}` : '\nPASS (default measure: whole region, local background): slope, faint ratio, region width and height, blank bias, broad band');
+// the noise model: right for white and correlated noise; for a structured background (the gradient case's column
+// pattern) it counts the structure as noise, which overstates sigma (conservative), but it must never understate it
+['white', 'gradient', 'correlated'].forEach(k => { const v = bg3[k]; if (Math.abs(v.bias) > 0.03) fails.push(`${k}: band bias ${(100 * v.bias).toFixed(1)} %`); });
+['white', 'correlated'].forEach(k => { const v = bg3[k]; if (!(v.ratio >= 0.7 && v.ratio <= 1.4)) fails.push(`${k}: empirical / estimated sigma ${isFinite(v.ratio) ? v.ratio.toFixed(2) : 'n/a'}`); });
+if (!(bg3.gradient.ratio <= 1.4)) fails.push(`gradient: noise understated (empirical / estimated sigma ${bg3.gradient.ratio.toFixed(2)})`);
+['neighbour', 'smear', 'edge'].forEach(k => { const v = bg3[k]; if (v.flagged < 10 && Math.abs(v.bias) > 0.05) fails.push(`${k}: flagged in ${v.flagged}/12 with bias ${(100 * v.bias).toFixed(1)} %`); });
+console.log(fails.length ? `\nFAIL (default measure): ${fails.join('; ')}` : '\nPASS (default measure: whole region, local background): slope, faint ratio, region width and height, blank bias, broad band, backgrounds and noise model');
 await b.close(); srv.close();
 process.exit(fails.length ? 1 : 0);

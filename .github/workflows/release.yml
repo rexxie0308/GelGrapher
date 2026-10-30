@@ -54,6 +54,7 @@ jobs:
           cp -r index.html css js icons sw.js manifest.webmanifest LICENSE README.md GelGrapher/
           rm GelGrapher/js/uitest.js
           sed -i "s/__VERSION__/${TAG}/g" GelGrapher/sw.js
+          sed -i "s/__BUILD__/${TAG}-${GITHUB_SHA:0:7}/g" GelGrapher/js/app.js
           zip -r "GelGrapher-${TAG}.zip" GelGrapher
       - name: Create or update the release
         env:
