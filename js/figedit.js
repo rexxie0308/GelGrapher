@@ -13,7 +13,11 @@
   /* ---------- modes ---------- */
   function setMode(m) {
     App.mode = m;
-    $('modeBanner').classList.toggle('hidden', !m);
+    // the instruction sits above the window the tool works in (the figure for a group bracket, the image editor
+    // otherwise), in the flow: it never covers the lane names or the image
+    const ban = $('modeBanner');
+    if (m) { const host = m === 'group' ? $('figPane') : $('rawCol'), before = m === 'group' ? $('previewBox') : $('editorBox'); if (ban.nextElementSibling !== before) host.insertBefore(ban, before); }
+    ban.classList.toggle('hidden', !m);
     // one instruction for the active tool: what it is, what to do, how to leave it
     $('modeText').textContent = m === 'arrow' ? 'Band arrow: click the band on either image · Esc cancels'
       : m === 'group' ? 'Group bracket: drag across the lane names on the figure · Esc cancels'

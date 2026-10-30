@@ -1489,10 +1489,11 @@
       L2a.bg = { sides: 'above' }; G.Quant.setManual(App, row(), 'L2', 140, 160, 0.1, 0.1); App.commit();
       const listed = G.Quant.laneAdjustments(row(), 'L2'), removed = G.Quant.resetLaneAll(App, row(), 'L2'); App.commit();
       res.reset = { listed, ok: keptLim && listed.join() === removed.join() && ['drawn baseline', 'horizontal shift', 'lane background settings'].every(w => listed.includes(w)) && Object.keys(row().lanes.L2).join() === 'cx' };
-      // Height (a re-placement in the same frame) keeps a drawn baseline; one in another frame removes it, and says so first
+      // Height (a re-placement in the same frame) keeps a drawn baseline, its limits following the band's edges (the
+      // same line); one in another frame removes it, and says so first
       G.Quant.setManual(App, row(), 'L1', 140, 160, 0.1, 0.1); App.commit();
       const sp = G.Quant.rowSpan(App, row()); G.Quant.editRow(App, row(), sp.y0 - 3, sp.y1 + 3); App.commit();
-      const keptOnHeight = !!row().lanes.L1.manual && row().lanes.L1.manual.a === 140;
+      const keptOnHeight = !!row().lanes.L1.manual && row().lanes.L1.manual.a === 137 && row().lanes.L1.manual.b === 163 && row().lanes.L1.manual.la === 0.1;
       App.setRotation(2); const willDrop = G.Quant.placementDropsManual(App, row()).join() === 'L1';
       App.setRotation(0); App.rot = null; App.ensureRot();
       res.global = { ok: keptOnHeight && willDrop && G.Quant.placementDropsManual(App, row()).length === 0 };
@@ -1658,6 +1659,104 @@
       await G.UI.loadExample('western');
       const checks = { touchIdle: touchIdle === 'pan-y', editing, typed: !!typed, notYet, applied, escaped, free, autoKeeps, resetAll, scope, previewRows, copied, oneUndo, endpointDlg, cancelled, compare, aligned, normText, toastPlace };
       R.profileUI = Object.assign({ ok: Object.values(checks).every(Boolean), legend }, checks);
+    }
+    // 61. the owner's notes on the analysis (2026-10-30): a tool's instruction never covers the figure or the image;
+    // on the Measurement regions layer the lanes do not respond and each box's drawn edges are its handles; a band's
+    // edge moves the drawn baselines' limits with it (the same line); entering Edit baseline… never moves the plot
+    // and the typed positions are folded unless the keyboard opened it; flagged lanes say what to check and can be
+    // marked as checked (kept in the exports; any change brings the review back)
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      const res = {};
+      await G.UI.loadExample('broad'); await wait(120);
+      const st = App.S, q = st.quant, row = () => App.S.quant.rows[0], fl = G.UI.figLanes(), lane4 = fl[3], lid4 = App.laneId(lane4);
+      q.bg = 'local'; App.commit();
+      G.QuantUI.show('figure', true); G.QuantUI.show('quant', true); await wait(80);
+      // 1. the group bracket's instruction sits above the figure, not over it; a band tool's above the image
+      G.FigEdit.setMode('group'); await wait(60);
+      const ban = $('modeBanner'), pb = $('previewBox'), br = ban.getBoundingClientRect(), pr = pb.getBoundingClientRect();
+      const groupOk = ban.parentNode === $('figPane') && ban.nextElementSibling === pb && !ban.classList.contains('hidden') && br.bottom <= pr.top + 0.5 && getComputedStyle(ban).position === 'static';
+      G.FigEdit.setMode('quant'); await wait(60);
+      const er = $('editorBox').getBoundingClientRect(), br2 = ban.getBoundingClientRect();
+      const quantOk = ban.parentNode === $('rawCol') && ban.nextElementSibling === $('editorBox') && br2.bottom <= er.top + 0.5;
+      G.FigEdit.setMode(null); await wait(30);
+      res.banner = { ok: groupOk && quantOk && ban.classList.contains('hidden'), groupOk, quantOk };
+      // 2. Measurement regions: a lane line does not respond; the same point does with Figure elements
+      G.QuantUI.setLayer('quant'); G.Editor.draw();
+      const c = st.crop, lx = st.lanes[lane4].x, s0 = G.Editor.toScreen(lx, c.y); s0.y += 30;   // on the lane line, clear of the red box's edge
+      const hQuant = G.Editor.hit(s0.x, s0.y);
+      G.QuantUI.setLayer('figure'); G.Editor.draw();
+      const hFig = G.Editor.hit(s0.x, s0.y);
+      res.layer = { ok: hQuant && hQuant.type === 'inside' && hFig && hFig.type === 'lane', quant: hQuant && hQuant.type, fig: hFig && hFig.type };
+      // 3. a lane with a drawn baseline elsewhere than the band's rows: its box edge is a handle, and dragging it moves
+      // the baseline's limits by the same rows (the line kept: its levels slide along it)
+      G.QuantUI.setLayer('quant');
+      const lim = G.Quant.limitsOf(row(), lid4), m0 = { a: lim[0] - 6, b: lim[1] + 6, la: 0.10, lb: 0.14 };
+      G.Quant.setManual(App, row(), lid4, m0.a, m0.b, m0.la, m0.lb); App.commit(); G.Editor.draw();
+      const out = G.Quant.outlines(App, row(), lid4), ys = out.signal.map(p => p[1]), top = Math.min(...ys);
+      const sEdge = G.Editor.toScreen(st.lanes[lane4].x, top), hEdge = G.Editor.hit(sEdge.x, sEdge.y);
+      const cv = $('editor'), r0 = cv.getBoundingClientRect(), fire = (type, x, y) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, button: 0, clientX: r0.left + x, clientY: r0.top + y }));
+      const dyPx = 5 * G.Editor.zoom();
+      fire('pointerdown', sEdge.x, sEdge.y); fire('pointermove', sEdge.x, sEdge.y - dyPx / 2); fire('pointermove', sEdge.x, sEdge.y - dyPx); fire('pointerup', sEdge.x, sEdge.y - dyPx); await wait(80);
+      const m1 = row().lanes[lid4].manual, at = y => m0.la + (m0.lb - m0.la) * (y - m0.a) / (m0.b - m0.a);
+      const moved = !!m1 && m1.b === m0.b && m1.a <= m0.a - 4 && m1.a >= m0.a - 6 && Math.abs(m1.la - at(m1.a)) < 1e-4 && Math.abs(m1.lb - m0.lb) < 1e-6;
+      const top2 = Math.min(...G.Quant.outlines(App, row(), lid4).signal.map(p => p[1]));
+      res.edge = { ok: !!hEdge && hEdge.type === 'qedge' && hEdge.e === 'y0' && moved && top2 < top - 3, hit: hEdge && hEdge.type, m1, top, top2 };
+      App.undo(); await wait(30);
+      // Height in step 6 moves the drawn limits too (a re-placement in the same frame)
+      const sp = G.Quant.rowSpan(App, row()); G.Quant.editRow(App, row(), sp.y0 - 3, sp.y1 + 3); App.commit();
+      const m2 = row().lanes[lid4].manual;
+      res.height = { ok: !!m2 && m2.a === m0.a - 3 && m2.b === m0.b + 3, m2 };
+      App.undo(); App.undo(); await wait(30);
+      // 4. Edit baseline… never moves the plot; the typed positions are folded after a pointer click, open from the keyboard
+      G.QuantUI.setView('quant'); G.QuantUI.setTab('prof'); G.QuantUI.selectLane(lane4); await wait(120);
+      const pv = $('qProfile'), y0 = pv.getBoundingClientRect().top, rowH0 = $('qEditRow').getBoundingClientRect().height;
+      $('btnEditBase').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); await wait(80);
+      const y1 = pv.getBoundingClientRect().top, rowH1 = $('qEditRow').getBoundingClientRect().height;
+      const pointerEdit = !!G.QuantUI.editing() && !$('qEdExact').open && !$('btnEdApply').classList.contains('hidden') && $('btnEditBase').classList.contains('hidden')
+        && $('qEditPanel').getBoundingClientRect().top >= pv.getBoundingClientRect().bottom - 0.5;
+      // a drag that goes below the curve leaves the axes as they were
+      const pa = G.QuantUI.profileXY(lim[0] - 4, 0.02), pbb = G.QuantUI.profileXY(lim[1] + 4, 0.02);
+      const pr0 = pv.getBoundingClientRect(), fp = (type, p) => pv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 8, button: 0, clientX: p.x, clientY: p.y }));
+      const ref = G.QuantUI.profileXY(lim[0], 0.2);
+      fp('pointerdown', pa); fp('pointermove', { x: (pa.x + pbb.x) / 2, y: pa.y + 40 }); fp('pointermove', { x: pbb.x, y: pa.y + 60 });
+      await wait(30); const ref2 = G.QuantUI.profileXY(lim[0], 0.2); fp('pointerup', { x: pbb.x, y: pa.y + 60 });
+      const frozen = Math.abs(ref.y - ref2.y) < 0.5 && Math.abs(ref.x - ref2.x) < 0.5;
+      $('btnEdCancel').click(); await wait(50);
+      const y2 = pv.getBoundingClientRect().top;
+      $('btnEditBase').click(); await wait(80);   // a click with no pointer position: the keyboard's
+      const keyEdit = $('qEdExact').open && document.activeElement === $('qEdA');
+      $('btnEdCancel').click(); await wait(50);
+      res.editLayout = { ok: Math.abs(y1 - y0) < 0.5 && Math.abs(y2 - y0) < 0.5 && Math.abs(rowH1 - rowH0) < 0.5 && pointerEdit && frozen && keyEdit, y0, y1, y2, rowH0, rowH1, pointerEdit, frozen, keyEdit };
+      // 5. review: the list says what each lane is flagged for; Inspect shows what to check; Mark as checked takes it
+      // off the list, keeps the flags in the exports and comes back when the lane changes
+      const R0 = G.Quant.measure(App), open0 = R0.cells.flat().filter(c2 => G.Quant.issuesOf(c2).length && !c2.checked).length;
+      G.QuantUI.render(); await wait(50);
+      const items0 = $('qIssues').querySelectorAll('.q-issue').length, itemTxt = $('qIssues').textContent;
+      const b4 = [...$('qIssues').querySelectorAll('[data-qinsp]')].find(b => +b.dataset.qinsp.split(':')[1] === lane4);
+      if (b4) b4.click(); await wait(120);
+      const what = /What to check/.test($('qProfSum').textContent) && !!$('btnChecked') && /Mark as checked/.test($('btnChecked').textContent);
+      $('btnChecked').click(); await wait(120);
+      const R1 = G.Quant.measure(App), j4 = R1.lanes.indexOf(lane4), c4 = R1.cells[0][j4];
+      const items1 = $('qIssues').querySelectorAll('.q-issue').length;
+      const csv = G.Quant.quantCSV(App, R1), tsvOk = /checked by the user: /.test(csv);
+      const kept = c4.checked && c4.review.length > 0 && items1 === items0 - 1 && !R1.reviewLanes.includes(lane4) && R1.checkedLanes.includes(lane4) && /checked by you/.test($('qIssues').textContent)
+        && /✓ Checked by you/.test($('qProfSum').textContent) && /were inspected on the lane profile and the values kept/.test(G.Quant.methodsText(App, R1));
+      const log = JSON.stringify(G.Export.processingLog(App.S)), logOk = /"reviewCheckedByUserWells":\[[0-9]/.test(log);
+      // a change to the lane (a shift) brings the review back
+      row().lanes[lid4].dx = 2; App.commit(); const R2 = G.Quant.measure(App), back = !R2.cells[0][R2.lanes.indexOf(lane4)].checked;
+      App.undo(); const R3 = G.Quant.measure(App), again = R3.cells[0][R3.lanes.indexOf(lane4)].checked;
+      App.undo(); const R4 = G.Quant.measure(App), undone = !R4.cells[0][R4.lanes.indexOf(lane4)].checked;
+      // Next to review goes to another flagged lane
+      G.QuantUI.render(); await wait(50); const bn = $('btnNextIssue'); let next = true;
+      if (bn) { const target = +bn.dataset.i; bn.click(); await wait(80); next = App.selLane === target; }
+      res.review = { ok: open0 > 0 && items0 > 0 && /\(\+\d|reaches|background|noise/.test(itemTxt) && /To review/.test(itemTxt) && what && kept && tsvOk && logOk && back && again && undone && next, open0, items0, items1, what, kept, tsvOk, logOk, back, again, undone, next };
+      // the profile is drawn when it becomes visible, whatever opened it (it had no width when the results were rendered)
+      await G.UI.loadExample('western'); await wait(300);
+      G.QuantUI.show('figure', true); await wait(100); G.QuantUI.setLayer('quant'); G.QuantUI.setView('quant'); await wait(300);
+      const pc = $('qProfile'), px = pc.getContext('2d').getImageData(0, 0, pc.width, pc.height).data; let ink = 0; for (let t = 3; t < px.length; t += 4) if (px[t]) ink++;
+      res.drawn = { ok: ink > 0 && pc.width >= pc.clientWidth, ink };
+      R.notes = Object.assign({ ok: Object.values(res).every(v => v.ok) }, res);
     }
     // 55. less text, larger type, clearer layout: the wording (Size ladder, Lanes shown, the edit switch); finished
     // steps fold to their one-line summary (a click or Enter unfolds, a lesson unfolds the step it needs); the key to

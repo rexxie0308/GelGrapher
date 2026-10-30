@@ -174,8 +174,22 @@
     const a = fm.to(cx, row.y0 - 0.5), b = fm.to(cx, row.y1 + 0.5), p = cm.from(a.x, a.y), q = cm.from(b.x, b.y);
     return { y0: Math.min(p.y, q.y) + 0.5, y1: Math.max(p.y, q.y) - 0.5 };
   }
-  // an explicit edit of a band's rows (in the frame shown now): the band is placed again in that frame
-  function editRow(App, row, y0, y1) { placeRow(App, row, y0, y1); }
+  /* An explicit edit of a band's rows (in the frame shown now): the band is placed again in that frame. A lane's
+   * drawn baseline follows the band's edges as its start and end shifts do: its limits move by as many rows as the
+   * band's start and end, and its line stays the same line (its ends slide along it). Returns the lanes whose
+   * baselines could not be carried (the band was placed in another frame: see placementDropsManual). */
+  function editRow(App, row, y0, y1) {
+    const oy0 = row.y0, oy1 = row.y1, dropped = placementDropsManual(App, row);
+    placeRow(App, row, y0, y1);
+    const da = row.y0 - oy0, db = row.y1 - oy1;
+    if ((da || db) && isFinite(da) && isFinite(db)) Object.keys(row.lanes).forEach(id => {
+      const m = row.lanes[id].manual; if (!m) return;
+      const a = m.a + da, b = m.b + db; if (b - a < 2) return;
+      const at = y => m.la + (m.lb - m.la) * (y - m.a) / Math.max(1, m.b - m.a);
+      row.lanes[id].manual = { a, b, la: +at(a).toFixed(6), lb: +at(b).toFixed(6) };
+    });
+    return dropped;
+  }
   // a lane that has no region in a band yet (added or detected later) is placed into the band's own frame
   function placeLane(App, row, i) {
     const S = App.S, fm = frameMapOf(App, row.frame); if (!fm) return;
@@ -608,6 +622,25 @@
     try { res = apply(); after = take(); } finally { row.lanes = JSON.parse(saved); }
     return { before, after, result: res };
   }
+  /* ---------- review checked by the user ----------
+   * A cell flagged for review can be marked as checked once the user has looked at it: the mark holds a signature
+   * of the reasons it was given for, so any change that alters them (an edit, another band, other settings) makes
+   * the cell need review again. It changes no value and no flag: exports keep every reason and say it was checked. */
+  // what a cell is flagged for: its review reasons, clipped pixels, or why it has no value
+  function issuesOf(c) { if (!c) return []; if (c.value == null) return c.unavailable ? [c.unavailable] : []; return (c.review || []).concat(c.flags && c.flags.clip ? ['clipped pixels: the value is underestimated'] : []); }
+  // the mark covers the reasons and everything the lane's value rests on: its region, adjustments and baseline, the
+  // band's rows and frame, the background settings and the polarity
+  function checkKey(App, row, L, issues) {
+    const q = App.S.quant;
+    return reviewSig(issues, [row.frame, row.y0, row.y1, row.hw, L.cx, L.dx, L.dy0, L.dy1, L.bg, L.manual, q.bg, q.bgSides, q.bgGap, q.bgSize, q.mode, App.S.bright]);
+  }
+  function reviewSig(review, ctx) { let h = 5381; const t = (review || []).join('|') + (review && review.length && ctx ? '#' + JSON.stringify(ctx) : ''); for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0; return t ? 'r' + h.toString(36) + t.length.toString(36) : ''; }
+  function setChecked(App, row, lid, on) {
+    const L = row && row.lanes && row.lanes[lid]; if (!L) return false;
+    if (!on) { delete L.checked; return true; }
+    const is = issuesOf(measureCell(App, row, lid)); if (!is.length) return false;
+    L.checked = checkKey(App, row, L, is); return true;
+  }
   /* ---------- the whole table ---------- */
   const OUTPUTS = ['corrected', 'normalized', 'fold'];
   function measure(App) {
@@ -616,6 +649,7 @@
     ensurePlaced(App);
     const lanes = quantLanes(App), ids = lanes.map(i => App.laneId(i)), rows = q.rows;
     const cells = rows.map((r, k) => lanes.map((i, j) => Object.assign({ lane: i, k, j }, measureCell(App, r, ids[j]))));
+    cells.forEach((r, k) => r.forEach((c, j) => { const L = rows[k].lanes && rows[k].lanes[ids[j]]; c.checked = !!(L && L.checked && L.checked === checkKey(App, rows[k], L, issuesOf(c))); }));
     const normMode = q.norm === 'band' || q.norm === 'lane' ? q.norm : 'none';
     const nb = normMode === 'band' ? rows.findIndex(r => r.id === q.normBand) : -1;
     // total-lane denominators come from each lane's own total-lane region (never from a band, so band order,
@@ -640,7 +674,7 @@
     });
     // a divisor or reference that needs review, or whose noise or clipping could not be checked, makes every ratio
     // resting on it need review too (given, marked unverified, never an ordinary qualified result)
-    const revOf = c => !!(c && c.review && c.review.length);
+    const revOf = c => !!(c && c.review && c.review.length && !c.checked);
     const unverified = (c, what) => (!c || !c.flags ? null : c.flags.noise && c.flags.noise !== 'estimated' ? `${what}'s noise could not be estimated (unverified)` : c.flags.clipState === 'unknown' ? `${what}'s clipping could not be checked (unverified)` : null);
     const caveatN = rows.map((r, k) => lanes.map((i, j) => {
       if (normMode === 'none' || normalized[k][j] == null) return null;
@@ -673,7 +707,7 @@
     const caveat = { corrected: rows.map(() => lanes.map(() => null)), normalized: caveatN, fold: caveatF };
     const satLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.flags && c.flags.clip) satLanes.add(c.lane); }));
     if (totals) totals.forEach(c => { if (c.flags && c.flags.clip) satLanes.add(c.lane); });
-    const reviewLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.review && c.review.length) reviewLanes.add(c.lane); }));
+    const reviewLanes = new Set(), checkedLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.review && c.review.length) (c.checked ? checkedLanes : reviewLanes).add(c.lane); }));
     const manualLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.flags && c.flags.manual) manualLanes.add(c.lane); }));
     const noiseUnknownLanes = new Set(); cells.forEach(r => r.forEach(c => { if (c.flags && c.flags.belowUnknown) noiseUnknownLanes.add(c.lane); }));
     const clipUnknown = cells.some(r => r.some(c => c.flags && c.flags.clipState === 'unknown'));
@@ -683,7 +717,7 @@
       cells, totals, values, why, caveat, output, shown: values[output], shownWhy: why[output], shownCaveat: caveat[output], vol: corrected, norm: normalized, rel: fold, refOk,
       normMode, normBand: nb, control: nb, normLabel, laneTotal: !!q.laneTotal, ref: refJ >= 0 ? lanes[refJ] : null, refId: q.ref, refJ,
       method: q.bg, mode: q.mode === 'band' ? 'band' : 'box', region: Object.assign({}, region(S)), halfWidthPx: rows.length ? rows[0].hw : boxHalfWidth(S),
-      saturatedLanes: [...satLanes], reviewLanes: [...reviewLanes], manualLanes: [...manualLanes].sort((x, y) => x - y), noiseUnknownLanes: [...noiseUnknownLanes].sort((x, y) => x - y), clipUnknown,
+      saturatedLanes: [...satLanes], reviewLanes: [...reviewLanes].sort((x, y) => x - y), checkedLanes: [...checkedLanes].filter(i => !reviewLanes.has(i)).sort((x, y) => x - y), manualLanes: [...manualLanes].sort((x, y) => x - y), noiseUnknownLanes: [...noiseUnknownLanes].sort((x, y) => x - y), clipUnknown,
       normRegions: normMode === 'lane' ? q.normRegions || null : null, flags: cells.map(r => r.map(c => c.flags || {}))
     };
   }
@@ -942,8 +976,9 @@
   /* A methods paragraph for the manuscript, from what was actually done (per band, per lane). */
   function methodsText(App, R) {
     const S = App.S, A = G.App, bits = S.file.bits ? `${S.file.bits}-bit ` : '', D = describe(App, R), cap = t => t[0].toUpperCase() + t.slice(1), lanesOf = a => a.map(i => i + 1).join(', ');
-    const sat = R.saturatedLanes.length ? ` Lanes ${lanesOf(R.saturatedLanes)} contained clipped pixels; their values are underestimated and were not used as divisors or references.` : '';
-    const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${lanesOf(R.reviewLanes)} were flagged for review (region, background or noise).` : '';
+    const pl = a => a.length > 1, sat = R.saturatedLanes.length ? ` Lane${pl(R.saturatedLanes) ? 's' : ''} ${lanesOf(R.saturatedLanes)} contained clipped pixels; ${pl(R.saturatedLanes) ? 'their values are' : 'its value is'} underestimated and ${pl(R.saturatedLanes) ? 'were' : 'was'} not used as ${pl(R.saturatedLanes) ? 'divisors or references' : 'a divisor or reference'}.` : '';
+    const rev = (R.reviewLanes && R.reviewLanes.length ? ` Lane${pl(R.reviewLanes) ? 's' : ''} ${lanesOf(R.reviewLanes)} ${pl(R.reviewLanes) ? 'were' : 'was'} flagged for review (region, background or noise).` : '')
+      + (R.checkedLanes && R.checkedLanes.length ? ` In lane${R.checkedLanes.length > 1 ? 's' : ''} ${lanesOf(R.checkedLanes)} the review flags were inspected on the lane profile and the values kept by the user (the flags are listed with the results).` : '');
     const man = R.manualLanes && R.manualLanes.length ? ` In lane${R.manualLanes.length > 1 ? 's' : ''} ${lanesOf(R.manualLanes)} the region was integrated relative to a user-defined baseline drawn on the lane profile (start and end rows and levels recorded); the noise estimate excludes the uncertainty in where that baseline was drawn.` : '';
     const nz = R.noiseUnknownLanes && R.noiseUnknownLanes.length ? ` In lane${R.noiseUnknownLanes.length > 1 ? 's' : ''} ${lanesOf(R.noiseUnknownLanes)} the noise could not be estimated, so no threshold check was made.` : '';
     const adj = new Set(); R.cells.forEach(r => r.forEach(c => { if (c.prov && c.prov.override && c.prov.override.some(k => k !== 'manual')) adj.add(c.lane); }));
@@ -979,7 +1014,7 @@
     R.rows.forEach(r => {
       head.push(`${r.name} corrected (a.u.)`);
       if (full) head.push(`${r.name} uncorrected sum`, `${r.name} background sum`, `${r.name} signal px`, `${r.name} background px`, `${r.name} noise`, `${r.name} 3σ threshold`, `${r.name} 10σ threshold`, `${r.name} clipped px`, `${r.name} clipping`);
-      head.push(`${r.name} corrected unavailable because`, `${r.name} flags`);
+      head.push(`${r.name} corrected unavailable because`, `${r.name} flags`, `${r.name} review`);
       if (hasN) head.push(`${r.name} / ${R.normLabel || 'divisor'}`, `${r.name} normalized unavailable because`, `${r.name} normalized caveat`);
       if (hasF) head.push(`${r.name} fold vs lane ${R.ref != null ? R.ref + 1 : '?'}`, `${r.name} fold unavailable because`, `${r.name} fold caveat`);
     });
@@ -991,7 +1026,8 @@
         const c = R.cells[k][j], f = c.flags || {};
         line.push(num(R.values.corrected[k][j], 4));
         if (full) line.push(num(c.U, 4), num(c.B, 4), c.n || 0, c.nb || 0, f.noise || '', num(c.t3, 4), num(c.t10, 4), c.clip ? c.clip.n : 0, f.clipState === 'unknown' ? 'not checkable' : f.clipState ? 'checked' : '');
-        line.push(R.why.corrected[k][j] || '', flagText(f, c));
+        const is = c.value == null ? [] : issuesOf(c);
+        line.push(R.why.corrected[k][j] || '', flagText(f, c), is.length ? `${c.checked ? 'checked by the user' : 'needs review'}: ${is.join('; ')}` : '');
         if (hasN) line.push(num(R.values.normalized[k][j], 5), R.why.normalized[k][j] || '', R.caveat.normalized[k][j] || '');
         if (hasF) line.push(num(R.values.fold[k][j], 4), R.why.fold[k][j] || '', R.caveat.fold[k][j] || '');
       });
@@ -1100,7 +1136,7 @@
       tgt.forEach((k, t) => {
         const v = vals[t][j], bx = gx + t * barW, f = (R.cells[k][j] && R.cells[k][j].flags) || {}, cell = R.cells[k][j] || {};
         if (v == null || !isFinite(v)) { used.add('na'); els.push(`<text x="${bx + barW / 2}" y="${Y0 - pt * 0.4}" font-size="${pt * 0.75}" text-anchor="middle">n/a</text>`); return; }
-        const yv = Y(v), y1 = Math.min(yv, Y0), h = Math.abs(Y0 - yv), weak = !!f.below, clip = !!f.clip, rev = (cell.review && cell.review.length) || !!(R.shownCaveat && R.shownCaveat[k][j]);
+        const yv = Y(v), y1 = Math.min(yv, Y0), h = Math.abs(Y0 - yv), weak = !!f.below, clip = !!f.clip, rev = (cell.review && cell.review.length && !cell.checked) || !!(R.shownCaveat && R.shownCaveat[k][j]);
         if (weak) used.add('weak'); if (clip) used.add('clip'); if (rev) used.add('rev');
         const dash = weak ? ` stroke-dasharray="${(lw * 3).toFixed(2)},${(lw * 2).toFixed(2)}"` : '', fill = clip ? 'url(#qhatch)' : weak ? '#ffffff' : fills[t % fills.length];
         if (P.type === 'point') els.push(`<circle data-lane="${lane}" cx="${bx + barW / 2}" cy="${yv}" r="${Math.min(barW * 0.42, pt * 0.42)}" fill="${fill}" stroke="#000" stroke-width="${lw}"${dash}/>`);
@@ -1166,5 +1202,5 @@
 
   G.Quant = { VERSION, measure, measureCell, bandBox, bandSizes, quantCSV, quantTSV, sizesCSV, chartSVG, quantLanes, region, boxHalfWidth, methodsText, describe, flagText, tableRows,
     placeRow, editRow, placeLane, ensurePlaced, rowSpan, laneDrift, outlines, updateToCurrent, pruneFrames, laneProfile, levelAt, setManual, limitsOf, copyLimits, endpointBaseline,
-    useAutoBackground, resetLaneAll, screenSign, resetLane: resetLaneAll, laneAdjustments, preview, placementDropsManual, placeNormRegions, laneTotalCell, spec, applySpec, clearCache, cacheSize, frameText, NOISE_TEXT, PIXEL_RULE, BG_TEXT, BG_SHORT, MODE_TEXT, OUTPUT_TEXT, SIDES_TEXT, bgLabel, outLabel };
+    useAutoBackground, resetLaneAll, screenSign, setChecked, reviewSig, issuesOf, resetLane: resetLaneAll, laneAdjustments, preview, placementDropsManual, placeNormRegions, laneTotalCell, spec, applySpec, clearCache, cacheSize, frameText, NOISE_TEXT, PIXEL_RULE, BG_TEXT, BG_SHORT, MODE_TEXT, OUTPUT_TEXT, SIDES_TEXT, bgLabel, outLabel };
 })(window);

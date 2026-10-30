@@ -263,7 +263,9 @@
     if (c.value == null) m.push(['na', 'n/a', c.unavailable || 'not available']);
     if (f.clip) m.push(['clip', '⚠', f.clip === 'pileup' ? 'probably clipped' : 'clipped']);
     if (f.below) m.push(['low', '†', f.below === 't3' ? 'below 3σ noise' : 'below 10σ noise']);
-    if ((c.review && c.review.length) || caveat) m.push(['rev', '?', caveat && !(c.review && c.review.length) ? caveat : 'needs review']);
+    const rv = c.review && c.review.length;
+    if ((rv && !c.checked) || caveat) m.push(['rev', '?', caveat && !(rv && !c.checked) ? caveat : 'needs review']);
+    if (c.checked) m.push(['chk', '✓', 'flags checked by you, value kept']);
     if (f.manual) m.push(['man', '✎', 'baseline drawn by hand']);
     if (f.legacy) m.push(['old', 'v1', 'earlier method']);
     return m;
@@ -292,6 +294,7 @@
     if (R.flags.flat().some(f => f && f.below)) notes.push(`<p class="hint">† Below the estimated 10σ noise threshold: too close to the background noise to compare; never used as a divisor or reference.</p>`);
     const cavLanes = R.lanes.filter((i, j) => (R.shownCaveat || []).some(r => r[j])), revL = [...new Set((R.reviewLanes || []).concat(cavLanes))].sort((a, b) => a - b);
     if (revL.length) notes.push(`<p class="hint warn-t">? Needs review: lane ${revL.map(i => i + 1).join(', ')} (open Profile for the reasons${cavLanes.length ? '; a ratio needs review when its divisor or reference lane does' : ''}).</p>`);
+    if (R.checkedLanes && R.checkedLanes.length) notes.push(`<p class="hint">✓ Checked by you: lane ${R.checkedLanes.map(i => i + 1).join(', ')}. The flags were looked at and the values kept; they stay listed in the CSV and the log.</p>`);
     if (R.manualLanes && R.manualLanes.length) notes.push(`<p class="hint">✎ Integrated relative to a user-defined baseline: lane ${R.manualLanes.map(i => i + 1).join(', ')}. Their noise estimate excludes the uncertainty in where the baseline was drawn; the methods text and the log say so.</p>`);
     if (R.noiseUnknownLanes && R.noiseUnknownLanes.length) notes.push(`<p class="hint warn-t">Noise not estimated in lane ${R.noiseUnknownLanes.map(i => i + 1).join(', ')}: no 3σ / 10σ check was made there (marked ?). Ratios resting on such a lane are marked unverified.</p>`);
     if (R.clipUnknown) notes.push(`<p class="hint warn-t">Clipping could not be checked in this file (no digital limit to test against): no value here is known to be unclipped.</p>`);
@@ -358,6 +361,8 @@
     ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'center'; ctx.fillText(xLabel, (bx.l + bx.r) / 2, bx.b + 30 * dpr);
     ctx.save(); ctx.translate(12 * dpr, (bx.t + bx.b) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(yLabel, 0, 0); ctx.restore();
   }
+  // the editing row's state: one line (the full text in its title when it is cut)
+  function setState(t, on) { const el = $('qEditState'); el.textContent = t; el.title = t; el.classList.toggle('on', !!on); }
   // a polyline that breaks where a value is missing (no pixel there: a gap, not a zero)
   function pathGaps(ctx, pts, X, Y) { let on = false; ctx.beginPath(); pts.forEach(p => { if (p.y == null || !isFinite(p.y)) { on = false; return; } if (on) ctx.lineTo(X(p.x), Y(p.y)); else { ctx.moveTo(X(p.x), Y(p.y)); on = true; } }); ctx.stroke(); }
   function drawProfile() {
@@ -394,15 +399,17 @@
       }
       $('qProfKey').innerHTML = series.map((s2, n) => `<span class="pk-lane${s2.i === lane ? ' sel' : ''}"><span class="pk" style="background:${PALETTE[n % PALETTE.length]}"></span>${esc((st.lanes[s2.i].name || `Lane ${s2.i + 1}`).replace(/\*/g, ''))}</span>`).join(' ')
         + `<br>${align ? 'Each curve shifted so its peak is at 0: for comparing shapes, not positions.' : 'Each lane over its own rows of the band\'s frame: a lane with other limits starts and ends elsewhere.'}`;
-      $('qEditState').textContent = 'Compare lanes: untick it to inspect or edit one lane'; tools(false); $('btnEditBase').disabled = true;
+      setState('Compare lanes: untick it to inspect or edit one lane'); tools(false); $('btnEditBase').disabled = true;
       readout(R, k, j, c); return;
     }
     const P = v2 ? G.Quant.laneProfile(App, row, lid) : null;
-    if (!P || !P.rows.length) { $('qProfKey').textContent = ''; $('qEditState').textContent = R.version === G.Quant.VERSION ? 'No region in this lane' : 'Earlier method: update the analysis to edit a baseline'; tools(false); readout(R, k, j, c); return; }
+    if (!P || !P.rows.length) { $('qProfKey').textContent = ''; setState(R.version === G.Quant.VERSION ? 'No region in this lane' : 'Earlier method: update the analysis to edit a baseline'); tools(false); readout(R, k, j, c); return; }
     tools(true);
     const rows = P.rows, man = P.manual, draft = edit ? (pdrag && pdrag.moved ? draftFromDrag() : edit) : null, base = draft || man;
     const ys = rows.map(r => r.mean).filter(isFinite).concat(P.baseline.map(p => p.b).filter(isFinite), base ? [base.la, base.lb] : []);
     let lo = Math.min(...ys), hi = Math.max(...ys); const span = (hi - lo) || 1e-3; lo -= span * 0.06; hi += span * 0.08;
+    // while editing, the axes stay as they were when the editing began: the plot never moves under the pointer
+    if (edit) { if (!edit.yr) edit.yr = [lo, hi]; else [lo, hi] = edit.yr; }
     const xr = [rows[0].y - 0.5, rows[rows.length - 1].y + 0.5];
     const X = y => bx.l + (y - xr[0]) / (xr[1] - xr[0]) * (bx.r - bx.l), Y = l => bx.b - (l - lo) / (hi - lo) * (bx.b - bx.t);
     const Xi = x => xr[0] + (x - bx.l) / (bx.r - bx.l) * (xr[1] - xr[0]), Yi = yy => lo + (bx.b - yy) / (bx.b - bx.t) * (hi - lo);
@@ -432,8 +439,25 @@
     pmap = { X, Y, Xi, Yi, meanAt, P, row, lid, k, dpr, v0: xr[0], v1: xr[1], base: edit ? base : null };
     const ns = (P.baseline || []).map(p => p.n).filter(n => n > 0), nr = ns.length ? `${Math.min(...ns)}${Math.max(...ns) > Math.min(...ns) ? `–${Math.max(...ns)}` : ''}` : '';
     $('qProfKey').innerHTML = `<span class="pk pk-line"></span>mean signal per pixel of each row · ${base ? '<span class="pk pk-man"></span>user-defined baseline' : `<span class="pk pk-base"></span>background subtracted${P.bgRows.length ? ' · <span class="pk pk-bg"></span>rows the background came from' : ''}`} · <span class="pk pk-area${base ? ' man' : ''}"></span>rows counted${nr ? ` (the value sums every pixel: ${nr} per row here)` : ''}`;
-    $('qEditState').textContent = edit ? 'Editing: manual baseline (not applied yet)' : man ? 'Editing: off · this lane uses a user-defined baseline' : `Editing: off · background: ${G.Quant.BG_SHORT[P.method] || P.method}`;
+    setState(edit ? 'Drag across the peak, or move an end' : man ? 'Editing: off · this lane uses a user-defined baseline' : `Editing: off · background: ${G.Quant.BG_SHORT[P.method] || P.method}`, !!edit);
     readout(R, k, j, c);
+  }
+  // what to look at on the profile for each flag, and the way to fix it when it is real
+  function advice(c) {
+    const f = c.flags || {}, a = [];
+    if (c.value == null) a.push(esc(c.unavailable || 'This lane has no value.'));
+    if (f.clip) a.push('Pixels at the file\'s maximum: the band is saturated and its value too low. This cannot be fixed here; use a shorter exposure for measuring.');
+    if (f.boundary && !f.manual) a.push('Does the peak run into an edge of the counted rows? Make the band taller: drag its top or bottom edge on the image (Measurement regions), or set its Height in step 6.');
+    if (f.manual && (f.boundary || f.contaminated)) a.push('The profile still rises at the drawn limits: drag the baseline\'s ends further out onto flat background (Edit baseline…).');
+    if (f.endpoints || f.endpointsLow || f.baselineSensitive || f.endpointsUnchecked) a.push('The drawn baseline\'s ends should sit on flat background beside the peak: move them there (Edit baseline…).');
+    if (f.contaminated && !f.manual) a.push('Are the grey background rows flat? If they rise towards the peak they hold part of the band: use a larger gap or one side only (Edit background regions…).');
+    if (f.uneven) a.push('The two background sides differ: look for a neighbouring band or a smear in one of them, and use the other side only if so (Edit background regions…).');
+    if (f.overlap) a.push('A background region covers another band: use one side only or a smaller gap (Edit background regions…).');
+    if (f.twoPeaks) a.push('Two peaks in the counted rows: make sure the region holds the band you mean (a doublet may belong together).');
+    if ((f.outside && f.outside.signal) || f.oneSide) a.push('Part of the region or its background lies off the image: check that the value is plausible.');
+    if (f.unstable && !a.length) a.push('The value moves when the region or the background moves: check that the whole peak is inside and the background beside it is flat.');
+    if (f.noise && f.noise !== 'estimated' && c.value != null) a.push('No noise check was possible: fine for a clear band; a faint one may be mostly noise.');
+    return a;
   }
   // the selected output first, the corrected signal and the reference after it, then the status and its reasons;
   // every parameter under Calculation details
@@ -447,10 +471,15 @@
     const state = f.clip ? 'Clipped pixels' : issues.length ? 'Needs review' : f.below ? 'Near the noise' : 'No issues found';
     const extra = [f.manual ? 'Integrated relative to a user-defined baseline. Noise estimate excludes uncertainty in the manually selected baseline.' : '',
       f.clipState === 'unknown' ? 'Clipping could not be checked in this file (no digital limit to test against).' : f.clip ? '' : 'No clipped pixels found in the file (detector saturation before the file was written cannot be seen).'].filter(Boolean);
+    const flagged = G.Quant.issuesOf(c).length > 0, chk = !!c.checked, nx = flagged || R.reviewLanes.length ? nextIssue(R, k, i) : null;
     $('qProfSum').innerHTML = `<p class="ps-main"><span class="ps-l">${esc(ln)} · ${esc(nm)} — ${outName}:</span> ${main}</p>${second ? `<p class="ps-sec">${second}</p>` : ''}`
-      + `<p class="ps-status ${issues.length || f.clip ? 'warn-t' : ''}"><b>Status:</b> ${state}${f.manual ? ' · ✎ user-defined baseline' : ''}</p>`
-      + (issues.length ? `<ul class="ps-why">${issues.map(w => `<li>${esc(w[0].toUpperCase() + w.slice(1))}.</li>`).join('')}</ul>` : '')
+      + `<p class="ps-status ${(issues.length || f.clip) && !chk ? 'warn-t' : ''}"><b>Status:</b> ${chk ? '✓ Checked by you (value kept; the flags stay in the exports)' : state}${f.manual ? ' · ✎ user-defined baseline' : ''}</p>`
+      + (issues.length ? `<ul class="ps-why${chk ? ' chk' : ''}">${issues.map(w => `<li>${esc(w[0].toUpperCase() + w.slice(1))}.</li>`).join('')}</ul>` : '')
+      + (flagged && !chk ? `<div class="ps-check"><p class="ps-l">What to check</p><ul>${advice(c).map(a => `<li>${a}</li>`).join('')}</ul><p class="hint">If the profile looks right (the whole peak in the counted rows, flat background beside it), mark it as checked: the value is kept, the flags stay in the exports, and any later change to this lane brings the review back.</p></div>` : '')
+      + (flagged || nx ? `<div class="inline wrap ps-act">${flagged ? `<button class="btn sm${chk ? '' : ' primary'}" id="btnChecked" aria-pressed="${chk}">${chk ? 'Undo checked' : 'Mark as checked'}</button>` : ''}${nx ? `<button class="btn sm" id="btnNextIssue" data-k="${nx.k}" data-i="${nx.i}">Next to review: lane ${nx.i + 1} →</button>` : ''}</div>` : '')
       + (extra.length ? `<p class="hint">${extra.join(' ')}</p>` : '');
+    const bc = $('btnChecked'); if (bc) bc.onclick = () => { const row2 = st.quant.rows[k]; if (row2 && G.Quant.setChecked(App, row2, App.laneId(i), !chk)) { App.commit(); if (!chk) G.UI.toast(`Lane ${i + 1} · ${nm}: checked (Undo takes it back)`); } };
+    const bn = $('btnNextIssue'); if (bn) bn.onclick = () => inspect(+bn.dataset.k, +bn.dataset.i);
     const lines = [];
     if (R.version === G.Quant.VERSION && p.signal) {
       lines.push(`Uncorrected sum ${f2(c.U)} − background ${f2(c.B)} = <b>${f2(c.value)}</b> (${p.signal.px} px; ${esc(p.polarity)}).`);
@@ -497,32 +526,38 @@
     stopEdit(true); G.Quant.resetLaneAll(App, row, lid); App.commit();
   };
   /* ---------- Edit baseline… (manual integration, an expert mode) ---------- */
-  function startEdit() {
+  // the editing row keeps its height: Edit baseline… gives way to Apply and Cancel; the preview, Use automatic
+  // background and the typed positions (folded) open below the plot. A keyboard user (no pointer to drag with) gets
+  // the typed positions open, with the focus in the first one
+  function startEdit(typed) {
     const P0 = profCtx(); if (!P0 || !P0.v2 || $('qProfAll').checked) return;
     const { row, lid, k } = P0, m = row.lanes[lid].manual, lim = G.Quant.limitsOf(row, lid), Pl = G.Quant.laneProfile(App, row, lid);
     edit = m ? { k, lid, a: m.a, b: m.b, la: m.la, lb: m.lb } : { k, lid, a: lim[0], b: lim[1], la: G.Quant.levelAt(Pl, lim[0]), lb: G.Quant.levelAt(Pl, lim[1]) };
-    $('qEditPanel').classList.remove('hidden'); $('btnEditBase').setAttribute('aria-expanded', 'true'); $('btnEditBase').classList.add('on');
+    $('qEditPanel').classList.remove('hidden'); $('btnEditBase').setAttribute('aria-expanded', 'true'); editButtons(true);
+    $('qEdExact').open = !!typed;
     $('qProfile').classList.add('editing'); syncEdit(); drawProfile(); previewEdit();
-    $('qEdA').focus();
+    if (typed) $('qEdA').focus(); else $('btnEdCancel').focus({ preventScroll: true });
   }
+  function editButtons(on) { $('btnEditBase').classList.toggle('hidden', on); $('btnEdApply').classList.toggle('hidden', !on); $('btnEdCancel').classList.toggle('hidden', !on); }
   function stopEdit(silent) {
     const was = !!edit; edit = null; pdrag = null;
-    $('qEditPanel').classList.add('hidden'); $('btnEditBase').setAttribute('aria-expanded', 'false'); $('btnEditBase').classList.remove('on'); $('qProfile').classList.remove('editing');
-    if (was && !silent) { drawProfile(); $('btnEditBase').focus(); }
+    $('qEditPanel').classList.add('hidden'); $('btnEditBase').setAttribute('aria-expanded', 'false'); editButtons(false); $('qProfile').classList.remove('editing');
+    if (was && !silent) { drawProfile(); $('btnEditBase').focus({ preventScroll: true }); }
   }
   const syncEdit = () => { if (!edit) return; $('qEdA').value = edit.a; $('qEdB').value = edit.b; $('qEdLa').value = +(+edit.la).toFixed(4); $('qEdLb').value = +(+edit.lb).toFixed(4); };
   function previewEdit() {
     if (!edit) return;
     const row = S().quant.rows[edit.k], cur = R0 => R0 && R0.value != null ? f2(R0.value) : 'n/a';
     const pv = G.Quant.preview(App, row, [edit.lid], () => G.Quant.setManual(App, row, edit.lid, edit.a, edit.b, edit.la, edit.lb)), a = pv.after[edit.lid], b = pv.before[edit.lid];
-    $('qEdPreview').textContent = a ? `With this line: ${cur(a)} a.u. (now ${cur(b)}) · ${a.review.length ? `review: ${a.review[0]}` : 'no issues found'}` : '';
+    $('qEdPreview').innerHTML = a ? `With this line: <b>${cur(a)}</b> a.u. (now ${cur(b)}) · ${a.review.length ? `<span class="warn-t">review: ${esc(a.review[0])}</span>` : 'no issues found'}` : '';
   }
   ['qEdA', 'qEdB', 'qEdLa', 'qEdLb'].forEach(id => $(id).addEventListener('change', () => {
     if (!edit) return; const a = Math.round(+$('qEdA').value), b = Math.round(+$('qEdB').value), la = +$('qEdLa').value, lb = +$('qEdLb').value;
     if (b - a >= 2 && isFinite(la) && isFinite(lb)) Object.assign(edit, { a, b, la, lb }); else syncEdit();
     drawProfile(); previewEdit();
   }));
-  $('btnEditBase').onclick = () => { if (edit) stopEdit(); else startEdit(); };
+  // a click from the keyboard (Enter / Space: no pointer position) opens the typed positions too
+  $('btnEditBase').onclick = e => { if (edit) stopEdit(); else startEdit(!e || e.detail === 0); };
   $('btnEdCancel').onclick = () => stopEdit();
   $('btnEdApply').onclick = () => {
     if (!edit) return; const e = edit, row = S().quant.rows[e.k];
@@ -615,6 +650,9 @@
   // the chart fits the analysis window's height (its width is the window's): set on every render and resize
   const fitChart = () => { const body = document.querySelector('#quantView .qv-body'); if (body && body.clientHeight) $('quantView').style.setProperty('--qv-h', Math.max(220, body.clientHeight - 64) + 'px'); };
   window.addEventListener('resize', () => { fitChart(); if (S() && shown.quant && tab === 'prof') drawProfile(); });
+  // the profile is drawn again whenever its size changes, also when it first becomes visible (a window or workspace
+  // opened after the results were rendered while it had no width)
+  if (window.ResizeObserver) { let lastW = 0; new ResizeObserver(() => { const w = $('qProfile').clientWidth; if (w && w !== lastW) { lastW = w; if (S() && shown.quant && tab === 'prof') drawProfile(); } }).observe($('qProfile')); }
   function render(live) {
     const st = S();
     if (!st) return;
@@ -685,17 +723,37 @@
     if (tab === 'size') { renderSizes(); return; }
     results();
   }
-  // the issues that affect interpretation, next to the settings (one line each, with the way to them)
+  // a flagged cell's reasons in a few words each (the full sentences are on the profile)
+  function shortWhy(c) {
+    const f = c.flags || {};
+    if (c.value == null) return ['not available'];
+    return [f.clip ? 'clipped pixels' : '', f.boundary ? (f.manual ? 'band continues past the limits' : 'band reaches the region\'s edge') : '',
+      f.endpoints ? 'baseline ends on the band' : '', f.endpointsLow ? 'baseline ends below the background' : '', f.endpointsUnchecked ? 'baseline ends not checked' : '',
+      f.contaminated ? (f.manual ? 'band continues past the limits' : 'background holds part of the band') : '', f.uneven ? 'background not flat' : '',
+      f.overlap ? 'background over another band' : '', f.twoPeaks ? 'two peaks in the region' : '', f.outside && f.outside.signal ? 'region partly off the image' : '',
+      f.oneSide ? 'one background side off the image' : '', f.unstable ? 'value sensitive to the region' : '', f.baselineSensitive ? 'value depends on the drawn baseline' : '',
+      f.noise && f.noise !== 'estimated' ? 'noise not estimated' : ''].filter((w, n, a) => w && a.indexOf(w) === n);
+  }
+  // every flagged cell in reading order (band by band, lane by lane): {k, j, i, c}
+  const issueCells = R => { const out = []; if (R) R.cells.forEach((r, k) => r.forEach((c, j) => { if (G.Quant.issuesOf(c).length) out.push({ k, j, i: R.lanes[j], c }); })); return out; };
+  // the cells still to review, next to the settings: what each is flagged for, Inspect to look at it on the profile
+  // (where it can be fixed or marked as checked); the checked ones are counted, not listed
   function renderIssues(R) {
     const box = $('qIssues');
     if (!R) { box.innerHTML = ''; return; }
-    const items = [];
-    R.cells.forEach((r, k) => r.forEach((c, j) => {
-      const i = R.lanes[j], what = c.value == null ? 'not available' : c.flags.clip ? 'clipped' : c.review && c.review.length ? (c.flags.contaminated || c.flags.boundary ? 'background needs review' : 'region needs review') : null;
-      if (what) items.push(`<div class="q-issue"><span>${c.value == null ? 'n/a' : c.flags.clip ? '⚠' : '?'} Lane ${i + 1} · ${esc(R.rows[k].name)}: ${what}</span><button class="btn sm" data-qinsp="${k}:${i}">Inspect</button></div>`);
-    }));
-    box.innerHTML = items.slice(0, 6).join('') + (items.length > 6 ? `<p class="hint">and ${items.length - 6} more (Table)</p>` : '');
-    box.querySelectorAll('[data-qinsp]').forEach(b => b.onclick = () => { const [k, i] = b.dataset.qinsp.split(':').map(Number); selBox = k; App.selLane = i; setView('quant'); setTab('prof'); App.emit('select'); render(); });
+    const all = issueCells(R), open = all.filter(x => !x.c.checked), nChk = all.length - open.length;
+    const items = open.map(({ k, i, c }) => { const w = shortWhy(c); return `<div class="q-issue"><span><b>${c.value == null ? 'n/a' : c.flags.clip ? '⚠' : '?'} Lane ${i + 1} · ${esc(R.rows[k].name)}</b> <span class="qi-why">${esc(w[0] || 'needs review')}${w.length > 1 ? ` (+${w.length - 1})` : ''}</span></span><button class="btn sm" data-qinsp="${k}:${i}">Inspect</button></div>`; });
+    box.innerHTML = (open.length ? `<p class="qi-head">To review: ${open.length} · <span class="hint">Inspect shows the lane's profile with what to check; fix it there or mark it as checked.</span></p>` : '')
+      + items.slice(0, 6).join('') + (items.length > 6 ? `<p class="hint">and ${items.length - 6} more (Next to review on the profile goes through them)</p>` : '')
+      + (nChk ? `<p class="hint">✓ ${nChk} checked by you (values kept; the flags stay in the exports)</p>` : '');
+    box.querySelectorAll('[data-qinsp]').forEach(b => b.onclick = () => { const [k, i] = b.dataset.qinsp.split(':').map(Number); inspect(k, i); });
+  }
+  function inspect(k, i) { selBox = k; App.selLane = i; $('qProfAll').checked = false; setView('quant'); setTab('prof'); App.emit('select'); render(); }
+  // the next cell still to review after the one shown (wrapping round), or null
+  function nextIssue(R, k, i) {
+    const open = issueCells(R).filter(x => !x.c.checked); if (!open.length) return null;
+    const pos = open.findIndex(x => x.k > k || (x.k === k && R.lanes.indexOf(x.i) > R.lanes.indexOf(i)));
+    const n = open[pos >= 0 ? pos : 0]; return n.k === k && n.i === i ? null : n;
   }
   function results(quiet) {
     const st = S();

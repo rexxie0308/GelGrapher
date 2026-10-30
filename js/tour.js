@@ -233,7 +233,7 @@
             enter: () => S().quant.norm, done: b => S().quant.norm !== b }] },
         { title: 'Review flags and export', warnings: true, parts: [
           { el: () => (vis('exportDlg') ? '#btnPNG' : '#btnExport'),
-            text: 'Read the marks in the table (⚠ clipped, † below 10σ, ? needs review). Then click [Export…] and [Export results package]: the card is done once the file is saved.',
+            text: 'Read the marks in the table (⚠ clipped, † below 10σ, ? needs review, ✓ checked by you). A lane marked ? is listed under To review in step 6: [Inspect] shows its profile and what to check; fix it there, or mark it as checked when it looks right. Then click [Export…] and [Export results package]: the card is done once the file is saved.',
             why: 'The package holds the values with their regions, flags and method; the complete archive adds the original image so a reviewer can re-open the analysis. Biological replication depends on independently obtained samples. Duplicate lanes or repeated imaging do not create independent biological replicates.',
             enter: () => resultsOut, done: b => resultsOut > b }] }
       ] },

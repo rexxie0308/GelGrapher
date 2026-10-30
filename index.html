@@ -358,6 +358,8 @@
         <span class="zoomlabel" id="zoomLabel"></span>
       </div>
       <div id="expoStrip" class="expo hidden"></div>
+      <!-- the active tool's instruction: a strip above the window the tool works in, never over the image or figure -->
+      <div id="modeBanner" class="mode-banner hidden" role="status"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
       <div id="editorBox" tabindex="0">
         <canvas id="editor"></canvas>
         <div id="overlayKey" class="okey hidden" aria-label="What the lines on the image are">
@@ -396,7 +398,6 @@
         </div>
         <div id="previewBox">
           <div id="preview"></div>
-          <div id="modeBanner" class="mode-banner hidden"><span id="modeText"></span><button id="modeCancel">Cancel (Esc)</button></div>
         </div>
       </div>
       <div class="gutter gutter-h hidden" id="gutterFig" role="separator" aria-orientation="horizontal" aria-label="Resize figure and analysis" tabindex="0" title="Drag to resize; double-click to reset"></div>
@@ -426,23 +427,27 @@
               <label class="switch"><input type="checkbox" id="qProfAll"><span>Compare lanes</span></label>
               <label class="switch hidden" id="qProfAlignWrap"><input type="checkbox" id="qProfAlign"><span>Align peaks (shape only)</span></label>
             </div>
-            <!-- editing is a mode chosen here; a drag on the profile changes nothing until then -->
+            <!-- editing is a mode chosen here; a drag on the profile changes nothing until then. The row keeps one height
+                 in both states, so the plot below it never moves -->
             <div class="prof-edit-row" id="qEditRow">
               <span class="pe-state" id="qEditState" role="status">Editing: off</span>
               <button class="btn sm" id="btnEditBase" aria-expanded="false" aria-controls="qEditPanel">Edit baseline…</button>
-            </div>
-            <div class="prof-editpanel hidden" id="qEditPanel" role="group" aria-labelledby="qEditTitle">
-              <div class="pe-title" id="qEditTitle">Manual baseline</div>
-              <p class="hint" id="qEditHelp">Drag on the profile from the start of the peak to its end, or type the rows and levels. Both ends must lie on background; the value is then integrated relative to this line.</p>
-              <div class="pe-grid">
-                <span class="pe-l">Start</span><label class="inline-label"><span>row</span> <input type="number" id="qEdA" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLa" class="num" step="0.001"></label>
-                <span class="pe-l">End</span><label class="inline-label"><span>row</span> <input type="number" id="qEdB" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLb" class="num" step="0.001"></label>
-              </div>
-              <label class="switch"><input type="checkbox" id="qEdSnap" checked><span>Snap the ends to the profile</span></label>
-              <p class="hint" id="qEdPreview" aria-live="polite"></p>
-              <div class="inline wrap pe-act"><button class="btn sm primary" id="btnEdApply">Apply</button><button class="btn sm" id="btnEdCancel">Cancel</button><button class="btn sm" id="btnLaneReset" title="Remove the drawn baseline in this lane; its start, end and shift stay">Use automatic background</button></div>
+              <button class="btn sm primary hidden" id="btnEdApply">Apply</button><button class="btn sm hidden" id="btnEdCancel">Cancel</button>
             </div>
             <canvas id="qProfile" height="280" role="img" aria-label="Lane profile: mean signal per pixel along the lane, with the background and the integrated rows"></canvas>
+            <div class="prof-editpanel hidden" id="qEditPanel" role="group" aria-label="Manual baseline">
+              <p class="pe-preview" id="qEdPreview" aria-live="polite"></p>
+              <div class="inline wrap pe-act"><button class="btn sm" id="btnLaneReset" title="Remove the drawn baseline in this lane; its start, end and shift stay">Use automatic background</button></div>
+              <details class="adv" id="qEdExact">
+                <summary><span>Exact positions and levels</span></summary>
+                <p class="hint" id="qEditHelp">Rows of the band's frame and levels of the profile (mean signal per pixel). Both ends must lie on background; the value is integrated relative to this line.</p>
+                <div class="pe-grid">
+                  <span class="pe-l">Start</span><label class="inline-label"><span>row</span> <input type="number" id="qEdA" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLa" class="num" step="0.001"></label>
+                  <span class="pe-l">End</span><label class="inline-label"><span>row</span> <input type="number" id="qEdB" class="num" step="1"></label><label class="inline-label"><span>level</span> <input type="number" id="qEdLb" class="num" step="0.001"></label>
+                </div>
+                <label class="switch"><input type="checkbox" id="qEdSnap" checked><span>Snap the ends to the profile</span></label>
+              </details>
+            </div>
             <p class="hint prof-key" id="qProfKey"></p>
             <div class="prof-sum" id="qProfSum" aria-live="polite"></div>
             <div class="inline wrap prof-actions">

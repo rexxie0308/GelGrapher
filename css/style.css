@@ -169,9 +169,9 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 #preview .ed.active { filter: drop-shadow(0 0 1px var(--accent)) drop-shadow(0 0 1px var(--accent)); }
 #preview.arming image[data-edit="gel"] { cursor: crosshair; }
 #preview .ghost-group { pointer-events: none; }
-.mode-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--toast-bg); color: var(--toast-fg); border-radius: 999px; max-width: calc(100% - 24px);
-  padding: 6px 8px 6px 16px; font-size: 12.5px; display: flex; gap: 10px; align-items: center; box-shadow: var(--shadow); z-index: 4; white-space: nowrap; }
-.mode-banner button { border: none; background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
+.mode-banner { flex: none; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 5px 8px 5px 12px; font-size: 13px; line-height: 1.35;
+  background: var(--accent-bg); color: var(--text); border-bottom: 1px solid var(--line); }
+.mode-banner button { flex: none; border: none; background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
 
 /* ---------- panel ---------- */
 .sec { padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
@@ -647,10 +647,14 @@ body.touring #app, body.touring .topbar { user-select: none; }
 /* the profile: its tools in one fixed row above the canvas, the result under it, the parameters folded away */
 .prof-ctl { margin: 0 0 6px; }
 /* the editing row: the state in words (wraps, never cut off) and the one command that changes it */
-.prof-edit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 6px; }
-.pe-state { flex: 1 1 200px; font-size: 13.5px; color: var(--muted); }
-.prof-editpanel { border: 1px solid #b45309; border-radius: var(--r-sm); padding: 8px 10px; margin-bottom: 8px; background: var(--panel); display: grid; gap: 6px; }
-.pe-title { font-weight: 600; font-size: 14px; }
+/* one line in both states (the text gives way, the buttons do not): entering or leaving the editing never moves the plot */
+.prof-edit-row { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 0 6px; min-height: 34px; }
+.pe-state { flex: 1 1 auto; min-width: 0; font-size: 13.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-state.on { color: #b45309; font-weight: 600; }
+.prof-edit-row .btn { flex: none; }
+.prof-editpanel { border: 1px solid #b45309; border-radius: var(--r-sm); padding: 6px 10px; margin: 8px 0; background: var(--panel); display: grid; gap: 6px; }
+.pe-preview { margin: 0; font-size: 13.5px; }
+.prof-editpanel details.adv { margin: 0; }
 .pe-grid { display: grid; grid-template-columns: auto auto auto; gap: 6px 10px; align-items: center; justify-content: start; }
 .pe-grid input.num { width: 84px; }
 .pe-l { font-weight: 600; font-size: 13px; }
@@ -663,6 +667,15 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .ps-sec { font-size: 13.5px; color: var(--muted); margin: 0 0 4px; }
 .ps-status { margin: 4px 0 2px; font-size: 14px; }
 .ps-why { margin: 2px 0 4px 18px; padding: 0; font-size: 13.5px; color: var(--warn); }
+.ps-why.chk { color: var(--muted); }
+.ps-check { margin: 6px 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--panel-2); font-size: 13.5px; }
+.ps-check ul { margin: 4px 0 6px 18px; padding: 0; }
+.ps-check li { margin: 2px 0; }
+.ps-check .hint { margin: 0; }
+.ps-act { margin: 6px 0; gap: 8px; }
+.qi-head { margin: 0 0 2px; font-size: 13.5px; font-weight: 600; }
+.qi-head .hint { font-weight: 400; }
+.qi-why { color: var(--muted); }
 .bulk { width: min(640px, calc(100vw - 32px)); }
 .bulk-lanes { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0; max-height: 160px; overflow: auto; }
 .bulk-lane { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
@@ -670,7 +683,7 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .bulk-table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 .bulk-table th, .bulk-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
 .bulk-prev { max-height: max(200px, 50vh); overflow: auto; margin: 6px 0 10px; }
-@media (pointer: coarse) { .pt-steps .btn.sm, .prof-actions .btn.sm, .pe-act .btn.sm, #btnEditBase { min-height: 40px; padding: 6px 12px; } }
+@media (pointer: coarse) { .pt-steps .btn.sm, .prof-actions .btn.sm, .pe-act .btn.sm, .ps-act .btn.sm, .q-issue .btn.sm, #btnEditBase, #btnEdApply, #btnEdCancel { min-height: 40px; padding: 6px 12px; } }
 .pt-steps { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
 .pt-l { font-size: 12.5px; color: var(--muted); margin: 0 2px 0 6px; }
 .pt-steps .btn.sm { padding: 3px 7px; }
@@ -688,6 +701,7 @@ body.touring #app, body.touring .topbar { user-select: none; }
 .prof-read p { margin: 3px 0; font-size: 13px; line-height: 1.5; }
 .qtable td .qm { display: inline-block; margin-left: 3px; font-weight: 700; font-size: 12px; }
 .qtable td .qm-clip, .qtable td .qm-rev { color: var(--warn); }
+.qtable td .qm-chk { color: var(--ok); }
 .qtable td .qm-low { color: var(--faint); }
 .qtable td.na .qv { color: var(--faint); }
 .qtable td .qcorr { display: block; font-size: 11.5px; color: var(--faint); }

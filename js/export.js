@@ -321,7 +321,7 @@
         bands: S.quant.rows.map(q => ({ id: q.id, name: q.name, frame: q.frame || null, rows: q.frame ? [q.y0, q.y1] : [Math.round(Math.min(q.y0, q.y1)), Math.round(Math.max(q.y0, q.y1))], placed: q.placed || null })),
         lanes: R.lanes.map((i, j) => ({ well: i + 1, id: R.ids[j], name: R.names[j], laneTotal: R.totals ? r4(R.totals[j].value) : undefined,
           values: R.rows.map((row, k2) => { const c = R.cells[k2][j]; return { band: row.name, corrected: r4(c.value), uncorrectedSum: r4(c.U), backgroundSum: r4(c.B), signalPx: c.n, backgroundPx: c.nb,
-            threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined,
+            threshold3sigma: r4(c.t3), threshold10sigma: r4(c.t10), clippedPixels: c.clip ? c.clip.n : 0, flags: G.Quant.flagText(c.flags, c) || null, review: c.review && c.review.length ? c.review : undefined, reviewCheckedByUser: c.review && c.review.length ? !!c.checked : undefined,
             noise: c.flags ? c.flags.noise : undefined, clipping: c.flags ? c.flags.clipState : undefined,
             // each quantity with its own reason and caveat, whatever output the window shows
             correctedUnavailable: R.why.corrected[k2][j] || undefined,
@@ -329,7 +329,7 @@
             foldChange: r4(R.values.fold[k2][j]), foldUnavailable: R.refId != null ? R.why.fold[k2][j] || undefined : undefined, foldCaveat: R.caveat.fold[k2][j] || undefined,
             baselineSensitivity: c.msens || undefined,
             region: c.prov && c.prov.signal ? { signalCorners: c.prov.signal.corners, background: c.prov.background, manualBaseline: c.prov.manual } : undefined }; }) })),
-        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1), manuallyIntegratedWells: (R.manualLanes || []).map(i => i + 1)
+        clippedWells: R.saturatedLanes.map(i => i + 1), reviewWells: (R.reviewLanes || []).map(i => i + 1), reviewCheckedByUserWells: (R.checkedLanes || []).map(i => i + 1), manuallyIntegratedWells: (R.manualLanes || []).map(i => i + 1)
       };
     }
     return log;
@@ -379,7 +379,8 @@
       const ctl = R.normMode === 'band' && R.normBand >= 0 ? `, divided by ${R.rows[R.normBand].name} in the same lane` : R.normMode === 'lane' ? (R.laneTotal ? ', normalized to total protein (lane signal of this total-protein image)' : ', divided by the total lane signal of this image') : '';
       const how = R.mode === 'box' ? 'background-corrected signal summed over a fixed region of the original pixel values in each lane' : 'thresholded signal (pixels above 3 σ of the background; exploratory) over a fixed region of the original pixel values';
       const blq = R.flags.flat().some(f => f && f.below) ? ' Values below the estimated 10σ noise threshold are marked.' : '';
-      const rev = R.reviewLanes && R.reviewLanes.length ? ` Lanes ${R.reviewLanes.map(i => i + 1).join(', ')} were flagged for review.` : '';
+      const rev = (R.reviewLanes && R.reviewLanes.length ? ` Lane${R.reviewLanes.length > 1 ? 's' : ''} ${R.reviewLanes.map(i => i + 1).join(', ')} ${R.reviewLanes.length > 1 ? 'were' : 'was'} flagged for review.` : '')
+        + (R.checkedLanes && R.checkedLanes.length ? ` Review flags in lane${R.checkedLanes.length > 1 ? 's' : ''} ${R.checkedLanes.map(i => i + 1).join(', ')} were inspected and the values kept.` : '');
       const man = R.manualLanes && R.manualLanes.length ? ` Lane${R.manualLanes.length > 1 ? 's' : ''} ${R.manualLanes.map(i => i + 1).join(', ')} ${R.manualLanes.length > 1 ? 'were' : 'was'} integrated manually (limits and baseline drawn on the lane profile).` : '';
       h.push(`Band intensities were quantified by densitometry (${how}, ${bg})${ctl}` + (R.output === 'fold' && R.refOk.some(Boolean) ? ` and expressed as fold change versus lane ${R.ref + 1}.` : '.') + blq + rev + man);
     }
