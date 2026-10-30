@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.2.0 (2026-10-30)
+
 - **Clearer settings and measurement review (interface test 62):** persistent section shortcuts with keyboard navigation; concise hints and expandable explanations; prominent profile values with visible quality flags; a compact review queue with Inspect next; readable dark-mode baseline colors; and Method details that opens the relevant settings on phones. Calculations and export values are unchanged.
 
 - **The owner's notes on the analysis (interface test 61):**
