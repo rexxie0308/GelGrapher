@@ -377,7 +377,7 @@
     const { R, k, lane, j, c, row, lid, v2 } = P0;
     if (+$('qProfLane').value !== lane) $('qProfLane').value = String(lane);
     if (edit && (edit.k !== k || edit.lid !== lid || all)) stopEdit(true);
-    const ink = cssVar('--text', '#1d2a30'), okc = '#1f9d55', manc = '#b45309', txt = cssVar('--muted', '#555'), grid = cssVar('--line-2', '#e6ecef');
+    const ink = cssVar('--text', '#1d2a30'), okc = cssVar('--q-box', '#1f9d55'), manc = cssVar('--warn', '#b45309'), txt = cssVar('--muted', '#555'), grid = cssVar('--line-2', '#e6ecef');
     const bx = { l: 56 * dpr, r: W - 12 * dpr, t: 10 * dpr, b: H - 38 * dpr };
     if (all) {
       // every measured lane: signal minus its background along its region, on the band's row axis (or on its peak)
@@ -437,8 +437,7 @@
       pathGaps(ctx, P.baseline.map(p => ({ x: p.y, y: p.b })), X, Y); ctx.setLineDash([]);
     }
     pmap = { X, Y, Xi, Yi, meanAt, P, row, lid, k, dpr, v0: xr[0], v1: xr[1], base: edit ? base : null };
-    const ns = (P.baseline || []).map(p => p.n).filter(n => n > 0), nr = ns.length ? `${Math.min(...ns)}${Math.max(...ns) > Math.min(...ns) ? `–${Math.max(...ns)}` : ''}` : '';
-    $('qProfKey').innerHTML = `<span class="pk pk-line"></span>mean signal per pixel of each row · ${base ? '<span class="pk pk-man"></span>user-defined baseline' : `<span class="pk pk-base"></span>background subtracted${P.bgRows.length ? ' · <span class="pk pk-bg"></span>rows the background came from' : ''}`} · <span class="pk pk-area${base ? ' man' : ''}"></span>rows counted${nr ? ` (the value sums every pixel: ${nr} per row here)` : ''}`;
+    $('qProfKey').innerHTML = `<span class="pk pk-line"></span>Mean signal / pixel · ${base ? '<span class="pk pk-man"></span>user-defined baseline' : `<span class="pk pk-base"></span>Background${P.bgRows.length ? ' · <span class="pk pk-bg"></span>Background samples' : ''}`} · <span class="pk pk-area${base ? ' man' : ''}"></span>Integrated rows`;
     setState(edit ? 'Drag across the peak, or move an end' : man ? 'Editing: off · this lane uses a user-defined baseline' : `Editing: off · background: ${G.Quant.BG_SHORT[P.method] || P.method}`, !!edit);
     readout(R, k, j, c);
   }
@@ -468,19 +467,23 @@
     const shown = R.shown[k][j], main = shown != null ? `<b>${fmtV(shown, R.output)}</b>${R.output === 'corrected' ? ' a.u.' : ''}` : `<span class="warn-t">not available — ${esc(R.shownWhy[k][j] || c.unavailable || '')}</span>`;
     const second = [R.output !== 'corrected' ? `Corrected signal: ${c.value == null ? 'n/a' : `${f2(c.value)} a.u.`}` : '', R.output === 'fold' && R.ref != null ? `Reference: lane ${R.ref + 1}` : '', R.output === 'normalized' ? `Divisor: ${esc(R.normLabel || '–')}` : '', c.n ? `integrated over ${c.n} px` : ''].filter(Boolean).join(' · ');
     const issues = [].concat(c.review || [], R.shownCaveat && R.shownCaveat[k][j] ? [R.shownCaveat[k][j]] : []);
-    const state = f.clip ? 'Clipped pixels' : issues.length ? 'Needs review' : f.below ? 'Near the noise' : 'No issues found';
+    const state = f.clip ? 'Clipped pixels' : issues.length ? 'Needs review' : f.below ? 'Near the noise' : 'No automated flags';
     const extra = [f.manual ? 'Integrated relative to a user-defined baseline. Noise estimate excludes uncertainty in the manually selected baseline.' : '',
       f.clipState === 'unknown' ? 'Clipping could not be checked in this file (no digital limit to test against).' : f.clip ? '' : 'No clipped pixels found in the file (detector saturation before the file was written cannot be seen).'].filter(Boolean);
     const flagged = G.Quant.issuesOf(c).length > 0, chk = !!c.checked, nx = flagged || R.reviewLanes.length ? nextIssue(R, k, i) : null;
-    $('qProfSum').innerHTML = `<p class="ps-main"><span class="ps-l">${esc(ln)} · ${esc(nm)} — ${outName}:</span> ${main}</p>${second ? `<p class="ps-sec">${second}</p>` : ''}`
-      + `<p class="ps-status ${(issues.length || f.clip) && !chk ? 'warn-t' : ''}"><b>Status:</b> ${chk ? '✓ Checked by you (value kept; the flags stay in the exports)' : state}${f.manual ? ' · ✎ user-defined baseline' : ''}</p>`
+    const sum = $('qProfSum'), cellKey = `${st.lanes[i].id || i}:${R.rows[k].id || k}`;
+    const adviceOpen = sum.dataset.cell === cellKey && !!sum.querySelector('.ps-check[open]');
+    sum.dataset.cell = cellKey;
+    sum.innerHTML = `<p class="ps-context">${esc(ln)} · ${esc(nm)}</p><p class="ps-label">${outName}</p><p class="ps-main">${main}</p>${second ? `<p class="ps-sec">${second}</p>` : ''}`
+      + `<p class="ps-status ${(issues.length || f.clip) && !chk ? 'warn-t' : ''}"><b>Status:</b> ${chk ? '✓ Checked by you · flags retained' : state}${f.manual ? ' · ✎ user-defined baseline' : ''}</p>`
       + (issues.length ? `<ul class="ps-why${chk ? ' chk' : ''}">${issues.map(w => `<li>${esc(w[0].toUpperCase() + w.slice(1))}.</li>`).join('')}</ul>` : '')
-      + (flagged && !chk ? `<div class="ps-check"><p class="ps-l">What to check</p><ul>${advice(c).map(a => `<li>${a}</li>`).join('')}</ul><p class="hint">If the profile looks right (the whole peak in the counted rows, flat background beside it), mark it as checked: the value is kept, the flags stay in the exports, and any later change to this lane brings the review back.</p></div>` : '')
+      + (flagged && !chk ? `<details class="ps-check context-help"${adviceOpen ? ' open' : ''}><summary>What to check</summary><ul>${advice(c).map(a => `<li>${a}</li>`).join('')}</ul><p class="hint">Mark as checked only after inspecting the profile. The value and export flags stay; changing this lane brings the review back.</p></details>` : '')
       + (flagged || nx ? `<div class="inline wrap ps-act">${flagged ? `<button class="btn sm${chk ? '' : ' primary'}" id="btnChecked" aria-pressed="${chk}">${chk ? 'Undo checked' : 'Mark as checked'}</button>` : ''}${nx ? `<button class="btn sm" id="btnNextIssue" data-k="${nx.k}" data-i="${nx.i}">Next to review: lane ${nx.i + 1} →</button>` : ''}</div>` : '')
-      + (extra.length ? `<p class="hint">${extra.join(' ')}</p>` : '');
+      + (f.manual ? `<p class="hint ps-caution">User-defined baseline; noise excludes uncertainty in the drawn line.</p>` : '')
+      + (f.clipState === 'unknown' ? `<p class="hint ps-caution">Clipping could not be checked in this file.</p>` : '');
     const bc = $('btnChecked'); if (bc) bc.onclick = () => { const row2 = st.quant.rows[k]; if (row2 && G.Quant.setChecked(App, row2, App.laneId(i), !chk)) { App.commit(); if (!chk) G.UI.toast(`Lane ${i + 1} · ${nm}: checked (Undo takes it back)`); } };
     const bn = $('btnNextIssue'); if (bn) bn.onclick = () => inspect(+bn.dataset.k, +bn.dataset.i);
-    const lines = [];
+    const lines = extra.map(esc);
     if (R.version === G.Quant.VERSION && p.signal) {
       lines.push(`Uncorrected sum ${f2(c.U)} − background ${f2(c.B)} = <b>${f2(c.value)}</b> (${p.signal.px} px; ${esc(p.polarity)}).`);
       lines.push(`Signal region: rows ${p.signal.frameRows ? p.signal.frameRows.join('–') : '–'}, columns ${p.signal.frameCols ? p.signal.frameCols.join('–') : '–'} of its placement frame; original pixels ${corners(p.signal.corners)}${p.signal.outsidePx ? `; ${p.signal.outsidePx} px off the image` : ''}.`);
@@ -664,6 +667,7 @@
     $('qMode').value = q.mode === 'band' ? 'band' : 'box';
     $('qModeHelp').textContent = q.mode === 'band' ? 'Exploratory: only pixels above a noise threshold count, so faint bands read too low. Not for comparing amounts.' : 'Sum signal after background correction.';
     $('qModeHelp').classList.toggle('warn-t', q.mode === 'band');
+    $('qModeHelp').classList.toggle('hidden', q.mode !== 'band');
     $('qBg').value = q.bg; $('qBg').querySelector('option[value="border"]').hidden = q.bg !== 'border';
     $('qBgSides').value = q.bgSides || 'ab'; $('qBgGap').value = q.bgGap != null ? q.bgGap : 2; $('qBgSize').value = q.bgSize || '';
     $('btnBgEdit').disabled = q.bg !== 'local';
@@ -743,9 +747,10 @@
     if (!R) { box.innerHTML = ''; return; }
     const all = issueCells(R), open = all.filter(x => !x.c.checked), nChk = all.length - open.length;
     const items = open.map(({ k, i, c }) => { const w = shortWhy(c); return `<div class="q-issue"><span><b>${c.value == null ? 'n/a' : c.flags.clip ? '⚠' : '?'} Lane ${i + 1} · ${esc(R.rows[k].name)}</b> <span class="qi-why">${esc(w[0] || 'needs review')}${w.length > 1 ? ` (+${w.length - 1})` : ''}</span></span><button class="btn sm" data-qinsp="${k}:${i}">Inspect</button></div>`; });
-    box.innerHTML = (open.length ? `<p class="qi-head">To review: ${open.length} · <span class="hint">Inspect shows the lane's profile with what to check; fix it there or mark it as checked.</span></p>` : '')
-      + items.slice(0, 6).join('') + (items.length > 6 ? `<p class="hint">and ${items.length - 6} more (Next to review on the profile goes through them)</p>` : '')
-      + (nChk ? `<p class="hint">✓ ${nChk} checked by you (values kept; the flags stay in the exports)</p>` : '');
+    const expanded = !!box.querySelector('details[open]');
+    box.innerHTML = (open.length ? `<div class="qi-summary"><p class="qi-head">To review: ${open.length}</p><button class="btn sm" data-qinsp="${open[0].k}:${open[0].i}">Inspect next →</button></div><details class="context-help"${expanded ? ' open' : ''}><summary>Flagged measurements</summary>`
+      + items.slice(0, 6).join('') + (items.length > 6 ? `<p class="hint">${items.length - 6} more. Use Next to review on the profile.</p>` : '') + '</details>' : '')
+      + (nChk ? `<p class="hint">✓ ${nChk} checked by you · flags retained in exports</p>` : '');
     box.querySelectorAll('[data-qinsp]').forEach(b => b.onclick = () => { const [k, i] = b.dataset.qinsp.split(':').map(Number); inspect(k, i); });
   }
   function inspect(k, i) { selBox = k; App.selLane = i; $('qProfAll').checked = false; setView('quant'); setTab('prof'); App.emit('select'); render(); }
@@ -761,8 +766,8 @@
     else lastR = null;
     renderIssues(lastR);
     const D = lastR ? G.Quant.describe(App, lastR) : null;
-    $('qSummary').innerHTML = D ? `${esc(D.summary)}${lastR.legacy ? ' · <span class="warn-t">earlier method (version 1)</span>' : ''} · <a href="#" id="qMethodLink">Method details</a>` : '';
-    const ml = $('qMethodLink'); if (ml) ml.onclick = e => { e.preventDefault(); $('quantDetails').open = true; $('methodsAdv').open = true; $('methodsAdv').scrollIntoView({ block: 'nearest' }); };
+    $('qSummary').innerHTML = D ? `<span class="method-chip${lastR.mode === 'band' ? ' warn-t' : ''}">${lastR.mode === 'band' ? 'Exploratory threshold' : 'Whole region'}</span><span class="method-chip">${esc(G.Quant.BG_SHORT[lastR.method] || lastR.method)}</span><span class="method-chip">${esc(G.Quant.OUTPUT_TEXT[lastR.output])}</span>${lastR.legacy ? '<span class="warn-t">Earlier method (v1)</span>' : ''}<button class="link" id="qMethodLink">Method details</button>` : '';
+    const ml = $('qMethodLink'); if (ml) ml.onclick = () => G.UI.openSettings(5, $('methodsAdv'));
     $('qMethodNote').textContent = D ? `${D.summary}. Signal: ${D.signal}. Region: ${D.measure}. Background: ${D.background}. ${D.limits[0].toUpperCase() + D.limits.slice(1)}. ${D.version[0].toUpperCase() + D.version.slice(1)}.` : '';
     $('methodsText').value = lastR ? G.Quant.methodsText(App, lastR) : '';
     if (quiet) return;

@@ -484,7 +484,7 @@
   // close: back to the start screen (the library, or the empty workspace)
   async function closeWorkspace() {
     document.body.classList.remove('has-gel'); showPane('steps'); $('overlayKey').classList.add('hidden');
-    $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden'); $('viewSeg').classList.add('hidden');
+    $('settingsNav').classList.add('hidden'); $('sections').classList.add('hidden'); $('emptyState').classList.remove('hidden'); $('btnClose').classList.add('hidden'); $('viewSeg').classList.add('hidden');
     $('imgChipName').textContent = 'Open image'; $('coachText').textContent = 'Drop a gel image into the window to start';
     $('preview').innerHTML = ''; showWarnings([]); dismissed.clear();
     $('floatEd').classList.add('hidden'); $('popover').classList.add('hidden'); $('modeBanner').classList.add('hidden');
@@ -566,6 +566,7 @@
     const auto = document.querySelector('#geomSeg button[data-geom="auto"]');
     if (auto) auto.title = geomMode() === 'auto' ? AUTO_TITLE.on : AUTO_TITLE.off;
     $('geomPlace').classList.toggle('hidden', !placing);
+    $('geomHint').classList.toggle('hidden', placing || geomMode() === 'off');
     G.Editor.setCorners(placing);
   }
   // the box is only shown while it is being placed; the image changes on Apply, not on every drag
@@ -1167,7 +1168,7 @@
     showWarnings(f.warnings);
     // legend suggestions are English: they go into the manuscript
     const hints = G.Export.legendHints(st);
-    $('legendHints').innerHTML = hints.length ? `<b>${'Legend notes'}</b>` + hints.map(esc).join('<br>') : '';
+    $('legendHints').innerHTML = hints.length ? hints.map(esc).join('<br>') : '';
     if (G.FigEdit) G.FigEdit.afterRender(f);
   }
 
@@ -1188,6 +1189,59 @@
   const foldDone = () => foldSecs().forEach(sec => setFold(sec, sec.classList.contains('done')));
   // a control that is asked for (a lesson, a notice) opens its step
   const unfold = el => { const sec = el && el.closest('.sec.collapsed'); if (sec) setFold(sec, false); };
+
+  /* Settings shortcuts reveal the requested control, including on a phone. Navigation never commits state. */
+  const settingsSections = () => [...document.querySelectorAll('#sections > .sec')];
+  const settingsButtons = [...document.querySelectorAll('#settingsNav [data-step]')];
+  function markSettings(index) {
+    settingsButtons.forEach((b, n) => { if (n === index) b.setAttribute('aria-current', 'location'); else b.removeAttribute('aria-current'); });
+  }
+  function openSettings(index, target) {
+    if (!S()) return;
+    const sec = settingsSections()[index]; if (!sec) return;
+    showPane('steps');
+    if (sec.classList.contains('foldable')) setFold(sec, false);
+    const fold = !sec.classList.contains('foldable') && sec.querySelector(':scope > details'); if (fold) fold.open = true;
+    const el = target || sec;
+    for (let d = el.closest('details'); d && sec.contains(d); d = d.parentElement.closest('details')) d.open = true;
+    markSettings(index);
+    requestAnimationFrame(() => {
+      const panel = $('panel'), top = el.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+      panel.scrollTop += top - $('settingsNav').offsetHeight - 12;
+      const focus = target ? target.querySelector('summary') || target : sec.querySelector('summary, .sec-head');
+      if (focus) { focus.focus({ preventScroll: true }); }
+    });
+  }
+  settingsButtons.forEach((b, n) => {
+    const sec = settingsSections()[n];
+    if (!sec.id) sec.id = `settings-step-${n + 1}`;
+    b.setAttribute('aria-controls', sec.id);
+    b.onclick = () => openSettings(n);
+    b.onkeydown = e => {
+      let next = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (n + 1) % settingsButtons.length
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (n + settingsButtons.length - 1) % settingsButtons.length
+        : e.key === 'Home' ? 0 : e.key === 'End' ? settingsButtons.length - 1 : null;
+      if (next != null) { e.preventDefault(); settingsButtons[next].focus(); }
+    };
+  });
+  $('sections').addEventListener('focusin', e => {
+    const n = settingsSections().findIndex(sec => sec.contains(e.target)); if (n >= 0) markSettings(n);
+  });
+  let settingsFrame = 0;
+  $('panel').addEventListener('scroll', () => {
+    if (settingsFrame || !S()) return;
+    settingsFrame = requestAnimationFrame(() => {
+      settingsFrame = 0;
+      const line = $('settingsNav').getBoundingClientRect().bottom + 32;
+      const secs = settingsSections(); let index = 0;
+      secs.forEach((sec, n) => { if (sec.getBoundingClientRect().top <= line) index = n; });
+      // The last section may be too short to reach the top of the scroll area.
+      const panel = $('panel');
+      if (panel.scrollHeight > panel.clientHeight && panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 2) index = secs.length - 1;
+      markSettings(index);
+    });
+  }, { passive: true });
+  $('btnSettingsLessons').onclick = () => $('btnGuide').click();
 
   /* ---------- the key to the lines on the image (only what is drawn now) ---------- */
   function updateKey() {
@@ -1233,7 +1287,7 @@
   App.on(what => {
     if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { document.body.classList.add('has-gel'); if (phone()) showPane('figure'); $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { $('settingsNav').classList.remove('hidden'); markSettings(0); document.body.classList.add('has-gel'); if (phone()) showPane('figure'); $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
@@ -1243,7 +1297,7 @@
   window.addEventListener('resize', () => { if (S()) { updatePreview(); drawHisto(); } });
   $('imgAdv').addEventListener('toggle', () => { if ($('imgAdv').open) drawHisto(); });
 
-  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage, openExport, unfold, showPane, phone, foldDone });
+  Object.assign(UI, { toast, updatePreview, figLanes, range, esc, lastFig: () => lastFig, preflight, renderExposures, alert: alertDlg, confirm: confirmDlg, loadExample, load, printHtml, exportPackage, openExport, unfold, showPane, phone, foldDone, openSettings });
   G.UI = UI;
   $('btnUndo').disabled = $('btnRedo').disabled = true;
   syncTypeHints();

@@ -1299,7 +1299,7 @@
         && $('polSeg').querySelector('.on').getAttribute('aria-checked') === 'true' && $('brightSeg').querySelector(`[data-bright="${bright0 ? 1 : 0}"]`).classList.contains('on');
       App.undo();
       const words = /Measure bands as/.test($('brightLabel').textContent) && /Display/.test($('polLabel').textContent) && !document.getElementById('invNote')
-        && $('fixLanes').querySelector('summary').textContent.startsWith('Adjust lanes…');
+        && $('fixLanes').querySelector('summary').textContent.trim() === 'Adjust lane positions';
       // (c) the lane table: Lane | Name | Role | Show | Measure, every control named; why a lane is not measured
       const head = [...$('laneList').querySelectorAll('.lane-head span')].map(s => s.textContent).filter(Boolean).join('|');
       const named = [...$('laneList').querySelectorAll('input, select, button.x')].every(e => e.getAttribute('aria-label'));
@@ -1649,7 +1649,7 @@
       App.S.quant.norm = 'lane'; G.Quant.placeNormRegions(App); App.commit(); G.QuantUI.render(); await wait(50);   // (App.S is new after the undo above)
       const nr0 = JSON.stringify(App.S.quant.normRegions), txt0 = $('qNormRegions').textContent;
       $('btnAreaEdit').click(); const aT = $('qAreaT'); aT.value = String(+aT.value + 30); aT.dispatchEvent(new Event('change')); await wait(50);
-      const normText = /Total-lane regions: rows \d+–\d+/.test(txt0) && /does not move them/.test(txt0) && JSON.stringify(App.S.quant.normRegions) === nr0 && /does not move the bands' regions or the total-lane regions/.test($('qAreaBox').textContent);
+      const normText = /Total-lane regions: rows \d+–\d+/.test(txt0) && /does not move them/.test(txt0) && JSON.stringify(App.S.quant.normRegions) === nr0 && /Existing band and normalization regions stay fixed/.test($('qAreaBox').textContent);
       $('btnAreaEdit').click(); App.undo();
       // notifications over the image editor, not over the analysis window
       G.QuantUI.show('figure', true); G.UI.toast('test notice'); await wait(50);
@@ -1805,6 +1805,40 @@
       const exampleNote = $('saveNote').textContent === 'Example: not saved';
       const checks = { words, folded, clickOpens, keyCloses, lessonUnfolds, keyShown, keyFolds, keyOrig, keyBack, actual, fitted, archiveMain, oneMain, dpiSet, more, moreLessons, exampleNote };
       R.compact = Object.assign({ ok: Object.values(checks).every(Boolean) }, checks);
+    }
+    // 62. Settings navigation reveals and focuses controls without changing measurements. Optional help
+    // stays expanded through redraws; warning reasons remain visible when advice is folded.
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms));
+      await G.UI.loadExample('broad'); await wait(150);
+      G.QuantUI.setView('quant'); G.QuantUI.show('figure', false); G.QuantUI.setTab('prof');
+      const before = JSON.stringify(App.S.quant), values = JSON.stringify(G.QuantUI.results().shown);
+      const secs = [...document.querySelectorAll('#sections > .sec')], buttons = [...$('settingsNav').querySelectorAll('[data-step]')];
+      buttons[0].click(); await wait(80);
+      const imageOpen = !secs[0].classList.contains('collapsed') && $('polSeg').offsetParent !== null
+        && document.activeElement === secs[0].querySelector('.sec-head');
+      const optionalHelpClosed = !secs[0].querySelector('.context-help').open;
+      const clearOfNav = secs[0].getBoundingClientRect().top >= $('settingsNav').getBoundingClientRect().bottom;
+      buttons[0].focus(); buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+      const keys = document.activeElement === buttons[5];
+      buttons[5].click(); await wait(80);
+      const measureOpen = $('quantDetails').open && buttons[5].getAttribute('aria-current') === 'location';
+      $('qMethodLink').click(); await wait(80);
+      const method = $('methodsAdv').open && document.activeElement === $('methodsAdv').querySelector('summary')
+        && $('methodsAdv').getBoundingClientRect().top >= $('settingsNav').getBoundingClientRect().bottom;
+      $('btnSettingsLessons').click(); const lessons = !$('lessonDlg').classList.contains('hidden'); $('btnLessonClose').click();
+      const queue = $('qIssues').querySelector('details');
+      const reviewVisible = !!$('qIssues').querySelector('.qi-summary [data-qinsp]') && !queue.open;
+      queue.open = true; G.QuantUI.render();
+      const queueStaysOpen = $('qIssues').querySelector('details').open;
+      $('qIssues').querySelector('[data-qinsp]').click(); await wait(80);
+      const advice = $('qProfSum').querySelector('.ps-check');
+      const reasonsVisible = !advice.open && $('qProfSum').querySelector('.ps-why').offsetHeight > 0;
+      advice.open = true; G.QuantUI.render();
+      const adviceStaysOpen = $('qProfSum').querySelector('.ps-check').open;
+      const unchanged = JSON.stringify(App.S.quant) === before && JSON.stringify(G.QuantUI.results().shown) === values;
+      const checks = { imageOpen, optionalHelpClosed, clearOfNav, keys, measureOpen, method, lessons, reviewVisible, queueStaysOpen, reasonsVisible, adviceStaysOpen, unchanged };
+      R.hierarchy = Object.assign({ ok: Object.values(checks).every(Boolean) }, checks);
     }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
