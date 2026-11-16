@@ -66,7 +66,7 @@
   App.onDropFile = null;   // set by the UI layer
 
   App.NAME = 'GelGrapher';
-  App.VERSION = '1.1.0';
+  App.VERSION = '1.2.0';
   // the build: the commit the artifact, the Pages site or a release was made from (filled in by the build and the
   // workflows); 'dev' when the files are served as they are in the repository
   App.BUILD = '__BUILD__'.startsWith('__') ? 'dev' : '__BUILD__';

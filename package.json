@@ -1,6 +1,6 @@
 {
   "name": "gelgrapher",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Publication-ready figures and densitometry for DNA / RNA gels, SDS-PAGE, Western, Southern and Northern blots, in the browser. The app itself has no dependencies; this file only installs the test runner.",
   "license": "MIT",
