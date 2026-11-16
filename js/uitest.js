@@ -1840,6 +1840,43 @@
       const checks = { imageOpen, optionalHelpClosed, clearOfNav, keys, measureOpen, method, lessons, reviewVisible, queueStaysOpen, reasonsVisible, adviceStaysOpen, unchanged };
       R.hierarchy = Object.assign({ ok: Object.values(checks).every(Boolean) }, checks);
     }
+    // 63. the figure window's size (the owner's note of 2026-11-16): a window alone fills the right column whatever the
+    // divider's share; the figure is fitted to its window and can be zoomed (−, +, Fit, Actual size, Ctrl / ⌘ + scroll)
+    // without changing the figure itself
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms)), res = {};
+      await G.UI.loadExample('dna'); await wait(150);
+      const col = () => $('figCol').getBoundingClientRect().height, h = id => $(id).getBoundingClientRect().height;
+      const svg = () => $('preview').querySelector('svg'), sw = () => svg().getBoundingClientRect().width;
+      G.QuantUI.show('figure', true); G.QuantUI.show('quant', true); G.Splitters.setFigSplit(0.25); await wait(80);
+      const shared = Math.abs(h('figPane') / col() - 0.25) < 0.08;
+      const w25 = sw();
+      G.QuantUI.show('quant', false); await wait(80);
+      const figAlone = Math.abs(h('figPane') - col()) < 2, wAlone = sw();
+      G.QuantUI.show('quant', true); G.QuantUI.show('figure', false); await wait(80);
+      const anaAlone = Math.abs(h('quantView') - col()) < 2;
+      G.QuantUI.show('figure', true); G.QuantUI.show('quant', false); await wait(80);
+      res.panes = { ok: shared && figAlone && anaAlone && wAlone > w25 * 1.5, shared, figAlone, anaAlone, w25: Math.round(w25), wAlone: Math.round(wAlone) };
+      // zoom: + and − by 1.25, the percentage shown, Fit back to the fitted size, Actual size at 4/3 px per pt
+      const fig0 = G.UI.lastFig().svg, fitW = sw();
+      $('btnFigIn').click(); await wait(30); const wIn = sw(), pctShown = /^\d+ %$/.test($('btnFigFit').textContent) && $('btnFigFit').getAttribute('aria-pressed') === 'false';
+      $('btnFigOut').click(); $('btnFigOut').click(); await wait(30); const wOut = sw();
+      $('btnFigFit').click(); await wait(30); const wFit = sw(), fitLabel = $('btnFigFit').textContent === 'Fit' && $('btnFigFit').getAttribute('aria-pressed') === 'true';
+      $('btnActual').click(); await wait(30); const wAct = parseFloat(svg().style.width), actual = Math.abs(wAct - G.UI.lastFig().w * 4 / 3) < 0.5 && $('btnActual').getAttribute('aria-pressed') === 'true' && $('btnFigFit').textContent === '100 %';
+      $('btnActual').click(); await wait(30); const actualOff = Math.abs(sw() - fitW) < 1 && $('btnActual').getAttribute('aria-pressed') === 'false';
+      // Ctrl + scroll zooms about the pointer; a plain scroll does not zoom
+      const r = $('previewBox').getBoundingClientRect(), at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true };
+      $('previewBox').dispatchEvent(new WheelEvent('wheel', Object.assign({ deltaY: -200, ctrlKey: true }, at))); await wait(30); const wWheel = sw();
+      $('previewBox').dispatchEvent(new WheelEvent('wheel', Object.assign({ deltaY: -200 }, at))); await wait(30); const wPlain = sw();
+      const sameFigure = G.UI.lastFig().svg === fig0;
+      res.zoom = { ok: Math.abs(wIn / fitW - 1.25) < 0.02 && Math.abs(wOut / wIn - 0.64) < 0.02 && Math.abs(wFit - fitW) < 1 && pctShown && fitLabel && actual && actualOff && wWheel > fitW * 1.3 && Math.abs(wPlain - wWheel) < 0.5 && sameFigure,
+        fitW: Math.round(fitW), wIn: Math.round(wIn), wOut: Math.round(wOut), wWheel: Math.round(wWheel), pctShown, fitLabel, actual, actualOff, sameFigure };
+      // a new gel opens fitted
+      await G.UI.loadExample('western'); await wait(80);
+      res.reset = { ok: $('btnFigFit').textContent === 'Fit' };
+      G.Splitters.reset('figSplit');
+      R.figSize = Object.assign({ ok: Object.values(res).every(v => v.ok) }, res);
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

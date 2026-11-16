@@ -4,6 +4,7 @@
 
 ## 1.2.0 (2026-10-30)
 
+- **The figure window's size (interface test 63).** With the analysis window closed, the figure window kept the share of the right column set by the divider between the two windows (a figure share of 25 % left it a quarter of the column, the figure drawn 172 px wide instead of 521). A window alone now fills the column, and the divider's share applies only while both are open; the same for the analysis window. The figure fits its window up to 12 × (4 × before) and can be zoomed: **−** and **+** (by 1.25), **Fit** (showing the zoom as a percentage of the printed size), **Actual size** (100 %), and Ctrl / ⌘ + scroll or a trackpad pinch on the figure. Zooming never changes the figure; a newly opened gel starts fitted. The hint above the figure gives way to these controls when the window is narrow.
 - **Clearer settings and measurement review (interface test 62):** persistent section shortcuts with keyboard navigation; concise hints and expandable explanations; prominent profile values with visible quality flags; a compact review queue with Inspect next; readable dark-mode baseline colors; and Method details that opens the relevant settings on phones. Calculations and export values are unchanged.
 
 - **The owner's notes on the analysis (interface test 61):**

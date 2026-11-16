@@ -46,6 +46,7 @@
   function refreshChrome() {
     const both = shown.figure && shown.quant;
     $('figPane').classList.toggle('hidden', !shown.figure); $('quantView').classList.toggle('hidden', !shown.quant);
+    $('figCol').classList.toggle('both', both);   // the divider's share applies only then (a window alone fills the column)
     $('gutterFig').classList.toggle('hidden', !both); $('paneEmpty').classList.toggle('hidden', shown.figure || shown.quant);
     $('figPane').classList.toggle('active', view === 'figure'); $('quantView').classList.toggle('active', view === 'quant');
     document.querySelectorAll('#viewSeg button').forEach(b => b.classList.toggle('on', !!shown[b.dataset.view]));

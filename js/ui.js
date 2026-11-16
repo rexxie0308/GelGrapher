@@ -1155,11 +1155,9 @@
     buildMs = buildMs ? buildMs * 0.6 + (performance.now() - t0) * 0.4 : performance.now() - t0;
     lastFig = f;
     $('preview').innerHTML = f.svg;
-    const svg = $('preview').querySelector('svg'), box = $('previewBox').getBoundingClientRect();
-    // fitted to the window, or at its printed size (1 pt = 1/72 in, a CSS pixel 1/96 in; approximate on a real screen)
-    const k = actualSize ? 96 / 72 : Math.max(0.5, Math.min((box.width - 48) / f.w, (box.height - 48) / f.h, 4));
+    const svg = $('preview').querySelector('svg');
     svg.removeAttribute('width'); svg.removeAttribute('height');
-    svg.style.width = (f.w * k) + 'px'; svg.style.height = (f.h * k) + 'px';
+    sizeFigure();
     $('figSize').textContent = `${(f.w / G.Render.MM).toFixed(1)} × ${(f.h / G.Render.MM).toFixed(1)} mm`;
     $('angleInfo').textContent = G.Render.labelAngle(st.style.labelAngle) === 'auto' ? `now ${f.angle}°` : '';
     const rs = G.Export.rasterSize(f.w, f.h, st.style.dpi);
@@ -1260,13 +1258,46 @@
   $('okeyToggle').onclick = () => { App.setPref('okeyClosed', !$('overlayKey').classList.contains('closed')); updateKey(); };
   $('btnOrig').addEventListener('click', () => setTimeout(updateKey, 0));
 
-  /* ---------- the figure at its printed size ---------- */
-  let actualSize = false;
-  $('btnActual').onclick = () => {
-    actualSize = !actualSize; $('btnActual').setAttribute('aria-pressed', String(actualSize));
-    $('figSub').textContent = actualSize ? 'At printed size (approximate on screen)' : 'Click any text to edit it';
-    if (S()) updatePreview();
-  };
+  /* ---------- how large the figure is shown: fitted to its window (the default), at its printed size, or zoomed ----------
+   * figZoom: null = fitted; else CSS px per pt (1 pt = 1/72 in, a CSS pixel 1/96 in, so 96 / 72 is the printed size,
+   * approximate on a real screen). Zooming only resizes the drawing; the figure itself never changes. */
+  const PRINT = 96 / 72, ZMIN = 0.25, ZMAX = 16;
+  let figZoom = null;
+  const fitScale = f => { const box = $('previewBox').getBoundingClientRect(); return Math.max(0.25, Math.min((box.width - 48) / f.w, (box.height - 48) / f.h, 12)); };
+  const figScale = () => (lastFig ? (figZoom != null ? figZoom : fitScale(lastFig)) : 1);
+  function sizeFigure() {
+    const svg = $('preview').querySelector('svg'); if (!svg || !lastFig) return;
+    const k = figScale(), pct = Math.round(100 * k / PRINT), atPrint = figZoom != null && Math.abs(figZoom - PRINT) < 1e-9;
+    svg.style.width = (lastFig.w * k) + 'px'; svg.style.height = (lastFig.h * k) + 'px';
+    $('btnFigFit').textContent = figZoom == null ? 'Fit' : `${pct} %`;
+    $('btnFigFit').setAttribute('aria-pressed', String(figZoom == null));
+    $('btnFigFit').title = figZoom == null ? `Fitted to the window: ${pct} % of the printed size` : `${pct} % of the printed size. Click to fit the figure to the window`;
+    $('btnFigOut').disabled = k <= ZMIN + 1e-9; $('btnFigIn').disabled = k >= ZMAX - 1e-9;
+    $('btnActual').setAttribute('aria-pressed', String(atPrint));
+    $('figSub').textContent = atPrint ? 'At printed size (approximate on screen)' : 'Click any text to edit it';
+  }
+  // a new scale, keeping the point under the pointer (or the window's centre) where it is
+  function setFigZoom(z, cx, cy) {
+    const box = $('previewBox'), svg = $('preview').querySelector('svg');
+    if (!svg || !lastFig) { figZoom = z; return; }
+    const b = box.getBoundingClientRect(), r0 = svg.getBoundingClientRect();
+    if (cx == null) { cx = b.left + b.width / 2; cy = b.top + b.height / 2; }
+    const fx = (cx - r0.left) / Math.max(1, r0.width), fy = (cy - r0.top) / Math.max(1, r0.height);
+    figZoom = z == null ? null : Math.max(ZMIN, Math.min(ZMAX, z));
+    sizeFigure();
+    const r1 = svg.getBoundingClientRect();
+    box.scrollLeft += r1.left + fx * r1.width - cx; box.scrollTop += r1.top + fy * r1.height - cy;
+  }
+  $('btnFigIn').onclick = () => { if (S()) setFigZoom(figScale() * 1.25); };
+  $('btnFigOut').onclick = () => { if (S()) setFigZoom(figScale() / 1.25); };
+  $('btnFigFit').onclick = () => { if (S()) setFigZoom(null); };
+  $('btnActual').onclick = () => { if (S()) setFigZoom(figZoom != null && Math.abs(figZoom - PRINT) < 1e-9 ? null : PRINT); };
+  // Ctrl / ⌘ + scroll (and a trackpad pinch, which browsers send as one) zooms about the pointer; plain scrolling scrolls
+  $('previewBox').addEventListener('wheel', e => {
+    if (!S() || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    setFigZoom(figScale() * Math.exp(-e.deltaY * 0.0025), e.clientX, e.clientY);
+  }, { passive: false });
 
   /* ---------- phones: one workspace at a time, switched with the bar at the bottom ---------- */
   const phone = () => window.matchMedia('(max-width: 860px)').matches;
@@ -1287,7 +1318,7 @@
   App.on(what => {
     if (what === 'closed') { closeWorkspace(); return; }
     if (!S()) return;
-    if (what === 'loaded') { $('settingsNav').classList.remove('hidden'); markSettings(0); document.body.classList.add('has-gel'); if (phone()) showPane('figure'); $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
+    if (what === 'loaded') { figZoom = null; $('settingsNav').classList.remove('hidden'); markSettings(0); document.body.classList.add('has-gel'); if (phone()) showPane('figure'); $('emptyState').classList.add('hidden'); $('libBox').classList.add('hidden'); $('sections').classList.remove('hidden'); $('btnClose').classList.remove('hidden'); $('viewSeg').classList.remove('hidden'); histCache = null; renderExposures(); renderFavs(); }
     if (what === 'refresh') { livePreview(); return; }
     clearTimeout(liveTimer);
     if (what === 'select') { renderLanes(); renderAnno(); return; }
