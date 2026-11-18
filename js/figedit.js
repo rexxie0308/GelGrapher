@@ -20,13 +20,14 @@
     ban.classList.toggle('hidden', !m);
     // one instruction for the active tool: what it is, what to do, how to leave it
     $('modeText').textContent = m === 'arrow' ? 'Band arrow: click the band on either image · Esc cancels'
-      : m === 'group' ? 'Group bracket: drag across the lane names on the figure · Esc cancels'
+      : m === 'group' ? (S() && S().style.laneNames === 'ladder' ? 'Group bracket: drag across the lanes in the name row on the figure (outlined) · Esc cancels' : 'Group bracket: drag across the lane names on the figure · Esc cancels')
       : m === 'strip' ? 'Strip: drag down across the region on the image · Esc cancels'
       : m === 'quant' ? 'Add band: click or drag on image · Esc cancels'
       : m === 'lane' ? 'Add lane: click the lane centre on the image · Shift+click adds more · Esc ends' : '';
     [['btnAddArrow', 'arrow'], ['btnAddGroup', 'group'], ['btnAddStrip', 'strip'], ['btnAddBox', 'quant'], ['btnAddLane', 'lane']].forEach(([id, k]) => { $(id).classList.toggle('on', m === k); $(id).setAttribute('aria-pressed', String(m === k)); });
     $('addLaneHint').classList.toggle('hidden', m !== 'lane');
     prev.classList.toggle('arming', m === 'arrow');
+    prev.classList.toggle('grouping', m === 'group');
     if (m !== 'arrow') guide.classList.add('hidden');
     // every tool opens the view it works in: a band box the Densitometry view, an arrow, group line or strip the figure
     // a tool that makes a band box or a strip works on that layer (the Editing switch shows it); the window follows
@@ -215,7 +216,7 @@
     if (!S()) return;
     const g = e.target.closest('[data-edit]');
     if (!g) return;
-    if (g.dataset.edit === 'lane') { press = { src: +g.dataset.src, x: e.clientX, y: e.clientY, moved: false, end: +g.dataset.src }; e.preventDefault(); }
+    if (g.dataset.edit === 'lane') { press = { src: +g.dataset.src, x: e.clientX, y: e.clientY, moved: false, end: +g.dataset.src, hidden: g.dataset.hidden === '1' }; e.preventDefault(); }
   });
   window.addEventListener('pointermove', e => {
     if (!press) return;
@@ -233,7 +234,9 @@
       setMode(null);
       App.commit();
       requestAnimationFrame(() => openEd('group', k));
-    } else if (!p.moved) openEd('lane', p.src);
+    } else if (!p.moved && !p.hidden) openEd('lane', p.src);
+    // a lane whose name is not shown ("Ladder only"): its name is edited in the lane list, not on the figure
+    else if (!p.moved) G.UI.toast('Sample names are hidden (Layout → Lane names: Ladder only); edit them in the lane list, or drag across lanes to group them');
   });
   prev.addEventListener('click', e => {
     if (!S()) return;

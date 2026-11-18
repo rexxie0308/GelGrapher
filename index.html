@@ -272,6 +272,13 @@
             <span class="h3-note" id="angleInfo"></span>
           </div>
           <div class="field inline">
+            <label class="inline-label" for="laneNamesMode">Lane names</label>
+            <select id="laneNamesMode" style="width:auto" title="Ladder only: the sample lanes' names are left out of the figure (they stay in the lane list) and group brackets over those lanes move down into the name row">
+              <option value="all">All lanes</option><option value="ladder">Ladder only</option>
+            </select>
+            <span class="h3-note hidden" id="laneNamesNote">groups take the name row</span>
+          </div>
+          <div class="field inline">
             <label class="inline-label" for="groupFit">Long group labels</label>
             <select id="groupFit" style="width:auto" title="A group label wider than its line: wrap it onto several lines (even lengths), shrink the font (not below 5 pt) or keep one line and let it stick out. Shift+Enter in the label box starts a new line by hand.">
               <option value="wrap">Wrap</option><option value="shrink">Shrink</option><option value="line">One line</option>
