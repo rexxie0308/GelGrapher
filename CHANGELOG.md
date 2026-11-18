@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Lane names: Ladder only (Layout; interface test 64).** Only the ladder lanes are named in the figure; the samples' names stay in the lane list (switch back to All lanes and they return). Group brackets over lanes with no name shown move down into the name row, their labels on the ladder name's baseline, so the figure is shorter (185 → 163 pt on the DNA example). A drag across those lanes on the figure still makes a group (the Group bracket tool outlines them); the export carries no drag targets.
+- **Lane names: Named lanes only / Ladder only (Layout; interface test 64).** *Named lanes only*: a lane shows a name only when you gave it one, with no grey well numbers in the preview, so a ladder run as a sample in the middle of a gel and named M keeps its M while unnamed samples show nothing. *Ladder only*: only the ladder lanes are named; the samples' names stay in the lane list (switch back to All lanes and they return). In both, group brackets over lanes with no name shown move down into the name row, their labels on the ladder name's baseline, so the figure is shorter (185 → 163 pt on the DNA example). A drag across those lanes on the figure still makes a group (the Group bracket tool outlines them); the export carries no drag targets.
 - **A condition value under a ladder lane.** When lanes to the left of a ladder were outside the figure box, the +/− row compared the ladder's position among the figure's lanes with each lane's well number: a value was drawn under the ladder and a sample lane lost its own. It now compares like with like.
 
 ## 1.2.0 (2026-10-30)

@@ -20,7 +20,7 @@
     ban.classList.toggle('hidden', !m);
     // one instruction for the active tool: what it is, what to do, how to leave it
     $('modeText').textContent = m === 'arrow' ? 'Band arrow: click the band on either image · Esc cancels'
-      : m === 'group' ? (S() && S().style.laneNames === 'ladder' ? 'Group bracket: drag across the lanes in the name row on the figure (outlined) · Esc cancels' : 'Group bracket: drag across the lane names on the figure · Esc cancels')
+      : m === 'group' ? (S() && (S().style.laneNames === 'ladder' || S().style.laneNames === 'named') ? 'Group bracket: drag across the lanes in the name row on the figure (outlined) · Esc cancels' : 'Group bracket: drag across the lane names on the figure · Esc cancels')
       : m === 'strip' ? 'Strip: drag down across the region on the image · Esc cancels'
       : m === 'quant' ? 'Add band: click or drag on image · Esc cancels'
       : m === 'lane' ? 'Add lane: click the lane centre on the image · Shift+click adds more · Esc ends' : '';
@@ -236,7 +236,7 @@
       requestAnimationFrame(() => openEd('group', k));
     } else if (!p.moved && !p.hidden) openEd('lane', p.src);
     // a lane whose name is not shown ("Ladder only"): its name is edited in the lane list, not on the figure
-    else if (!p.moved) G.UI.toast('Sample names are hidden (Layout → Lane names: Ladder only); edit them in the lane list, or drag across lanes to group them');
+    else if (!p.moved) G.UI.toast(S().style.laneNames === 'named' ? 'This lane has no name, so none is shown (Layout → Lane names: Named lanes only); name it in the lane list, or drag across lanes to group them' : 'Sample names are hidden (Layout → Lane names: Ladder only); edit them in the lane list, or drag across lanes to group them');
   });
   prev.addEventListener('click', e => {
     if (!S()) return;

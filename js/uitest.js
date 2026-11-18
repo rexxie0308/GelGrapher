@@ -1918,6 +1918,19 @@
       const back = laneTexts(prev).includes(sample.name) && Math.abs(G.UI.lastFig().h - h0) < 0.01;
       App.undo(); await wait(40); const undone = App.S.style.laneNames === 'ladder'; App.undo(); await wait(40);
       res.restore = { ok: back && undone && App.S.style.laneNames === 'all' };
+      // "Named lanes only" (the owner's note of 2026-11-18: a ladder in the middle run as a sample and named M): the
+      // named lanes keep their names, unnamed lanes show nothing (no grey well numbers in the preview) and the groups
+      // over them take the name row
+      {
+        const fl3 = G.UI.figLanes(), mid = fl3.find(i => i !== mk && !App.S.groups.some(g => i >= Math.min(g.from, g.to) && i <= Math.max(g.from, g.to)) && fl3.indexOf(i) > 0);
+        App.S.lanes.forEach((l, i) => { if (i !== mk) l.name = i === mid ? 'M' : ''; }); App.commit();
+        sel.value = 'named'; sel.dispatchEvent(new Event('change')); await wait(80);
+        const named3 = laneTexts(prev), nameEls = [...prev.querySelectorAll('g[data-edit="lane"]:not([data-hidden]) text')], gts3 = groupTexts(prev);
+        const row3 = gts3.length >= 2 && nameEls.length === 2 && gts3.every(t => Math.abs(y(t) - y(nameEls[0])) < 0.01) && Math.abs(y(nameEls[1]) - y(nameEls[0])) < 0.01;
+        const targets = prev.querySelectorAll('g.lanehit').length === fl3.length - 2;
+        res.named = { ok: named3.length === 2 && named3.every(t => t === 'M' || t === ladderName) && named3.includes('M') && row3 && targets && App.S.style.laneNames === 'named' && !$('laneNamesNote').classList.contains('hidden'), named3, row3, targets, mid };
+        App.undo(); App.undo(); await wait(40);
+      }
       // conditions: the ladder in well 4, well 1 outside the figure box: no value under the ladder, every sample keeps its own
       const S2 = App.S; S2.markers[0].lane = 3; S2.conditions = [{ name: 'Test', values: S2.lanes.map(() => '+') }];
       const cx0 = Math.round((S2.lanes[0].x + S2.lanes[1].x) / 2); S2.crop.w = Math.round(S2.crop.w - (cx0 - S2.crop.x)); S2.crop.x = cx0; App.commit(); await wait(40);

@@ -231,14 +231,16 @@
       }
       yTop -= pt * 1.3;
     }
-    // lane names (placeholders in preview: the well number). style.laneNames 'ladder': only the ladder lanes are named
-    // (the other names stay in the state) and a group bracket over lanes with no name shown takes the name row
-    const ladderOnly = st.laneNames === 'ladder';
-    const names = vis.map(o => (ladderOnly && !isLadder(o) ? '' : o.l.name || (P ? String((o.l.src != null ? o.l.src : o.i) + 1) : '')));
+    // lane names (placeholders in preview: the well number). style.laneNames 'named': only the lanes given a name show
+    // one (no placeholders); 'ladder': only the ladder lanes (the other names stay in the state). In both, a group
+    // bracket over lanes with no name shown takes the name row
+    const nameMode = st.laneNames === 'ladder' || st.laneNames === 'named' ? st.laneNames : 'all', compact = nameMode !== 'all';
+    const noName = o => (nameMode === 'ladder' ? !isLadder(o) : nameMode === 'named' ? !(o.l.name && o.l.name.trim()) : false);
+    const names = vis.map(o => (noName(o) ? '' : o.l.name || (P ? String((o.l.src != null ? o.l.src : o.i) + 1) : '')));
     const hasNames = names.some(t => t.trim());
     const groups = (S.groups || []).map((g, k) => Object.assign({ k: g.k != null ? g.k : k }, g)).filter(g => g.from != null && g.to != null && S.lanes[g.from] && S.lanes[g.to]);
     const named = (g) => { const a = Math.min(g.from, g.to), b = Math.max(g.from, g.to); return vis.some((o, vi) => o.i >= a && o.i <= b && names[vi].trim()); };
-    const inRow = ladderOnly ? groups.filter(g => !named(g)) : [], above = groups.filter(g => !inRow.includes(g));
+    const inRow = compact ? groups.filter(g => !named(g)) : [], above = groups.filter(g => !inRow.includes(g));
     // with groups in the name row, the names share the groups' text baseline (just above their lines)
     const nameRowY = yTop, nameY = inRow.length ? yTop - pt * 0.45 : yTop;
     let angle = 0;
@@ -272,7 +274,7 @@
     }
     // in the preview, the lanes whose names are not shown keep a target in the name row, under the groups, so a drag
     // across them still makes a group bracket (they are outlined while the Group bracket tool is on)
-    if (P && ladderOnly) vis.forEach((o, vi) => {
+    if (P && compact) vis.forEach((o, vi) => {
       if (names[vi].trim()) return;
       const src = o.l.src != null ? o.l.src : o.i, w = Math.min(pitch, 24) * 0.9;
       els.push(`<g data-edit="lane" data-src="${src}" data-hidden="1" class="ed lanehit"><rect x="${f(X(o.i) - w / 2)}" y="${f(nameRowY - pt * 1.3)}" width="${f(w)}" height="${f(pt * 1.3)}" fill="transparent"/></g>`);
