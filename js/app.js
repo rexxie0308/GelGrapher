@@ -11,7 +11,8 @@
   const defaultStyle = () => ({
     gelWidthMm: 45, autoWidth: true, mmPerLane: 5.5, fontPt: 7, lineWidthPt: 0.5, labelAngle: 'auto', font: 'Arial', laneNumbers: false, frame: false,
     panelLetter: '', panelPt: 8, spliceStyle: 'gap', spliceGapPt: 1.5, tickLenPt: 2.5, labelGapPt: 2.5,
-    unitHeader: true, groupTicks: false, groupSplit: false, groupFit: 'wrap', dpi: 600, laneNumberMode: 'well', stripGapPt: 3
+    unitHeader: true, groupTicks: false, groupSplit: false, groupFit: 'wrap', dpi: 600, laneNumberMode: 'well', stripGapPt: 3,
+    laneNames: 'all'   // 'all' | 'named' (only lanes given a name) | 'ladder' (only the ladder); groups over unnamed lanes take the name row
   });
   // densitometry settings: band boxes (rows), background method, box width as a fraction of the lane pitch
   const defaultPlot = () => ({ type: 'bar', values: false, refLine: true, ylabel: '', title: '' });

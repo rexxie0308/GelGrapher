@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Lane names: Named lanes only / Ladder only (Layout; interface test 64).** *Named lanes only*: a lane shows a name only when you gave it one, with no grey well numbers in the preview, so a ladder run as a sample in the middle of a gel and named M keeps its M while unnamed samples show nothing. *Ladder only*: only the ladder lanes are named; the samples' names stay in the lane list (switch back to All lanes and they return). In both, group brackets over lanes with no name shown move down into the name row, their labels on the ladder name's baseline, so the figure is shorter (185 → 163 pt on the DNA example). A drag across those lanes on the figure still makes a group (the Group bracket tool outlines them); the export carries no drag targets.
+- **A condition value under a ladder lane.** When lanes to the left of a ladder were outside the figure box, the +/− row compared the ladder's position among the figure's lanes with each lane's well number: a value was drawn under the ladder and a sample lane lost its own. It now compares like with like.
+
 ## 1.2.0 (2026-10-30)
 
 - **The figure window's size (interface test 63).** With the analysis window closed, the figure window kept the share of the right column set by the divider between the two windows (a figure share of 25 % left it a quarter of the column, the figure drawn 172 px wide instead of 521). A window alone now fills the column, and the divider's share applies only while both are open; the same for the analysis window. The figure fits its window up to 12 × (4 × before) and can be zoomed: **−** and **+** (by 1.25), **Fit** (showing the zoom as a percentage of the printed size), **Actual size** (100 %), and Ctrl / ⌘ + scroll or a trackpad pinch on the figure. Zooming never changes the figure; a newly opened gel starts fitted. The hint above the figure gives way to these controls when the window is narrow.

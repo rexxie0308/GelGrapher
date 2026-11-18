@@ -986,6 +986,7 @@
   $('panelLetter').addEventListener('change', done(e => { S().style.panelLetter = e.target.value.trim(); }));
   $('stripGap').addEventListener('change', done(e => { S().style.stripGapPt = E.clamp(+e.target.value || 0, 0, 12); }));
   $('laneNumberMode').addEventListener('change', done(e => { S().style.laneNumberMode = e.target.value; }));
+  $('laneNamesMode').addEventListener('change', done(e => { const v = e.target.value; S().style.laneNames = v === 'ladder' || v === 'named' ? v : 'all'; }));
   // journal column width = total figure width (labels included): solve for the gel width
   $('widthPreset').addEventListener('change', e => {
     const target = +e.target.value; e.target.value = '';
@@ -1093,6 +1094,8 @@
     $('mkImageText').classList.toggle('warn-t', hasMk && App.markerAligned() === false);
     $('spliceGap').value = y.spliceGapPt != null ? y.spliceGapPt : 1.5; $('spliceGapV').textContent = $('spliceGap').value + ' pt';
     $('laneNumberMode').value = y.laneNumberMode || 'well';
+    const lnm = y.laneNames === 'ladder' || y.laneNames === 'named' ? y.laneNames : 'all';
+    $('laneNamesMode').value = lnm; $('laneNamesNote').classList.toggle('hidden', lnm === 'all');
     updateClipLine(); updateDpiLine(); updateEmptyBar();
     $('workNote').textContent = App.workingText(); $('workNote').title = App.workingText();
     // where the note has no room (narrow windows), the Original button says it

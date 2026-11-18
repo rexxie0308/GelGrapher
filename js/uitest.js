@@ -1877,6 +1877,70 @@
       G.Splitters.reset('figSplit');
       R.figSize = Object.assign({ ok: Object.values(res).every(v => v.ok) }, res);
     }
+    // 64. "Lane names: Ladder only" (the owner's note of 2026-11-18): only the ladder lanes are named in the figure, the
+    // sample names stay in the state, and group brackets over unnamed lanes take the name row (their labels on the
+    // ladder name's baseline, the figure shorter); a drag across those lanes still makes a group; the export carries
+    // no drag targets. Also: a condition value is never drawn under a ladder lane when lanes left of it are cut
+    {
+      const $ = id => document.getElementById(id), wait = ms => new Promise(r => setTimeout(r, ms)), res = {};
+      await G.UI.loadExample('dna'); await wait(150);
+      G.QuantUI.show('figure', true); G.QuantUI.show('quant', false); await wait(80);
+      const st = () => App.S, prev = $('preview'), y = el => +el.getAttribute('y');
+      const laneTexts = root => [...root.querySelectorAll('g[data-edit="lane"]:not([data-hidden]) text')].map(t => t.textContent);
+      const groupTexts = root => [...root.querySelectorAll('g[data-edit="group"] text')];
+      const h0 = G.UI.lastFig().h, mk = st().markers[0].lane, ladderName = st().lanes[mk].name;
+      const sel = $('laneNamesMode'); sel.value = 'ladder'; sel.dispatchEvent(new Event('change')); await wait(80);
+      const f1 = G.UI.lastFig(), shown = laneTexts(prev), gts = groupTexts(prev), nameEl = [...prev.querySelectorAll('g[data-edit="lane"]:not([data-hidden]) text')][0];
+      const sameRow = gts.length >= 2 && gts.every(t => Math.abs(y(t) - y(nameEl)) < 0.01);
+      const linesBelow = [...prev.querySelectorAll('line')].filter(l => +l.getAttribute('y1') < 0 && l.getAttribute('y1') === l.getAttribute('y2')).every(l => +l.getAttribute('y1') > y(nameEl));
+      res.layout = { ok: shown.join() === ladderName && sameRow && linesBelow && f1.h < h0 - 3 && st().style.laneNames === 'ladder' && !$('laneNamesNote').classList.contains('hidden'),
+        shown, sameRow, linesBelow, h0: +h0.toFixed(1), h1: +f1.h.toFixed(1) };
+      // the sample names are kept; the export has neither them nor drag targets
+      const exp = new DOMParser().parseFromString(App.buildFigure(false).svg, 'image/svg+xml'), expTxt = [...exp.querySelectorAll('text')].map(t => t.textContent);
+      const sample = st().lanes.find((l, i) => i !== mk && l.name && !l.hidden);
+      res.kept = { ok: !!sample && !expTxt.includes(sample.name) && expTxt.includes(ladderName) && !exp.querySelector('.lanehit, [data-hidden]') && prev.querySelectorAll('g.lanehit').length >= 5 };
+      // the Group bracket tool outlines the targets; a drag across two unnamed lanes makes a group
+      G.FigEdit.setMode('group'); await wait(30);
+      const outlined = prev.classList.contains('grouping') && /name row/.test($('modeText').textContent);
+      const free = [...prev.querySelectorAll('g.lanehit')].map(g => +g.dataset.src).filter(i => !st().groups.some(g => i >= Math.min(g.from, g.to) && i <= Math.max(g.from, g.to)));
+      const a = free[0], b = a + 1, hitAt = i => { const r = prev.querySelector(`g.lanehit[data-src="${i}"] rect`).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height * 0.8 }; };
+      const n0 = st().groups.length, pa = hitAt(a), pb = prev.querySelector(`g.lanehit[data-src="${b}"]`) ? hitAt(b) : hitAt(a);
+      const fire = (el, type, p) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 5, button: 0, clientX: p.x, clientY: p.y }));
+      fire(prev.querySelector(`g.lanehit[data-src="${a}"] rect`), 'pointerdown', pa); fire(window, 'pointermove', { x: (pa.x + pb.x) / 2, y: pa.y }); fire(window, 'pointermove', pb); fire(window, 'pointerup', pb); await wait(60);
+      const g = st().groups[st().groups.length - 1], made = st().groups.length === n0 + 1 && Math.min(g.from, g.to) === a && Math.max(g.from, g.to) === b;
+      if (!$('floatEd').classList.contains('hidden')) document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      App.undo(); await wait(40);
+      // a click on an unnamed lane (no tool) does not open a name editor for a name that is not shown
+      const pc = hitAt(a); fire(prev.querySelector(`g.lanehit[data-src="${a}"] rect`), 'pointerdown', pc); fire(window, 'pointerup', pc); await wait(40);
+      res.group = { ok: outlined && made && st().groups.length === n0 && $('floatEd').classList.contains('hidden'), outlined, made, a, b };
+      // back to all lanes: the names return; Undo takes the setting back too
+      sel.value = 'all'; sel.dispatchEvent(new Event('change')); await wait(60);
+      const back = laneTexts(prev).includes(sample.name) && Math.abs(G.UI.lastFig().h - h0) < 0.01;
+      App.undo(); await wait(40); const undone = App.S.style.laneNames === 'ladder'; App.undo(); await wait(40);
+      res.restore = { ok: back && undone && App.S.style.laneNames === 'all' };
+      // "Named lanes only" (the owner's note of 2026-11-18: a ladder in the middle run as a sample and named M): the
+      // named lanes keep their names, unnamed lanes show nothing (no grey well numbers in the preview) and the groups
+      // over them take the name row
+      {
+        const fl3 = G.UI.figLanes(), mid = fl3.find(i => i !== mk && !App.S.groups.some(g => i >= Math.min(g.from, g.to) && i <= Math.max(g.from, g.to)) && fl3.indexOf(i) > 0);
+        App.S.lanes.forEach((l, i) => { if (i !== mk) l.name = i === mid ? 'M' : ''; }); App.commit();
+        sel.value = 'named'; sel.dispatchEvent(new Event('change')); await wait(80);
+        const named3 = laneTexts(prev), nameEls = [...prev.querySelectorAll('g[data-edit="lane"]:not([data-hidden]) text')], gts3 = groupTexts(prev);
+        const row3 = gts3.length >= 2 && nameEls.length === 2 && gts3.every(t => Math.abs(y(t) - y(nameEls[0])) < 0.01) && Math.abs(y(nameEls[1]) - y(nameEls[0])) < 0.01;
+        const targets = prev.querySelectorAll('g.lanehit').length === fl3.length - 2;
+        res.named = { ok: named3.length === 2 && named3.every(t => t === 'M' || t === ladderName) && named3.includes('M') && row3 && targets && App.S.style.laneNames === 'named' && !$('laneNamesNote').classList.contains('hidden'), named3, row3, targets, mid };
+        App.undo(); App.undo(); await wait(40);
+      }
+      // conditions: the ladder in well 4, well 1 outside the figure box: no value under the ladder, every sample keeps its own
+      const S2 = App.S; S2.markers[0].lane = 3; S2.conditions = [{ name: 'Test', values: S2.lanes.map(() => '+') }];
+      const cx0 = Math.round((S2.lanes[0].x + S2.lanes[1].x) / 2); S2.crop.w = Math.round(S2.crop.w - (cx0 - S2.crop.x)); S2.crop.x = cx0; App.commit(); await wait(40);
+      // which wells get a cell in the condition row (the preview marks each with its well)
+      const pv = new DOMParser().parseFromString(App.buildFigure(true).svg, 'image/svg+xml'), wells = [...pv.querySelectorAll('g[data-edit="cond"]')].map(g => +g.dataset.src);
+      const inFig = App.renderState(false).lanes.map(l => l.src), expect = inFig.filter(i => i !== 3);
+      res.conditions = { ok: !wells.includes(3) && expect.every(i => wells.includes(i)) && wells.length === expect.length, wells };
+      await G.UI.loadExample('western');
+      R.ladderOnly = Object.assign({ ok: Object.values(res).every(v => v.ok) }, res);
+    }
   } catch (e) { R.error = String(e) + '\n' + (e.stack || ''); }
   document.title = 'UITEST ' + JSON.stringify(R);
 })(window);

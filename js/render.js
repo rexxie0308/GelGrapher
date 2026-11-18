@@ -211,12 +211,14 @@
     const ed = (attrs, inner) => P ? `<g ${attrs} class="ed">${inner}</g>` : inner;
     const phStyle = ' fill="#b4bcc6"';
     const conds = (S.conditions || []).map((c, r) => Object.assign({ r }, c)).filter(c => P || c.name || c.values.some(v => v));
+    // a ladder lane: the markers hold the lane's index among the figure's lanes (o.i), not its well (o.l.src)
+    const isLadder = o => (S.markers || []).some(m => m.lane === o.i);
     const rowNameX = -st.labelGapPt * 2;
     for (let k = conds.length - 1; k >= 0; k--) {
       const c = conds[k];
       vis.forEach(o => {
         const v = c.values[o.i], src = o.l.src != null ? o.l.src : o.i;
-        if ((S.markers || []).some(m => m.lane === src)) return;   // a ladder lane has no condition
+        if (isLadder(o)) return;   // a ladder lane has no condition
         // a wide invisible hit area makes each cell easy to click in the preview
         const hit = P ? `<rect x="${f(X(o.i) - Math.min(pitch, 20) * 0.45)}" y="${f(yTop - pt)}" width="${f(Math.min(pitch, 20) * 0.9)}" height="${f(pt * 1.25)}" fill="transparent"/>` : '';
         if (v) els.push(ed(`data-edit="cond" data-r="${c.r}" data-src="${src}"`, hit + textEl(v, X(o.i), yTop, pt, 'middle')));
@@ -229,12 +231,22 @@
       }
       yTop -= pt * 1.3;
     }
-    // lane names (placeholders in preview: the well number)
-    const names = vis.map(o => o.l.name || (P ? String((o.l.src != null ? o.l.src : o.i) + 1) : ''));
+    // lane names (placeholders in preview: the well number). style.laneNames 'named': only the lanes given a name show
+    // one (no placeholders); 'ladder': only the ladder lanes (the other names stay in the state). In both, a group
+    // bracket over lanes with no name shown takes the name row
+    const nameMode = st.laneNames === 'ladder' || st.laneNames === 'named' ? st.laneNames : 'all', compact = nameMode !== 'all';
+    const noName = o => (nameMode === 'ladder' ? !isLadder(o) : nameMode === 'named' ? !(o.l.name && o.l.name.trim()) : false);
+    const names = vis.map(o => (noName(o) ? '' : o.l.name || (P ? String((o.l.src != null ? o.l.src : o.i) + 1) : '')));
     const hasNames = names.some(t => t.trim());
+    const groups = (S.groups || []).map((g, k) => Object.assign({ k: g.k != null ? g.k : k }, g)).filter(g => g.from != null && g.to != null && S.lanes[g.from] && S.lanes[g.to]);
+    const named = (g) => { const a = Math.min(g.from, g.to), b = Math.max(g.from, g.to); return vis.some((o, vi) => o.i >= a && o.i <= b && names[vi].trim()); };
+    const inRow = compact ? groups.filter(g => !named(g)) : [], above = groups.filter(g => !inRow.includes(g));
+    // with groups in the name row, the names share the groups' text baseline (just above their lines)
+    const nameRowY = yTop, nameY = inRow.length ? yTop - pt * 0.45 : yTop;
     let angle = 0;
     // baseline of the lane-name row: the (bp) unit header is aligned to this, not to the marker labels
-    const unitRowY = yTop;
+    const unitRowY = nameY;
+    let afterNames = yTop;
     if (hasNames) {
       angle = labelAngle(st.labelAngle) === 'auto' ? autoAngle(names, pitch, pt) : labelAngle(st.labelAngle);
       const rad = angle * Math.PI / 180, sn = Math.sin(rad), cs = Math.cos(rad);
@@ -246,11 +258,11 @@
         const tw = measure(t, pt), x = X(o.i);
         if (angle === 0 || !o.l.name) {
           // placeholders stay horizontal: a rotated lone digit reads like a stray glyph
-          els.push(ed(`data-edit="lane" data-src="${src}"`, textEl(t, x, yTop, pt, 'middle', extra)));
-          grow(x - tw / 2, yTop - pt, x + tw / 2, yTop);
+          els.push(ed(`data-edit="lane" data-src="${src}"`, textEl(t, x, nameY, pt, 'middle', extra)));
+          grow(x - tw / 2, nameY - pt, x + tw / 2, nameY);
         } else {
           // rotated text grows up-right from the lane centre; offset so the text's centre line sits on the lane
-          const ox = x + pt * 0.35 * sn, oy = yTop;
+          const ox = x + pt * 0.35 * sn, oy = nameY;
           els.push(ed(`data-edit="lane" data-src="${src}"`, `<g transform="translate(${f(ox)},${f(oy)}) rotate(${-angle})">${textEl(t, 0, 0, pt, 'start', extra)}</g>`));
           hMax = Math.max(hMax, tw * sn + pt * cs * 0.8);
           grow(ox - pt * sn, oy - tw * sn - pt * cs, ox + tw * cs + pt * sn * 0.2, oy);
@@ -258,14 +270,20 @@
       });
       if (angle !== 0 && pitch < pt * 1.15) overlap('Lanes are too narrow: even 90° labels overlap; use a smaller font or a wider figure');
       if (angle === 0 && labelAngle(st.labelAngle) !== 'auto' && Math.max(...names.map(t => measure(t, pt))) > pitch * 1.02) overlap('Horizontal lane labels overlap; use "Auto" or a tilted angle');
-      yTop -= (angle === 0 ? pt * 1.3 : hMax + pt * 0.35);
+      afterNames = nameY - (angle === 0 ? pt * 1.3 : hMax + pt * 0.35);
     }
-    // groups: line spanning lanes + shared text above
-    const groups = (S.groups || []).filter(g => g.from != null && g.to != null && S.lanes[g.from] && S.lanes[g.to]);
-    if (groups.length) {
-      const base = yTop - pt * 0.15, fit = st.groupFit || 'wrap';
+    // in the preview, the lanes whose names are not shown keep a target in the name row, under the groups, so a drag
+    // across them still makes a group bracket (they are outlined while the Group bracket tool is on)
+    if (P && compact) vis.forEach((o, vi) => {
+      if (names[vi].trim()) return;
+      const src = o.l.src != null ? o.l.src : o.i, w = Math.min(pitch, 24) * 0.9;
+      els.push(`<g data-edit="lane" data-src="${src}" data-hidden="1" class="ed lanehit"><rect x="${f(X(o.i) - w / 2)}" y="${f(nameRowY - pt * 1.3)}" width="${f(w)}" height="${f(pt * 1.3)}" fill="transparent"/></g>`);
+    });
+    // groups: line spanning lanes + shared text above; returns the height they take above `base`
+    const layGroups = (list, base) => {
+      const fit = st.groupFit || 'wrap';
       // geometry first: line pieces, then the label's lines and size, so wide labels can move up a tier
-      const geo = groups.map(g => {
+      const geo = list.map(g => {
         const a = Math.min(g.from, g.to), b = Math.max(g.from, g.to);
         const half = Math.min(pitch, W) * 0.42;
         // one line over the whole group (the splice gap itself shows that a lane was removed), or, with
@@ -289,7 +307,7 @@
       geo.forEach((q, k) => { tierH[tiers[k]] = Math.max(tierH[tiers[k]] || 0, q.h); });
       const tierY = []; let acc = 0;
       tierH.forEach((hh, t) => { tierY[t] = base - acc; acc += hh; });
-      groups.forEach((g, k) => {
+      list.forEach((g, k) => {
         const q = geo[k], y = tierY[tiers[k]];
         q.runs.forEach(([r0, r1]) => {
           els.push(`<line x1="${f(r0)}" y1="${f(y)}" x2="${f(r1)}" y2="${f(y)}" stroke="#000" stroke-width="${f(lw)}"/>`);
@@ -302,15 +320,19 @@
           const n = q.lines.length, lh = q.gp * 1.15;
           // one <text> per line, bottom line just above the group line (the PDF writer reads them as lines)
           const txt = q.lines.map((l, j) => textEl(l, q.cx, y - pt * 0.3 - (n - 1 - j) * lh, q.gp, 'middle', g.text ? '' : phStyle)).join('');
-          els.push(ed(`data-edit="group" data-k="${g.k != null ? g.k : k}"`, txt));
+          els.push(ed(`data-edit="group" data-k="${g.k}"`, txt));
           grow(q.cx - q.tw / 2, y - pt * 0.3 - (n - 1) * lh - q.gp, q.cx + q.tw / 2, y);
           if (q.gp < pt) minPt = Math.min(minPt, q.gp);
           if (q.tw > q.x1 - q.x0 + pt) overlap(`Group label “${q.gt.replace(/\n/g, ' ')}” is wider than its line; choose "wrap" under Layout or shorten it`);
         }
         grow(q.x0, y - pt, q.x1, y);
       });
-      yTop = base - acc;
-    }
+      return acc;
+    };
+    // groups in the name row start where the names do; the rest stack above both
+    const inRowTop = inRow.length ? nameRowY - pt * 0.15 - layGroups(inRow, nameRowY - pt * 0.15) : nameRowY;
+    yTop = Math.min(afterNames, inRowTop);
+    if (above.length) { const base = yTop - pt * 0.15; yTop = base - layGroups(above, base); }
 
     // ---- marker size labels (one column per marker; left/right of the gel) ----
     const tick = st.tickLenPt;

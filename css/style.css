@@ -169,6 +169,10 @@ body.dragging #dropHint.hidden { display: flex !important; z-index: 5; }
 #preview .ed.active { filter: drop-shadow(0 0 1px var(--accent)) drop-shadow(0 0 1px var(--accent)); }
 #preview.arming image[data-edit="gel"] { cursor: crosshair; }
 #preview .ghost-group { pointer-events: none; }
+/* lanes whose names are not shown ("Ladder only"): a target in the name row, outlined while the Group bracket tool is on */
+#preview .lanehit { cursor: pointer; }
+#preview .lanehit.active rect, #preview.grouping .lanehit rect { fill: var(--accent-bg); stroke: var(--accent); stroke-width: 0.4; stroke-dasharray: 1.5 1; }
+#preview .lanehit.active { filter: none; }
 .mode-banner { flex: none; display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 5px 8px 5px 12px; font-size: 13px; line-height: 1.35;
   background: var(--accent-bg); color: var(--text); border-bottom: 1px solid var(--line); }
 .mode-banner button { flex: none; border: none; background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
